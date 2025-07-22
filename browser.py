@@ -7,6 +7,7 @@ import time
 import threading
 import traceback
 import shutil
+import signal # --- CHANGE ---: Import signal for process management
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 
@@ -24,22 +25,19 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 
 # --- Configuration ---
-# Your credentials as requested.
 GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
-GEMINI_MODEL_NAME = "gemini-2.0-flash" # Using the correct and available model name for flash
+# --- CHANGE ---: Using the officially recommended latest alias for the flash model.
+GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"
 
 # --- AI Initialization ---
-# The new, correct way to configure the API key.
 genai.configure(api_key=GEMINI_API_KEY)
 
 app = Flask(__name__)
 
 # --- Global In-Memory Storage ---
-# These dictionaries will hold the state for each user.
-# In a production system, you'd replace this with a database (e.g., Redis, SQLite).
 user_sessions: Dict[str, Dict[str, Any]] = {}
 browser_managers: Dict[str, 'BrowserManager'] = {}
 
@@ -49,12 +47,7 @@ def find_executable(name: str) -> Optional[str]:
         print(f"Found {name} in PATH: {path}")
         return path
 
-    possible_paths = [
-        f"/usr/bin/{name}",
-        f"/usr/local/bin/{name}",
-        f"/snap/bin/{name.replace('google-chrome', 'chromium')}", # Handle snap package naming
-        f"/snap/bin/{name.replace('chromedriver', 'chromium.chromedriver')}"
-    ]
+    possible_paths = [ f"/usr/bin/{name}", f"/usr/local/bin/{name}", f"/snap/bin/{name.replace('google-chrome', 'chromium')}", f"/snap/bin/{name.replace('chromedriver', 'chromium.chromedriver')}"]
     for path in possible_paths:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             print(f"Found {name} at: {path}")
@@ -68,15 +61,39 @@ class BrowserManager:
     def __init__(self, phone_number: str):
         self.phone_number = phone_number
         self.driver: Optional[webdriver.Chrome] = None
-        # Create a unique profile and download path for each user
         self.profile_path = Path(f"/tmp/chrome_profile_{self.phone_number}")
         self.downloads_path = Path(f"./downloads/{self.phone_number}").resolve()
         self.downloads_path.mkdir(parents=True, exist_ok=True)
+        self.service: Optional[Service] = None # --- CHANGE ---: To manage the service process
+
+    # --- CHANGE START ---: Added a robust cleanup method.
+    def _cleanup_stale_processes(self):
+        """Finds and terminates stale Chrome processes using this profile."""
+        print(f"[{self.phone_number}] Running cleanup for profile: {self.profile_path}")
+        try:
+            # This command finds processes using the specific user-data-dir and kills them.
+            # It's a robust way to ensure the profile is free before starting.
+            cmd = f"ps aux | grep 'user-data-dir={self.profile_path}' | grep -v grep | awk '{{print $2}}' | xargs -r kill -9"
+            os.system(cmd)
+            print(f"[{self.phone_number}] Stale process cleanup command executed.")
+            # Also, ensure the directory lock file is gone if it exists
+            lockfile = self.profile_path / "SingletonLock"
+            if lockfile.exists():
+                print(f"[{self.phone_number}] Removing stale SingletonLock file.")
+                os.remove(lockfile)
+        except Exception as e:
+            print(f"[{self.phone_number}] Error during stale process cleanup: {e}")
+    # --- CHANGE END ---
 
     def start_browser(self) -> Tuple[bool, str]:
         """Starts a headless Chrome browser instance."""
         if self.driver:
             return True, "Browser is already running."
+            
+        # --- CHANGE ---: Call cleanup before attempting to start.
+        self._cleanup_stale_processes()
+        # A small delay to ensure OS has time to release file locks after killing processes
+        time.sleep(1)
 
         try:
             chrome_binary_path = find_executable("google-chrome")
@@ -90,19 +107,18 @@ class BrowserManager:
             options = Options()
             options.binary_location = chrome_binary_path
             options.add_argument(f"--user-data-dir={self.profile_path}")
-            options.add_argument("--headless=new") # Run headless on a server
+            options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
-            options.add_argument("--window-size=1280,1024") # A reasonable default resolution
+            options.add_argument("--window-size=1280,1024")
             options.add_experimental_option("prefs", {
                 "download.default_directory": str(self.downloads_path),
-                "download.prompt_for_download": False,
-                "download.directory_upgrade": True,
+                "download.prompt_for_download": False, "download.directory_upgrade": True,
             })
             
-            service = Service(executable_path=chromedriver_path)
-            self.driver = webdriver.Chrome(service=service, options=options)
+            self.service = Service(executable_path=chromedriver_path) # --- CHANGE ---
+            self.driver = webdriver.Chrome(service=self.service, options=options)
             print(f"Browser started for {self.phone_number}. Profile: {self.profile_path}")
             return True, "Browser started successfully."
         except WebDriverException as e:
@@ -119,15 +135,28 @@ class BrowserManager:
     def close_browser(self):
         """Closes the browser and cleans up."""
         if self.driver:
+            print(f"[{self.phone_number}] Attempting to close browser...")
             try:
                 self.driver.quit()
-                self.driver = None
-                print(f"Browser closed for {self.phone_number}")
             except Exception as e:
-                print(f"Error closing browser: {e}")
-        # Optional: Clean up profile directory if you want a fresh start every time
-        # if self.profile_path.exists():
-        #     shutil.rmtree(self.profile_path)
+                print(f"[{self.phone_number}] driver.quit() failed with error: {e}. Will try killing process.")
+
+            # --- CHANGE ---: More robust shutdown by also stopping the service process
+            if self.service and self.service.process:
+                try:
+                    self.service.process.send_signal(signal.SIGTERM)
+                    self.service.process.wait(timeout=5)
+                except Exception as e:
+                    print(f"[{self.phone_number}] Could not terminate service process gracefully: {e}")
+                    self.service.process.kill()
+
+            self.driver = None
+            self.service = None
+            print(f"[{self.phone_number}] Browser session resources released.")
+        
+        # --- CHANGE ---: Run cleanup after closing to be absolutely sure.
+        self._cleanup_stale_processes()
+
 
     def take_screenshot(self) -> Optional[str]:
         """Takes a screenshot and returns it as a base64 encoded string."""
@@ -149,14 +178,11 @@ class BrowserManager:
             if command == "navigate":
                 url = params.get("url", "https://google.com")
                 self.driver.get(url)
-                time.sleep(3) # Wait for page to render
+                time.sleep(3) 
                 return True, f"Navigated to {url}"
             
             elif command == "click":
-                # This is a simplified click. A more robust solution would use element identification.
-                # AI should be prompted to find selectors first.
                 x, y = params.get("x"), params.get("y")
-                # This is tricky in headless mode. Let's use JS click on an element found at coordinates.
                 element = self.driver.execute_script("return document.elementFromPoint(arguments[0], arguments[1]);", x, y)
                 if element:
                     element.click()
@@ -230,18 +256,14 @@ class BrowserManager:
         except Exception as e:
             return False, f"An error occurred during action '{command}': {str(e)}"
 
-# --- WhatsApp Communication ---
+# --- The rest of the file (WhatsApp communication, Core AI logic, Flask routes) is unchanged. ---
+# --- You can copy-paste the code below this line from the previous response as it's identical. ---
 
 def send_whatsapp_message(phone_number: str, message: str):
     """Sends a text message to a WhatsApp user."""
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": phone_number,
-        "type": "text",
-        "text": {"body": message}
-    }
+    payload = {"messaging_product": "whatsapp", "to": phone_number, "type": "text", "text": {"body": message}}
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=10)
         response.raise_for_status()
@@ -251,42 +273,28 @@ def send_whatsapp_message(phone_number: str, message: str):
 
 def send_whatsapp_image(phone_number: str, image_base64: str, caption: str):
     """Uploads and sends an image to a WhatsApp user."""
-    # Step 1: Upload the media
     upload_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/media"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
     image_data = base64.b64decode(image_base64)
-    
     files = {'file': ('screenshot.png', image_data, 'image/png')}
     data = {'messaging_product': 'whatsapp'}
-    
     try:
         upload_res = requests.post(upload_url, headers=headers, files=files, data=data, timeout=20)
         upload_res.raise_for_status()
         media_id = upload_res.json().get("id")
-
         if not media_id:
             print("Failed to get media ID from upload response.")
             send_whatsapp_message(phone_number, f"(Could not send screenshot)\n\n{caption}")
             return
-
-        # Step 2: Send the media message
         message_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
         msg_headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": phone_number,
-            "type": "image",
-            "image": {"id": media_id, "caption": caption}
-        }
+        payload = {"messaging_product": "whatsapp", "to": phone_number, "type": "image", "image": {"id": media_id, "caption": caption}}
         send_res = requests.post(message_url, headers=msg_headers, json=payload, timeout=10)
         send_res.raise_for_status()
         print(f"Sent image to {phone_number} with caption: {caption}")
-
     except requests.exceptions.RequestException as e:
         print(f"Error sending WhatsApp image: {e}")
         send_whatsapp_message(phone_number, f"(Could not send screenshot)\n\n{caption}")
-
-# --- Core AI and Bot Logic ---
 
 def get_system_prompt():
     return """
@@ -333,82 +341,61 @@ def get_or_create_session(phone_number: str):
     """Manages user sessions for chat history and browser instances."""
     if phone_number not in user_sessions:
         print(f"Creating new session for {phone_number}")
-        model = genai.GenerativeModel(
-            model_name=GEMINI_MODEL_NAME,
-            system_instruction=get_system_prompt()
-        )
+        model = genai.GenerativeModel(model_name=GEMINI_MODEL_NAME, system_instruction=get_system_prompt())
         user_sessions[phone_number] = {"chat": model.start_chat(history=[])}
         browser_managers[phone_number] = BrowserManager(phone_number)
-    
     return user_sessions[phone_number], browser_managers[phone_number]
 
 def process_ai_command(phone_number: str, ai_response: str) -> str:
     """Parses and executes a single command from the AI's response."""
     session, browser_manager = get_or_create_session(phone_number)
-    
-    # Extract the first valid command line
     command_line = None
     for line in ai_response.splitlines():
         if ':' in line and '{' in line and '}' in line:
             command_line = line.strip()
             break
-            
     if not command_line:
-        # If no command, it's just a chat message.
         return ai_response
 
     try:
         command, params_str = command_line.split(":", 1)
         command = command.strip().lower()
         params = json.loads(params_str)
-        
-        # Keep only the conversational part of the AI response for the user
         user_facing_response = ai_response.split(command_line)[0].strip()
         if user_facing_response:
              send_whatsapp_message(phone_number, user_facing_response)
-
         success = False
         message = ""
 
-        if command == "start_browser":
-            success, message = browser_manager.start_browser()
+        if command == "start_browser": success, message = browser_manager.start_browser()
         elif command == "close_browser":
             browser_manager.close_browser()
             success, message = True, "Browser session closed."
-            # Clean up session
             if phone_number in browser_managers: del browser_managers[phone_number]
             if phone_number in user_sessions: del user_sessions[phone_number]
         elif command == "pause_for_user":
             reason = params.get('reason', 'I need more information.')
             success, message = True, f"⏸️ Paused. {reason}"
         else:
-            # All other commands are handled by the browser manager
             success, message = browser_manager.execute_action(command, params)
 
-        # Provide feedback to the user and the AI for the next turn
         if success:
             action_status = f"✅ Action '{command}' succeeded: {message}"
             print(f"[{phone_number}] {action_status}")
-            
-            # Send screenshot to user after successful action
             screenshot_b64 = browser_manager.take_screenshot()
             if screenshot_b64:
                 send_whatsapp_image(phone_number, screenshot_b64, caption=action_status)
             else:
                 send_whatsapp_message(phone_number, action_status)
-            
-            # This is the message sent back to the AI for its next turn
             return f"Action successful. Here is the new screen. What is the next step?"
         else:
             action_status = f"❌ Action '{command}' failed: {message}"
             print(f"[{phone_number}] {action_status}")
             send_whatsapp_message(phone_number, action_status)
-            # This is the message sent back to the AI for its next turn
             return f"The last action failed. Reason: {message}. Please analyze the screen and try a different approach or command."
 
     except (ValueError, json.JSONDecodeError) as e:
         print(f"Invalid command format from AI: {command_line}. Error: {e}")
-        # Treat as a regular message if parsing fails
         return ai_response
     except Exception as e:
         print(f"Error processing command: {e}")
@@ -419,10 +406,7 @@ def handle_user_message(phone_number: str, user_message: str):
     """Main logic to get AI response and trigger the command loop."""
     session, browser_manager = get_or_create_session(phone_number)
     chat = session["chat"]
-    
-    # Prepare content for the AI: user message + current screenshot
     content_for_ai = [user_message]
-    
     if browser_manager and browser_manager.driver:
         screenshot_b64 = browser_manager.take_screenshot()
         if screenshot_b64:
@@ -430,34 +414,22 @@ def handle_user_message(phone_number: str, user_message: str):
             content_for_ai.append(image_part)
         else:
             content_for_ai.append(" (Could not retrieve a screenshot)")
-    
     try:
-        # Get response from Gemini
         ai_response = chat.send_message(content_for_ai).text
-        
-        # Process the command from the AI's response
         feedback_for_ai = process_ai_command(phone_number, ai_response)
-        
-        # If the browser session is still active and the AI didn't pause, continue the loop
         if browser_manager.driver and "paused" not in feedback_for_ai.lower():
-            # Automatically feed the result back to the AI to get the next command
             handle_user_message(phone_number, feedback_for_ai)
-
     except Exception as e:
         print(f"Error in AI interaction loop: {e}")
         traceback.print_exc()
         send_whatsapp_message(phone_number, f"Sorry, an error occurred with the AI model: {str(e)}")
 
-
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
-        # Webhook verification
         if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
             return request.args.get('hub.challenge')
         return 'Forbidden', 403
-
-    # --- Handle Incoming WhatsApp Message ---
     data = request.json
     try:
         if data.get('object') == 'whatsapp_business_account':
@@ -470,23 +442,18 @@ def webhook():
                         if msg.get('type') == 'text':
                             user_text = msg['text']['body']
                             print(f"Received from {phone_number}: {user_text}")
-                            # Use a thread to handle the request to avoid webhook timeouts
                             threading.Thread(target=handle_user_message, args=(phone_number, user_text)).start()
                         else:
                             send_whatsapp_message(phone_number, "I can only understand text messages right now.")
     except Exception as e:
         print(f"Error processing webhook: {e}")
         traceback.print_exc()
-    
     return 'OK', 200
 
 if __name__ == '__main__':
     print("--- Magic Agent WhatsApp Bot Starting ---")
     print("Checking system requirements...")
-    if not find_executable("google-chrome"):
-        print("❌ CRITICAL: 'google-chrome' not found. Please install it.")
-    if not find_executable("chromedriver"):
-        print("❌ CRITICAL: 'chromedriver' not found. Please install it.")
+    if not find_executable("google-chrome"): print("❌ CRITICAL: 'google-chrome' not found. Please install it.")
+    if not find_executable("chromedriver"): print("❌ CRITICAL: 'chromedriver' not found. Please install it.")
     print("Starting Flask server on port 5000...")
-    # Use 'threaded=True' for better performance with multiple users
     app.run(host='0.0.0.0', port=5000, threaded=True)
