@@ -16,7 +16,7 @@ GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
-PUBLIC_URL = "https://your-cloudflared-url.trycloudflare.com"  # Replace with your actual Cloudflared tunnel URL
+PUBLIC_URL = "https://clicky.pyxelworld.com"  # Replace with your actual Cloudflared tunnel URL
 
 # Configuração do Flask
 app = Flask(__name__)
