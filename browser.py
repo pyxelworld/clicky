@@ -36,9 +36,9 @@ BASE_DIR = Path(__file__).parent
 USER_DATA_DIR = BASE_DIR / "user_data"
 USER_DATA_DIR.mkdir(exist_ok=True)
 user_sessions = {}
-processed_message_ids = deque(maxlen=500) # Store the last 500 message IDs to prevent duplicates
+processed_message_ids = deque(maxlen=500)
 
-BROWSER_COMMANDS = {"NAVIGATE", "BRAVE_SEARCH", "CLICK", "TYPE", "SCROLL", "NEW_TAB", "SWITCH_TO_TAB", "CLOSE_TAB"}
+BROWSER_COMMANDS = {"NAVIGATE", "BRAVE_SEARCH", "CLICK", "INPUT_TEXT", "SCROLL", "NEW_TAB", "SWITCH_TO_TAB", "CLOSE_TAB"}
 
 # --- JAVASCRIPT FOR ELEMENT LABELING ---
 JS_GET_INTERACTIVE_ELEMENTS = """
@@ -54,48 +54,39 @@ JS_GET_INTERACTIVE_ELEMENTS = """
     } return interactiveElements;
 """
 
-# --- REFINED SYSTEM PROMPT FOR DELIBERATE ACTION ---
+# --- REFINED SYSTEM PROMPT FOR DIRECT ACTION ---
 SYSTEM_PROMPT = """
-You are "Magic Agent," an AI expert controlling a web browser. Your #1 priority is to be cautious, deliberate, and precise. You operate one step at a time.
+You are "Magic Agent," an AI expert controlling a web browser. You are deliberate, precise, and efficient. You operate one step at a time.
 
-**DECISION FLOW:**
-1.  **Do I need a browser?** If the user's request requires web access and the browser is not already open, your **ONLY** first step is `START_BROWSER`.
-2.  **Browser is open, what now?**
-    - **IF** you know the exact URL (e.g., the user said "go to wikipedia.org"), **ALWAYS** use the `NAVIGATE` command.
-    - **ELSE IF** you need to find information, **ALWAYS** use the `BRAVE_SEARCH` command.
-    - **DO NOT** try to click or type on a search engine's home page. Use the specific search command.
-3.  **Am I stuck?** The `PAUSE_AND_ASK` command is your most important safety tool. Use it *only* when you are in BROWSER mode and have analyzed a screen that presents a problem (e.g., a CAPTCHA, a login form you can't fill, an unexpected pop-up).
-4.  **Am I done?** When the user's entire task is complete, use `END_BROWSER`.
+**CRITICAL DECISION FLOW:**
+1.  **STARTING A WEB TASK:** Your FIRST command for any web task MUST be either `NAVIGATE` or `BRAVE_SEARCH`.
+    -   **USE NAVIGATE ALMOST ALL THE TIME BECAUSE YOU MAY KNOW A URL BECAUSE THE USER TOLD YOU OR YOU KNOW IT FROM YOUR TRAINING.**
+    -   Use `BRAVE_SEARCH` ONLY as a last resort if you have no idea what the URL could be.
+
+2.  **HOW TO TYPE TEXT (IMPORTANT!):** Typing is a TWO-STEP process.
+    -   **STEP 1: `CLICK`** - You MUST first issue a `CLICK` command on the label of the text box (`input` or `textarea`).
+    -   **STEP 2: `INPUT_TEXT`** - On your NEXT turn, issue the `INPUT_TEXT` command with the text.
+
+3.  **WHEN TO ASK FOR HELP:** Use `PAUSE_AND_ASK` ONLY when you have analyzed a screen and are truly stuck (e.g., a CAPTCHA, an unexpected login wall).
 
 **Your responses MUST ALWAYS be a single JSON object.**
 
 --- COMMAND REFERENCE ---
 
-**== SESSION & CHAT ==**
-1.  `START_BROWSER`: **Your first step for any web task.** Opens a blank browser. Does nothing else.
-    - Params: `{}`
-2.  `END_BROWSER`: Closes the browser when the task is fully complete. The `speak` field should contain your summary.
-    - Params: `{}`
-3.  `PAUSE_AND_ASK`: Use this in BROWSER mode when you are stuck. The question you want to ask the user **MUST** be in the `speak` field.
-    - Example: `{"command": "PAUSE_AND_ASK", "thought": "I see a login form, but I don't have credentials. I must ask the user.", "speak": "I've run into a login page. How should I proceed?"}`
-4.  `SPEAK`: For simple conversation when the browser is closed. The response **MUST** be in the `speak` field.
-    - Params: `{}`
+**== CHAT & SESSION CONTROL ==**
+1.  `SPEAK`: For simple conversation when the browser is closed. `speak` field is required.
+2.  `END_BROWSER`: Closes the browser when the task is fully complete. `speak` field is required for the summary.
+3.  `PAUSE_AND_ASK`: Use in BROWSER mode when you are stuck. Your question **MUST** be in the `speak` field.
 
-**== NAVIGATION & SEARCH (Require browser to be open) - USE NAVIGATE ALMOST ALL THE TIME BECAUSE YOU MAY KNOW A URL BECAUSE THE USER TOLD YOU OR YOU KNOW IT FROM YOUR TRAINING ==**
-5.  `NAVIGATE`: Goes directly to a URL.
-    - Params: `{"url": "<full_url>"}`
-6.  `BRAVE_SEARCH`: Performs a Brave Search.
-    - Params: `{"query": "<search_term>"}`
-
-**== PAGE INTERACTION (Require browser to be open) ==**
-7.  `CLICK`: Clicks an element by its label number. Params: `{"label": <int>}`
-8.  `TYPE`: Types text into an input field (clicks it first). Params: `{"label": <int>, "text": "<text_to_type>", "enter": <true/false>}`
-9.  `SCROLL`: Scrolls the page. Params: `{"direction": "<up|down>"}`
-
-**== TAB MANAGEMENT (Require browser to be open) ==**
-10. `NEW_TAB`: Opens a new tab. Params: `{"url": "<optional_url>"}`
-11. `SWITCH_TO_TAB`: Switches to an open tab by `tab_id`. Params: `{"tab_id": <int>}`
-12. `CLOSE_TAB`: Closes the current tab. Params: `{}`
+**== BROWSER ACTIONS ==**
+4.  `NAVIGATE`: **(Starts a session)** Goes directly to a URL. Params: `{"url": "<full_url>"}`
+5.  `BRAVE_SEARCH`: **(Starts a session)** Performs a Brave Search. Params: `{"query": "<search_term>"}`
+6.  `CLICK`: Clicks an element by its label number. This is **REQUIRED** before using `INPUT_TEXT`. Params: `{"label": <int>}`
+7.  `INPUT_TEXT`: Types text into the **currently active element**. Must be preceded by a `CLICK`. Params: `{"text": "<text_to_type>", "enter": <true/false>}`
+8.  `SCROLL`: Scrolls the page. Params: `{"direction": "<up|down>"}`
+9.  `NEW_TAB`: Opens a new tab. Params: `{"url": "<optional_url>"}`
+10. `SWITCH_TO_TAB`: Switches to an open tab by `tab_id`. Params: `{"tab_id": <int>}`
+11. `CLOSE_TAB`: Closes the current tab.
 """
 
 def send_whatsapp_message(to, text):
@@ -123,7 +114,11 @@ def get_or_create_session(phone_number):
 def start_browser(session):
     if session.get("driver"): return session["driver"]
     print("Starting new browser instance..."); options = Options(); options.add_argument("--headless=new"); options.add_argument("--no-sandbox"); options.add_argument("--disable-dev-shm-usage"); options.add_argument("--window-size=1280,800"); options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
-    try: driver = webdriver.Chrome(options=options); session["driver"], session["mode"] = driver, "BROWSER"; driver.get("about:blank"); return driver
+    try:
+        driver = webdriver.Chrome(options=options)
+        session["driver"], session["mode"] = driver, "BROWSER"
+        # DO NOT NAVIGATE HERE. The browser starts truly blank.
+        return driver
     except Exception as e: print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc(); return None
 
 def close_browser(session):
@@ -173,9 +168,7 @@ def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
     try:
         command_data = json.loads(ai_response_text)
-        if isinstance(command_data, list):
-            print("[System] AI returned a list of actions. Processing the first one.")
-            command_data = command_data[0] if command_data else {}
+        if isinstance(command_data, list): command_data = command_data[0] if command_data else {}
         if not isinstance(command_data, dict): raise json.JSONDecodeError("Parsed JSON is not a dictionary.", ai_response_text, 0)
     except json.JSONDecodeError as e:
         print(f"JSON Decode Error: {e}"); send_whatsapp_message(from_number, "[System] I received an invalid instruction. Re-evaluating.");
@@ -185,24 +178,33 @@ def process_ai_command(from_number, ai_response_text):
     command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
     print(f"Executing: {command} | Params: {params} | Thought: {thought}")
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
+    
+    # --- NEW ATOMIC BROWSER START + NAVIGATE LOGIC ---
+    if command in ["NAVIGATE", "BRAVE_SEARCH"]:
+        driver = session.get("driver")
+        if not driver:
+            if speak: send_whatsapp_message(from_number, speak)
+            driver = start_browser(session)
+            if not driver: send_whatsapp_message(from_number, "[System] Fatal: Could not start browser."); close_browser(session); return
+        
+        # Whether browser was running or just started, perform the navigation now.
+        if command == "NAVIGATE": driver.get(params.get("url", "https://search.brave.com/"))
+        elif command == "BRAVE_SEARCH": driver.get(f"https://search.brave.com/search?q={quote_plus(params.get('query', ''))}")
+        
+        time.sleep(2)
+        process_next_browser_step(from_number, session, "Action done.")
+        return # This turn is complete
 
-    if command == "START_BROWSER":
-        if speak: send_whatsapp_message(from_number, speak)
-        driver = start_browser(session)
-        if not driver: send_whatsapp_message(from_number, "[System] Fatal: Could not start browser."); close_browser(session); return
-        time.sleep(1); process_next_browser_step(from_number, session, "Browser is open and blank. What's the first step?"); return
-
-    if command in BROWSER_COMMANDS and not session.get("driver"):
-        send_whatsapp_message(from_number, f"[System] AI Error: Attempted to use command '{command}' without starting the browser first. Please restart the task."); return
-
-    if speak: send_whatsapp_message(from_number, speak) # Send conversational text for all other commands
+    # --- Logic for commands that require a browser to be ALREADY RUNNING ---
     driver = session.get("driver")
+    if command in BROWSER_COMMANDS and not driver:
+        send_whatsapp_message(from_number, f"[System] AI Error: Attempted to use command '{command}' before starting the browser. Please start your task with a search or navigation request."); return
+
+    if speak: send_whatsapp_message(from_number, speak)
 
     try:
         action_was_performed = True
-        if command == "NAVIGATE": driver.get(params.get("url", "https://search.brave.com/"))
-        elif command == "BRAVE_SEARCH": driver.get(f"https://search.brave.com/search?q={quote_plus(params.get('query', ''))}")
-        elif command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
+        if command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
         elif command == "CLOSE_TAB":
             if len(driver.window_handles) > 1: driver.close(); driver.switch_to.window(driver.window_handles[0])
             else: send_whatsapp_message(from_number, "[System] I can't close the last tab."); action_was_performed = False
@@ -210,13 +212,15 @@ def process_ai_command(from_number, ai_response_text):
             handle = session["tab_handles"].get(params.get("tab_id"))
             if handle: driver.switch_to.window(handle)
             else: send_whatsapp_message(from_number, "[System] I couldn't find that tab ID."); action_was_performed = False
-        elif command in ["TYPE", "CLICK"]:
+        elif command == "CLICK":
             target_element = session["labeled_elements"].get(params.get("label"))
             if not target_element: send_whatsapp_message(from_number, f"[System] Label {params.get('label')} is not valid. Let me look again.")
             else:
-                x, y = target_element['x'] + target_element['width']/2, target_element['y'] + target_element['height']/2; body = driver.find_element(By.TAG_NAME, 'body'); action = ActionChains(driver).move_to_element_with_offset(body, 0, 0).move_by_offset(x, y).click()
-                if command == "TYPE": action.send_keys(params.get("text", "")).perform(); ActionChains(driver).send_keys(u'\ue007').perform() if params.get("enter") else None
-                else: action.perform()
+                x, y = target_element['x'] + target_element['width']/2, target_element['y'] + target_element['height']/2; body = driver.find_element(By.TAG_NAME, 'body'); ActionChains(driver).move_to_element_with_offset(body, 0, 0).move_by_offset(x, y).click().perform()
+        elif command == "INPUT_TEXT":
+            action = ActionChains(driver).send_keys(params.get("text", ""));
+            if params.get("enter"): action.send_keys(u'\ue007')
+            action.perform()
         elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {600 if params.get('direction', 'down') == 'down' else -600});")
         elif command == "END_BROWSER": close_browser(session); return
         elif command == "PAUSE_AND_ASK": return
@@ -241,12 +245,13 @@ def webhook():
 
             if message_info.get("type") != "text": send_whatsapp_message(from_number, "[System] I only process text messages."); return Response(status=200)
             user_message_text = message_info["text"]["body"].strip(); print(f"Received from {from_number}: '{user_message_text}'")
-            if user_message_text.lower() == "/stop": session = get_or_create_session(from_number); close_browser(session); send_whatsapp_message(from_number, "[System] Session stopped."); return Response(status=200)
+            session = get_or_create_session(from_number)
+            if user_message_text.lower() == "/stop": close_browser(session); send_whatsapp_message(from_number, "[System] Session stopped."); return Response(status=200)
             if user_message_text.lower() == "/clear":
                 if from_number in user_sessions: close_browser(user_sessions.pop(from_number))
                 send_whatsapp_message(from_number, "[System] Your session has been cleared."); return Response(status=200)
             
-            session = get_or_create_session(from_number); session["chat_history"].append({"role": "user", "parts": [user_message_text]})
+            session["chat_history"].append({"role": "user", "parts": [user_message_text]})
             if session["mode"] == "CHAT":
                 session["original_prompt"] = user_message_text; ai_response = call_ai(session["chat_history"], context_text=user_message_text); process_ai_command(from_number, ai_response)
             elif session["mode"] == "BROWSER":
