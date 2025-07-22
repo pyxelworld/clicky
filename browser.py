@@ -29,7 +29,7 @@ GEMINI_API_KEYS = [
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
-AI_MODEL_NAME = "gemini-2.0-flash" # Note: Changed to a more common and recent model name.
+AI_MODEL_NAME = "gemini-2.0-flash"
 
 # --- PROJECT SETUP ---
 app = Flask(__name__)
@@ -38,7 +38,7 @@ USER_DATA_DIR = BASE_DIR / "user_data"
 USER_DATA_DIR.mkdir(exist_ok=True)
 user_sessions = {}
 
-# --- JAVASCRIPT FOR ELEMENT LABELING ---
+# --- JAVASCRIPT FOR ELEMENT LABELING (NOW ADDS A DATA ATTRIBUTE) ---
 JS_GET_INTERACTIVE_ELEMENTS = """
     const elements = Array.from(document.querySelectorAll(
         'a, button, input:not([type="hidden"]), textarea, [role="button"], [role="link"], [onclick]'
@@ -52,6 +52,10 @@ JS_GET_INTERACTIVE_ELEMENTS = """
         if (rect.width > 5 && rect.height > 5 && rect.top >= 0 && rect.left >= 0 &&
             rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
             rect.right <= (window.innerWidth || document.documentElement.clientWidth)) {
+
+            // *** CHANGE: Add a unique attribute to the element for stable selection ***
+            elem.setAttribute('data-magic-agent-label', labelCounter);
+
             let text = (elem.innerText || elem.value || elem.getAttribute('aria-label') || elem.getAttribute('placeholder') || '').trim().replace(/\\s+/g, ' ').substring(0, 50);
             interactiveElements.push({
                 label: labelCounter,
@@ -323,8 +327,6 @@ def call_ai(chat_history, context_text="", image_path=None):
         except Exception as e:
             print(f"API key #{i+1} failed. Error: {e}")
             last_error = e
-            # If the error is not about permissions, maybe don't rotate.
-            # For now, we'll try the next key for any error during the API call.
             continue
     
     # If all keys failed
@@ -404,17 +406,24 @@ def process_ai_command(from_number, ai_response_text):
             else:
                 send_whatsapp_message(from_number, "I couldn't find that tab ID.")
                 action_was_performed = False # No state change
+        
+        # *** CHANGE: New robust click method to prevent MoveTargetOutOfBoundsException ***
         elif command == "CLICK":
             label = params.get("label")
-            target_element = session["labeled_elements"].get(label)
-            if not target_element:
-                send_whatsapp_message(from_number, f"Label {label} is not valid. Let me look again.")
-                action_was_performed = False
+            if not session["labeled_elements"].get(label):
+                send_whatsapp_message(from_number, f"Label {label} is not a valid choice. Let me look again.")
+                action_was_performed = False # Don't rescan, AI needs to pick a valid label
             else:
-                x = target_element['x'] + target_element['width'] / 2
-                y = target_element['y'] + target_element['height'] / 2
-                body = driver.find_element(By.TAG_NAME, 'body')
-                ActionChains(driver).move_to_element_with_offset(body, 0, 0).move_by_offset(x, y).click().perform()
+                selector = f'[data-magic-agent-label="{label}"]'
+                try:
+                    target_selenium_element = driver.find_element(By.CSS_SELECTOR, selector)
+                    # Selenium's click() automatically scrolls into view and clicks.
+                    target_selenium_element.click()
+                except Exception as e:
+                    print(f"Could not click element with selector {selector}: {e}")
+                    send_whatsapp_message(from_number, "I tried to click that element, but something went wrong. Let me refresh my view.")
+                    # We still set action_was_performed to true to force a rescan of the page state
+        
         elif command == "TYPE":
             # This command now types into the currently focused element.
             action = ActionChains(driver)
@@ -443,8 +452,7 @@ def process_ai_command(from_number, ai_response_text):
             time.sleep(2) # Wait for page to load/react
             process_next_browser_step(from_number, session, f"Action done: {speak}")
         else:
-            # If no action happened (e.g., bad label, bad tab id), we don't need a new screenshot loop.
-            # The user has been notified, let them guide the next step.
+            # If no action happened (e.g., bad tab id), we don't need a new screenshot loop.
             pass
 
     except Exception as e:
