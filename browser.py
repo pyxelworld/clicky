@@ -4,19 +4,22 @@ import base64
 import time
 import threading
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, Optional, Tuple
+import traceback
+
 from flask import Flask, request, jsonify
 import requests
 import google.generativeai as genai
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, WebDriverException
-import uuid
 from PIL import Image
 import io
 
@@ -26,296 +29,239 @@ WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aG
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
 
-# Initialize Gemini AI
+# Initialize Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-
-# Create necessary directories
-os.makedirs("user_downloads", exist_ok=True)
-os.makedirs("chrome_profiles", exist_ok=True)
-os.makedirs("screenshots", exist_ok=True)
 
 app = Flask(__name__)
 
 # Global storage for user sessions
-user_sessions = {}
-browser_sessions = {}
+user_sessions: Dict[str, Dict[str, Any]] = {}
+browser_sessions: Dict[str, webdriver.Chrome] = {}
 
-class BrowserController:
-    def __init__(self, phone_number):
+class BrowserManager:
+    def __init__(self, phone_number: str):
         self.phone_number = phone_number
         self.driver = None
-        self.profile_path = f"chrome_profiles/{phone_number}"
-        self.download_path = f"user_downloads/{phone_number}"
-        os.makedirs(self.download_path, exist_ok=True)
-        
-    def start_browser(self):
+        self.profile_path = f"/tmp/chrome_profile_{phone_number}"
+        self.downloads_path = f"./downloads/{phone_number}"
+        Path(self.downloads_path).mkdir(parents=True, exist_ok=True)
+    
+    def start_browser(self) -> bool:
         try:
             chrome_options = Options()
             chrome_options.add_argument(f"--user-data-dir={self.profile_path}")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--remote-debugging-port=9222")
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_experimental_option("prefs", {
-                "download.default_directory": os.path.abspath(self.download_path),
+                "download.default_directory": os.path.abspath(self.downloads_path),
                 "download.prompt_for_download": False,
                 "download.directory_upgrade": True,
                 "safebrowsing.enabled": True
             })
             
-            service = Service("chromedriver")
+            service = Service("/usr/bin/chromedriver")
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.driver.implicitly_wait(10)
             return True
         except Exception as e:
             print(f"Error starting browser: {e}")
             return False
     
-    def take_screenshot(self):
-        try:
-            screenshot_path = f"screenshots/{self.phone_number}_{int(time.time())}.png"
-            self.driver.save_screenshot(screenshot_path)
-            
-            # Convert to base64 for AI
-            with open(screenshot_path, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode()
-            
-            # Clean up screenshot file
-            os.remove(screenshot_path)
-            return encoded_string
-        except Exception as e:
-            print(f"Error taking screenshot: {e}")
-            return None
-    
-    def click(self, x, y):
-        try:
-            action = ActionChains(self.driver)
-            action.move_by_offset(x, y).click().perform()
-            action.reset_actions()
-            return True
-        except Exception as e:
-            print(f"Error clicking: {e}")
-            return False
-    
-    def scroll(self, direction, amount=3):
-        try:
-            if direction.lower() == "down":
-                self.driver.execute_script(f"window.scrollBy(0, {amount * 100});")
-            elif direction.lower() == "up":
-                self.driver.execute_script(f"window.scrollBy(0, -{amount * 100});")
-            return True
-        except Exception as e:
-            print(f"Error scrolling: {e}")
-            return False
-    
-    def type_text(self, text):
-        try:
-            action = ActionChains(self.driver)
-            action.send_keys(text).perform()
-            return True
-        except Exception as e:
-            print(f"Error typing: {e}")
-            return False
-    
-    def press_key(self, key):
-        try:
-            action = ActionChains(self.driver)
-            if key.upper() == "ENTER":
-                action.send_keys(Keys.RETURN).perform()
-            elif key.upper() == "TAB":
-                action.send_keys(Keys.TAB).perform()
-            elif key.upper() == "ESC":
-                action.send_keys(Keys.ESCAPE).perform()
-            elif key.upper() == "CTRL+T":
-                action.key_down(Keys.CONTROL).send_keys("t").key_up(Keys.CONTROL).perform()
-            elif key.upper() == "CTRL+W":
-                action.key_down(Keys.CONTROL).send_keys("w").key_up(Keys.CONTROL).perform()
-            return True
-        except Exception as e:
-            print(f"Error pressing key: {e}")
-            return False
-    
-    def navigate_to(self, url):
-        try:
-            self.driver.get(url)
-            return True
-        except Exception as e:
-            print(f"Error navigating: {e}")
-            return False
-    
     def close_browser(self):
-        try:
-            if self.driver:
+        if self.driver:
+            try:
                 self.driver.quit()
                 self.driver = None
-            return True
+                return True
+            except Exception as e:
+                print(f"Error closing browser: {e}")
+                return False
+        return True
+    
+    def take_screenshot(self) -> str:
+        if not self.driver:
+            return ""
+        try:
+            screenshot = self.driver.get_screenshot_as_png()
+            return base64.b64encode(screenshot).decode('utf-8')
         except Exception as e:
-            print(f"Error closing browser: {e}")
-            return False
-
-def get_ai_response(message, phone_number, screenshot_base64=None):
-    try:
-        # Initialize chat session if not exists
-        if phone_number not in user_sessions:
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            chat = model.start_chat(history=[])
-            user_sessions[phone_number] = chat
+            print(f"Error taking screenshot: {e}")
+            return ""
+    
+    def execute_action(self, action: Dict[str, Any]) -> Tuple[bool, str]:
+        if not self.driver:
+            return False, "Browser not started"
         
-        chat = user_sessions[phone_number]
-        
-        # System prompt for browser automation
-        system_prompt = """You are Magic Agent, an AI assistant with browser automation capabilities. You can control a Chrome browser through specific commands.
+        try:
+            action_type = action.get("type", "")
+            
+            if action_type == "navigate":
+                url = action.get("url", "")
+                self.driver.get(url)
+                time.sleep(2)
+                return True, f"Navigated to {url}"
+            
+            elif action_type == "click":
+                x = action.get("x", 0)
+                y = action.get("y", 0)
+                ActionChains(self.driver).move_by_offset(x, y).click().perform()
+                time.sleep(1)
+                return True, f"Clicked at coordinates ({x}, {y})"
+            
+            elif action_type == "click_element":
+                selector = action.get("selector", "")
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                element.click()
+                time.sleep(1)
+                return True, f"Clicked element: {selector}"
+            
+            elif action_type == "type":
+                text = action.get("text", "")
+                ActionChains(self.driver).send_keys(text).perform()
+                return True, f"Typed: {text}"
+            
+            elif action_type == "type_in_element":
+                selector = action.get("selector", "")
+                text = action.get("text", "")
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                element.clear()
+                element.send_keys(text)
+                return True, f"Typed '{text}' in element: {selector}"
+            
+            elif action_type == "scroll":
+                direction = action.get("direction", "down")
+                amount = action.get("amount", 500)
+                if direction == "down":
+                    self.driver.execute_script(f"window.scrollBy(0, {amount});")
+                elif direction == "up":
+                    self.driver.execute_script(f"window.scrollBy(0, -{amount});")
+                time.sleep(1)
+                return True, f"Scrolled {direction} by {amount}px"
+            
+            elif action_type == "key_press":
+                key = action.get("key", "")
+                if hasattr(Keys, key.upper()):
+                    ActionChains(self.driver).send_keys(getattr(Keys, key.upper())).perform()
+                    return True, f"Pressed key: {key}"
+                else:
+                    return False, f"Unknown key: {key}"
+            
+            elif action_type == "new_tab":
+                self.driver.execute_script("window.open('');")
+                self.driver.switch_to.window(self.driver.window_handles[-1])
+                return True, "Opened new tab"
+            
+            elif action_type == "close_tab":
+                if len(self.driver.window_handles) > 1:
+                    self.driver.close()
+                    self.driver.switch_to.window(self.driver.window_handles[-1])
+                    return True, "Closed current tab"
+                else:
+                    return False, "Cannot close the last tab"
+            
+            elif action_type == "switch_tab":
+                tab_index = action.get("index", 0)
+                if 0 <= tab_index < len(self.driver.window_handles):
+                    self.driver.switch_to.window(self.driver.window_handles[tab_index])
+                    return True, f"Switched to tab {tab_index}"
+                else:
+                    return False, f"Invalid tab index: {tab_index}"
+            
+            elif action_type == "wait":
+                seconds = action.get("seconds", 1)
+                time.sleep(seconds)
+                return True, f"Waited {seconds} seconds"
+            
+            else:
+                return False, f"Unknown action type: {action_type}"
+                
+        except Exception as e:
+            return False, f"Error executing action: {str(e)}"
 
-AVAILABLE COMMANDS (use these exact formats):
-- START_BROWSER: Start Chrome browser
-- CLOSE_BROWSER: Close Chrome browser  
-- CLICK(x,y): Click at coordinates x,y
-- SCROLL(direction,amount): Scroll up/down (direction: up/down, amount: number)
-- TYPE(text): Type text
-- KEY(key): Press key (ENTER, TAB, ESC, CTRL+T, CTRL+W)
-- NAVIGATE(url): Go to URL
-- SCREENSHOT: Take screenshot
-- ASK_USER(question): Ask user for more information
+def get_system_prompt() -> str:
+    return """You are Magic Agent, an AI assistant that can control a web browser and help users with various tasks. You have the following capabilities:
+
+BROWSER COMMANDS:
+1. START_BROWSER - Start a new browser session
+2. CLOSE_BROWSER - Close the current browser session
+3. NAVIGATE:{"url": "https://example.com"} - Navigate to a URL
+4. CLICK:{"x": 100, "y": 200} - Click at specific coordinates on screen
+5. CLICK_ELEMENT:{"selector": "button#submit"} - Click on a specific element using CSS selector
+6. TYPE:{"text": "hello world"} - Type text at current cursor position
+7. TYPE_IN_ELEMENT:{"selector": "input[type='email']", "text": "user@example.com"} - Type in a specific element
+8. SCROLL:{"direction": "down", "amount": 500} - Scroll the page (direction: up/down, amount in pixels)
+9. KEY_PRESS:{"key": "ENTER"} - Press a keyboard key (ENTER, TAB, ESCAPE, etc.)
+10. NEW_TAB - Open a new tab
+11. CLOSE_TAB - Close current tab
+12. SWITCH_TAB:{"index": 0} - Switch to tab by index
+13. WAIT:{"seconds": 2} - Wait for specified seconds
+14. PAUSE_FOR_USER - Pause browser session to ask user for more information
 
 IMPORTANT RULES:
-1. Always use EXACT command format in your response
-2. You can see screenshots when provided
-3. Coordinates are in pixels from top-left (0,0)
-4. When clicking, be precise with coordinates
-5. Always describe what you're doing to the user
-6. Take screenshots frequently to see results
-7. If you need user input, use ASK_USER command
-8. Be helpful and explain your actions
+- Always describe what you're doing before executing commands
+- When you receive a screenshot, analyze it carefully before deciding actions
+- Use coordinates for clicking when CSS selectors aren't reliable
+- Be patient and wait for pages to load
+- If something doesn't work, try alternative approaches
+- Ask the user for clarification when needed using PAUSE_FOR_USER
+- Always close the browser when the task is complete
+- Provide clear updates on your progress
 
-Current capabilities:
-- Browse any website
-- Click elements, fill forms
-- Download files
-- Open/close tabs
-- Scroll pages
-- Navigate between pages
+When a user asks you to do something that requires browser interaction, start with START_BROWSER and end with CLOSE_BROWSER when done.
 
-Start conversations normally. Only use browser commands when user requests web browsing tasks."""
+Format your commands exactly as shown above. The system will execute them and provide you with screenshots after each action."""
 
-        # Prepare message for AI
-        if screenshot_base64:
-            # Send message with screenshot
-            image_data = base64.b64decode(screenshot_base64)
-            image = Image.open(io.BytesIO(image_data))
-            
-            response = chat.send_message([
-                system_prompt + "\n\nUser message: " + message + "\n\nScreenshot provided above. Analyze and respond with appropriate action.",
-                image
-            ])
-        else:
-            # Send text only
-            response = chat.send_message(system_prompt + "\n\nUser message: " + message)
-        
-        return response.text
-    except Exception as e:
-        print(f"Error getting AI response: {e}")
-        return "Sorry, I encountered an error processing your request."
-
-def execute_browser_command(command, phone_number):
-    try:
-        if phone_number not in browser_sessions:
-            return "Browser not started. Please start browser first."
-        
-        browser = browser_sessions[phone_number]
-        
-        if command.startswith("CLICK("):
-            coords = command[6:-1].split(",")
-            x, y = int(coords[0]), int(coords[1])
-            if browser.click(x, y):
-                return f"Clicked at ({x}, {y})"
-            else:
-                return "Failed to click"
-        
-        elif command.startswith("SCROLL("):
-            params = command[7:-1].split(",")
-            direction = params[0]
-            amount = int(params[1]) if len(params) > 1 else 3
-            if browser.scroll(direction, amount):
-                return f"Scrolled {direction} by {amount}"
-            else:
-                return "Failed to scroll"
-        
-        elif command.startswith("TYPE("):
-            text = command[5:-1]
-            if browser.type_text(text):
-                return f"Typed: {text}"
-            else:
-                return "Failed to type"
-        
-        elif command.startswith("KEY("):
-            key = command[4:-1]
-            if browser.press_key(key):
-                return f"Pressed key: {key}"
-            else:
-                return "Failed to press key"
-        
-        elif command.startswith("NAVIGATE("):
-            url = command[9:-1]
-            if browser.navigate_to(url):
-                return f"Navigated to: {url}"
-            else:
-                return "Failed to navigate"
-        
-        elif command == "SCREENSHOT":
-            screenshot = browser.take_screenshot()
-            if screenshot:
-                return "SCREENSHOT_TAKEN:" + screenshot
-            else:
-                return "Failed to take screenshot"
-        
-        else:
-            return "Unknown command"
+def send_whatsapp_message(phone_number: str, message: str):
+    url = f"https://graph.facebook.com/v17.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
     
-    except Exception as e:
-        print(f"Error executing command: {e}")
-        return f"Error executing command: {e}"
-
-def send_whatsapp_message(phone_number, message):
+    data = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "text",
+        "text": {"body": message}
+    }
+    
     try:
-        url = f"https://graph.facebook.com/v17.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
-        headers = {
-            "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "messaging_product": "whatsapp",
-            "to": phone_number,
-            "type": "text",
-            "text": {"body": message}
-        }
         response = requests.post(url, headers=headers, json=data)
         return response.status_code == 200
     except Exception as e:
         print(f"Error sending message: {e}")
         return False
 
-def send_whatsapp_image(phone_number, image_base64, caption=""):
+def send_whatsapp_image(phone_number: str, image_base64: str, caption: str = ""):
+    # Convert base64 to temporary file and upload
     try:
-        # Save image temporarily
         image_data = base64.b64decode(image_base64)
-        temp_filename = f"temp_screenshot_{phone_number}_{int(time.time())}.png"
-        with open(temp_filename, "wb") as f:
+        temp_path = f"/tmp/screenshot_{phone_number}_{int(time.time())}.png"
+        
+        with open(temp_path, "wb") as f:
             f.write(image_data)
         
-        # Upload image to WhatsApp
+        # Upload image first
         upload_url = f"https://graph.facebook.com/v17.0/{WHATSAPP_PHONE_NUMBER_ID}/media"
         headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
         
-        with open(temp_filename, "rb") as f:
+        with open(temp_path, "rb") as f:
             files = {"file": f}
-            data = {"type": "image/png", "messaging_product": "whatsapp"}
+            data = {"messaging_product": "whatsapp", "type": "image"}
             upload_response = requests.post(upload_url, headers=headers, files=files, data=data)
         
+        os.remove(temp_path)
+        
         if upload_response.status_code == 200:
-            media_id = upload_response.json()["id"]
+            media_id = upload_response.json().get("id")
             
             # Send image message
-            send_url = f"https://graph.facebook.com/v17.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+            message_url = f"https://graph.facebook.com/v17.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
             headers["Content-Type"] = "application/json"
+            
             message_data = {
                 "messaging_product": "whatsapp",
                 "to": phone_number,
@@ -323,164 +269,187 @@ def send_whatsapp_image(phone_number, image_base64, caption=""):
                 "image": {"id": media_id, "caption": caption}
             }
             
-            response = requests.post(send_url, headers=headers, json=message_data)
-            success = response.status_code == 200
-        else:
-            success = False
-        
-        # Clean up temp file
-        os.remove(temp_filename)
-        return success
-        
+            response = requests.post(message_url, headers=headers, json=message_data)
+            return response.status_code == 200
+    
     except Exception as e:
         print(f"Error sending image: {e}")
         return False
 
-def process_ai_response(ai_response, phone_number):
+def process_ai_response(phone_number: str, ai_response: str) -> str:
+    browser_manager = browser_sessions.get(phone_number)
+    
+    # Extract commands from AI response
     lines = ai_response.split('\n')
-    commands_executed = []
-    user_message = ""
-    screenshot_base64 = None
+    status_message = ""
     
     for line in lines:
         line = line.strip()
         
-        # Check for browser commands
         if line == "START_BROWSER":
             if phone_number not in browser_sessions:
-                browser_sessions[phone_number] = BrowserController(phone_number)
-            
-            if browser_sessions[phone_number].start_browser():
-                commands_executed.append("✅ Browser started successfully")
-                send_whatsapp_message(phone_number, "🌐 Magic Agent started Chrome browser")
+                browser_manager = BrowserManager(phone_number)
+                if browser_manager.start_browser():
+                    browser_sessions[phone_number] = browser_manager
+                    status_message += "✅ Browser started successfully\n"
+                    # Take initial screenshot
+                    screenshot = browser_manager.take_screenshot()
+                    if screenshot:
+                        send_whatsapp_image(phone_number, screenshot, "Browser started")
+                else:
+                    status_message += "❌ Failed to start browser\n"
             else:
-                commands_executed.append("❌ Failed to start browser")
-                send_whatsapp_message(phone_number, "❌ Failed to start browser")
+                status_message += "ℹ️ Browser already running\n"
         
         elif line == "CLOSE_BROWSER":
             if phone_number in browser_sessions:
-                if browser_sessions[phone_number].close_browser():
+                browser_manager = browser_sessions[phone_number]
+                if browser_manager.close_browser():
                     del browser_sessions[phone_number]
-                    commands_executed.append("✅ Browser closed")
-                    send_whatsapp_message(phone_number, "🔒 Magic Agent closed the browser")
+                    status_message += "✅ Browser closed successfully\n"
                 else:
-                    commands_executed.append("❌ Failed to close browser")
+                    status_message += "❌ Failed to close browser\n"
             else:
-                commands_executed.append("❌ No browser session found")
+                status_message += "ℹ️ No browser session to close\n"
         
-        elif any(line.startswith(cmd) for cmd in ["CLICK(", "SCROLL(", "TYPE(", "KEY(", "NAVIGATE("]) or line == "SCREENSHOT":
-            if phone_number in browser_sessions:
-                result = execute_browser_command(line, phone_number)
-                commands_executed.append(f"🤖 {result}")
-                
-                # Send action notification to user
-                action_desc = ""
-                if line.startswith("CLICK("):
-                    action_desc = f"🖱️ Magic Agent clicked at {line[6:-1]}"
-                elif line.startswith("SCROLL("):
-                    params = line[7:-1].split(",")
-                    action_desc = f"📜 Magic Agent is scrolling {params[0]}..."
-                elif line.startswith("TYPE("):
-                    action_desc = f"⌨️ Magic Agent is typing..."
-                elif line.startswith("KEY("):
-                    action_desc = f"🔘 Magic Agent pressed {line[4:-1]}"
-                elif line.startswith("NAVIGATE("):
-                    action_desc = f"🌐 Magic Agent navigating to {line[9:-1]}"
-                elif line == "SCREENSHOT":
-                    action_desc = "📸 Magic Agent taking screenshot..."
-                
-                send_whatsapp_message(phone_number, action_desc)
-                
-                # Handle screenshot
-                if result.startswith("SCREENSHOT_TAKEN:"):
-                    screenshot_base64 = result[17:]  # Remove "SCREENSHOT_TAKEN:" prefix
-                    send_whatsapp_image(phone_number, screenshot_base64, "📸 Current browser view")
-            else:
-                commands_executed.append("❌ No browser session found")
+        elif line == "PAUSE_FOR_USER":
+            status_message += "⏸️ Paused for user input. Please provide more information.\n"
+            break
         
-        elif line.startswith("ASK_USER("):
-            question = line[9:-1]
-            send_whatsapp_message(phone_number, f"❓ {question}")
-        
-        else:
-            # Regular text response
-            if line and not any(line.startswith(cmd) for cmd in ["START_BROWSER", "CLOSE_BROWSER", "CLICK(", "SCROLL(", "TYPE(", "KEY(", "NAVIGATE(", "SCREENSHOT", "ASK_USER("]):
-                user_message += line + "\n"
-    
-    # Send regular response if any
-    if user_message.strip():
-        send_whatsapp_message(phone_number, user_message.strip())
-    
-    return screenshot_base64
-
-@app.route('/webhook', methods=['GET', 'POST'])
-def webhook():
-    if request.method == 'GET':
-        # Webhook verification
-        mode = request.args.get('hub.mode')
-        token = request.args.get('hub.verify_token')
-        challenge = request.args.get('hub.challenge')
-        
-        if mode == 'subscribe' and token == VERIFY_TOKEN:
-            return challenge
-        else:
-            return 'Forbidden', 403
-    
-    elif request.method == 'POST':
-        # Handle incoming messages
-        try:
-            body = request.get_json()
-            
-            if (body.get('object') == 'whatsapp_business_account' and 
-                body.get('entry') and 
-                body['entry'][0].get('changes') and 
-                body['entry'][0]['changes'][0].get('value') and 
-                body['entry'][0]['changes'][0]['value'].get('messages')):
-                
-                messages = body['entry'][0]['changes'][0]['value']['messages']
-                
-                for message in messages:
-                    phone_number = message['from']
+        elif line.startswith(("NAVIGATE:", "CLICK:", "CLICK_ELEMENT:", "TYPE:", "TYPE_IN_ELEMENT:", 
+                            "SCROLL:", "KEY_PRESS:", "SWITCH_TAB:", "WAIT:")):
+            if browser_manager:
+                try:
+                    command, params_str = line.split(":", 1)
+                    params = json.loads(params_str)
+                    success, message = browser_manager.execute_action({"type": command.lower(), **params})
                     
-                    # Only process text messages
-                    if message['type'] == 'text':
-                        user_message = message['text']['body']
-                        
-                        print(f"Received message from {phone_number}: {user_message}")
-                        
-                        # Process in separate thread to avoid timeout
-                        def process_message():
-                            try:
-                                # Get AI response
-                                ai_response = get_ai_response(user_message, phone_number)
-                                print(f"AI Response: {ai_response}")
-                                
-                                # Process AI response and execute commands
-                                process_ai_response(ai_response, phone_number)
-                                
-                            except Exception as e:
-                                print(f"Error processing message: {e}")
-                                send_whatsapp_message(phone_number, "Sorry, I encountered an error processing your request.")
-                        
-                        # Start processing in background
-                        threading.Thread(target=process_message).start()
-                    
+                    if success:
+                        status_message += f"✅ {message}\n"
+                        # Take screenshot after action
+                        screenshot = browser_manager.take_screenshot()
+                        if screenshot:
+                            send_whatsapp_image(phone_number, screenshot, f"Magic Agent: {message}")
                     else:
-                        # Send error for non-text messages
-                        send_whatsapp_message(message['from'], "❌ I can only process text messages. Please send your request as text.")
-            
-            return jsonify({'status': 'success'}), 200
-            
-        except Exception as e:
-            print(f"Webhook error: {e}")
-            return jsonify({'status': 'error'}), 500
+                        status_message += f"❌ {message}\n"
+                except Exception as e:
+                    status_message += f"❌ Error parsing command: {str(e)}\n"
+            else:
+                status_message += "❌ No browser session active\n"
+        
+        elif line in ["NEW_TAB", "CLOSE_TAB"]:
+            if browser_manager:
+                success, message = browser_manager.execute_action({"type": line.lower()})
+                if success:
+                    status_message += f"✅ {message}\n"
+                    screenshot = browser_manager.take_screenshot()
+                    if screenshot:
+                        send_whatsapp_image(phone_number, screenshot, f"Magic Agent: {message}")
+                else:
+                    status_message += f"❌ {message}\n"
+            else:
+                status_message += "❌ No browser session active\n"
+    
+    return status_message
 
-@app.route('/health')
-def health():
-    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+def get_ai_response(phone_number: str, message: str) -> str:
+    try:
+        # Get or create user session
+        if phone_number not in user_sessions:
+            user_sessions[phone_number] = {"chat": None}
+        
+        # Initialize chat if needed
+        if user_sessions[phone_number]["chat"] is None:
+            model = genai.GenerativeModel(
+                model_name="gemini-2.0-flash-exp",
+                system_instruction=get_system_prompt()
+            )
+            user_sessions[phone_number]["chat"] = model.start_chat(history=[])
+        
+        chat = user_sessions[phone_number]["chat"]
+        
+        # Prepare message content
+        content = [message]
+        
+        # Add screenshot if browser is active
+        if phone_number in browser_sessions:
+            browser_manager = browser_sessions[phone_number]
+            screenshot = browser_manager.take_screenshot()
+            if screenshot:
+                content.append({
+                    "mime_type": "image/png",
+                    "data": screenshot
+                })
+        
+        # Get AI response
+        response = chat.send_message(content)
+        ai_response = response.text
+        
+        # Process browser commands
+        command_status = process_ai_response(phone_number, ai_response)
+        
+        # Combine AI response with command status
+        if command_status:
+            return f"{ai_response}\n\n--- Action Status ---\n{command_status}"
+        else:
+            return ai_response
+            
+    except Exception as e:
+        print(f"Error getting AI response: {e}")
+        traceback.print_exc()
+        return f"Sorry, I encountered an error: {str(e)}"
+
+@app.route('/webhook', methods=['GET'])
+def verify_webhook():
+    mode = request.args.get('hub.mode')
+    token = request.args.get('hub.verify_token')
+    challenge = request.args.get('hub.challenge')
+    
+    if mode == 'subscribe' and token == VERIFY_TOKEN:
+        return challenge
+    return 'Forbidden', 403
+
+@app.route('/webhook', methods=['POST'])
+def handle_webhook():
+    try:
+        data = request.json
+        
+        if data.get('object') == 'whatsapp_business_account':
+            entries = data.get('entry', [])
+            
+            for entry in entries:
+                changes = entry.get('changes', [])
+                
+                for change in changes:
+                    value = change.get('value', {})
+                    messages = value.get('messages', [])
+                    
+                    for message in messages:
+                        phone_number = message.get('from')
+                        message_type = message.get('type')
+                        
+                        if message_type == 'text':
+                            text = message.get('text', {}).get('body', '')
+                            
+                            # Get AI response
+                            ai_response = get_ai_response(phone_number, text)
+                            
+                            # Send response
+                            send_whatsapp_message(phone_number, ai_response)
+                        
+                        else:
+                            # Handle non-text messages
+                            error_message = "❌ Sorry, I can only process text messages. Please send your request as text."
+                            send_whatsapp_message(phone_number, error_message)
+        
+        return jsonify({'status': 'success'})
+    
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        traceback.print_exc()
+        return jsonify({'status': 'error'}), 500
 
 if __name__ == '__main__':
-    print("🚀 Magic Agent WhatsApp Bot with Browser Automation Starting...")
-    print("📱 Bot is ready to receive messages")
-    print("🌐 Browser automation capabilities enabled")
+    print("Starting Magic Agent WhatsApp Bot...")
+    print("Browser automation capabilities enabled")
     app.run(host='0.0.0.0', port=5000, debug=False)
