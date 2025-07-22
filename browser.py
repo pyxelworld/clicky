@@ -39,6 +39,33 @@ app = Flask(__name__)
 user_sessions: Dict[str, Dict[str, Any]] = {}
 browser_sessions: Dict[str, webdriver.Chrome] = {}
 
+def find_chrome_binary():
+    """Find Chrome/Chromium binary in common locations"""
+    possible_paths = [
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/snap/bin/chromium",
+        "/opt/google/chrome/chrome",
+        "/usr/local/bin/google-chrome",
+        "/usr/local/bin/chromium"
+    ]
+    
+    for path in possible_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            print(f"Found Chrome binary at: {path}")
+            return path
+    
+    # Check if chrome is in PATH
+    import shutil
+    chrome_path = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+    if chrome_path:
+        print(f"Found Chrome binary in PATH: {chrome_path}")
+        return chrome_path
+    
+    return None
+
 def find_chromedriver_path():
     """Find the ChromeDriver executable in common locations"""
     possible_paths = [
@@ -46,7 +73,8 @@ def find_chromedriver_path():
         "/usr/local/bin/chromedriver",
         "/opt/chromedriver",
         "./chromedriver",
-        "chromedriver"
+        "chromedriver",
+        "/snap/bin/chromium.chromedriver"
     ]
     
     for path in possible_paths:
@@ -73,14 +101,20 @@ class BrowserManager:
     
     def start_browser(self) -> bool:
         try:
+            # Find Chrome binary
+            chrome_binary = find_chrome_binary()
+            if not chrome_binary:
+                print("Chrome/Chromium browser not found. Please install it first.")
+                return False
+            
             # Find ChromeDriver path
             chromedriver_path = find_chromedriver_path()
             if not chromedriver_path:
                 print("ChromeDriver not found. Please ensure it's installed and in PATH.")
-                print("You can download it from: https://chromedriver.chromium.org/downloads")
                 return False
             
             chrome_options = Options()
+            chrome_options.binary_location = chrome_binary
             chrome_options.add_argument(f"--user-data-dir={self.profile_path}")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
@@ -88,6 +122,9 @@ class BrowserManager:
             chrome_options.add_argument("--remote-debugging-port=9222")
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.add_argument("--disable-web-security")
+            chrome_options.add_argument("--allow-running-insecure-content")
+            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
             chrome_options.add_experimental_option("prefs", {
@@ -100,17 +137,11 @@ class BrowserManager:
             # Create service with the found ChromeDriver path
             service = Service(chromedriver_path)
             
-            # For newer versions of Selenium, we can also try without specifying service
             try:
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
             except Exception as e1:
-                print(f"Failed with service, trying without: {e1}")
-                try:
-                    # Try using Selenium Manager (for Selenium 4.6+)
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                except Exception as e2:
-                    print(f"Failed without service too: {e2}")
-                    return False
+                print(f"Failed with service: {e1}")
+                return False
             
             self.driver.implicitly_wait(10)
             
@@ -163,8 +194,6 @@ class BrowserManager:
             elif action_type == "click":
                 x = action.get("x", 0)
                 y = action.get("y", 0)
-                # Reset any previous offset
-                ActionChains(self.driver).reset_actions()
                 ActionChains(self.driver).move_by_offset(x, y).click().perform()
                 ActionChains(self.driver).reset_actions()
                 time.sleep(2)
@@ -553,16 +582,39 @@ def handle_webhook():
 if __name__ == '__main__':
     print("Starting Magic Agent WhatsApp Bot...")
     print("Browser automation capabilities enabled")
-    print("Checking ChromeDriver availability...")
+    print("Checking system requirements...")
     
+    # Check Chrome binary
+    chrome_binary = find_chrome_binary()
+    if chrome_binary:
+        print(f"✅ Chrome binary found at: {chrome_binary}")
+    else:
+        print("❌ Chrome/Chromium browser not found!")
+        print("Please install Chrome or Chromium:")
+        print("For Google Chrome:")
+        print("  wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -")
+        print("  echo 'deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main' | sudo tee /etc/apt/sources.list.d/google-chrome.list")
+        print("  sudo apt update")
+        print("  sudo apt install google-chrome-stable")
+        print("")
+        print("For Chromium (alternative):")
+        print("  sudo apt update")
+        print("  sudo apt install chromium-browser")
+    
+    # Check ChromeDriver
     chromedriver_path = find_chromedriver_path()
     if chromedriver_path:
         print(f"✅ ChromeDriver found at: {chromedriver_path}")
     else:
-        print("❌ ChromeDriver not found. Please install it first.")
-        print("Run the following commands to install ChromeDriver:")
-        print("sudo apt update")
-        print("sudo apt install -y chromium-browser chromium-chromedriver")
-        print("Or download from: https://chromedriver.chromium.org/downloads")
+        print("❌ ChromeDriver not found!")
+        print("Please install ChromeDriver:")
+        print("  sudo apt update")
+        print("  sudo apt install chromium-chromedriver")
+        print("Or download manually from: https://chromedriver.chromium.org/downloads")
+    
+    if chrome_binary and chromedriver_path:
+        print("🚀 All requirements satisfied! Starting server...")
+    else:
+        print("⚠️  Missing requirements. Please install them first.")
     
     app.run(host='0.0.0.0', port=5000, debug=False)
