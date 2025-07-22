@@ -43,6 +43,7 @@ processed_message_ids = set()
 # --- CONSTANTS ---
 CUSTOM_SEARCH_URL_BASE = "https://cse.google.com/cse?cx=b0ccd7d88551d4e50"
 CUSTOM_SEARCH_URL_TEMPLATE = "https://cse.google.com/cse?cx=b0ccd7d88551d4e50#gsc.tab=0&gsc.sort=&gsc.q=%s"
+GRID_CELL_SIZE = 40 # The size of each grid cell in pixels for grid mode
 
 # --- JAVASCRIPT FOR ELEMENT LABELING (ADDS A DATA ATTRIBUTE) ---
 JS_GET_INTERACTIVE_ELEMENTS = """
@@ -78,21 +79,28 @@ JS_GET_INTERACTIVE_ELEMENTS = """
 
 # --- NEW, MORE DETAILED SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
-You are "Magic Agent," a highly autonomous AI expert at controlling a web browser to complete tasks for a user. You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
+You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
+
+--- INTERACTION MODES ---
+
+You operate in one of two modes: LABEL mode or GRID mode. You must manage switching between them.
+
+1.  **LABEL Mode (Default):** The screenshot will have red numbers on all detected interactive elements (links, buttons, inputs). Use the `CLICK` command with the element's number. This is your primary mode of operation.
+2.  **GRID Mode (Precision Clicks):** If you see something you need to click that is NOT labeled (like a tricky dropdown menu item, a specific point on a map, or an un-labeled part of a CAPTCHA), you must switch to this mode. The screenshot will be overlaid with a coordinate grid (A1, B2, C3, etc.). Use the `GRID_CLICK` command with the cell coordinate.
 
 --- GUIDING PRINCIPLES ---
 
-1.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after performing an action. The initial view is only the top of the page. You must scroll to understand the full context and find the information you need. Assume content exists "below the fold."
+1.  **MODE SWITCHING STRATEGY:** If you need to click something that isn't labeled, issue the `SWITCH_TO_GRID_MODE` command. On the next turn, you will see a grid. Then, use `GRID_CLICK` with the correct cell. Once you are done with precision clicks, immediately issue `SWITCH_TO_LABEL_MODE` to return to normal operation.
 
-2.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command, which uses our "Clicky Search" engine. It is your only tool for searching. Do NOT use the `NAVIGATE` command to go to other search engines like google.com or bing.com.
+2.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action. The initial view is only the top of the page. You must scroll to understand the full context.
 
-3.  **LOGIN & CREDENTIALS:** If a page requires a login (i.e., you see username and password fields), you MUST NOT attempt to fill them in. Your only valid action is to stop and ask the user for permission or for their credentials using the `PAUSE_AND_ASK` command. Do not invent or guess information.
+3.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command with our "Clicky Search" engine. Do NOT use `NAVIGATE` to go to other search engines.
 
-4.  **SHOPPING STRATEGY:** When a user asks you to shop for something, your first step is to clarify the request. Use `PAUSE_AND_ASK` to ask for specific details like the exact product name, desired features, and a price range. Once you are on a shopping website, look for and use features like "Sort by price", "Filter by brand", etc., to narrow down the results according to the user's requirements.
+4.  **LOGIN & CREDENTIALS:** If a page requires a login, you MUST NOT attempt to fill it in. Stop and ask the user for permission using the `PAUSE_AND_ASK` command.
 
-5.  **HANDLING OBSTACLES (CAPTCHA):** If you land on a page with a CAPTCHA ("I'm not a robot", "reCAPTCHA", "Verify you are human"), you cannot solve it. DO NOT ask the user for help. Your strategy is to be self-sufficient: immediately use the `GO_BACK` command to return to the previous page (likely search results) and then choose a different link. If there are no other links, perform a new `CUSTOM_SEARCH` with a different query.
+5.  **SHOPPING STRATEGY:** When asked to shop, first use `PAUSE_AND_ASK` to clarify the exact product and price range. Then, on shopping sites, use sorting/filtering features to meet the user's criteria.
 
-6.  **INDEPENDENCE VS. ASKING FOR HELP:** Be independent and resourceful. Try to solve the user's request by exploring websites, scrolling, and trying different search queries. However, if you are stuck, require specific personal information (like login details or a personal preference as per the principles above), you MUST use the `PAUSE_AND_ASK` command to request the information.
+6.  **HANDLING OBSTACLES (CAPTCHA):** If you land on a page with a standard CAPTCHA, first try to solve it by switching to GRID mode and using `GRID_CLICK` on the checkbox. If it's a more complex "select all images" CAPTCHA, you cannot solve it. Use the `GO_BACK` command and choose a different search result.
 
 --- YOUR RESPONSE FORMAT ---
 
@@ -100,60 +108,62 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 
 --- COMMAND REFERENCE ---
 
-**== BROWSER START/STOP COMMANDS ==**
+**== MODE SWITCHING COMMANDS ==**
 
-1.  **`START_BROWSER`**: Initiates a new browser session.
+1.  **`SWITCH_TO_GRID_MODE`**: Switches to precision grid-based clicking. The next screenshot you see will have a grid.
+    - **Params:** `{}`
+    - **Example:** `{"command": "SWITCH_TO_GRID_MODE", "params": {}, "thought": "I see a 'Continue' button that is not labeled. I need to switch to grid mode to click it.", "speak": "Switching to precision mode to click a specific spot."}`
+
+2.  **`SWITCH_TO_LABEL_MODE`**: Switches back to the default label-based clicking.
     - **Params:** `{}`
 
-2.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
-    - **Params:** `{"reason": "<summary of findings or completion message>"}`
+**== BROWSER START/STOP COMMANDS ==**
+
+3.  **`START_BROWSER`**: Initiates a new browser session. Starts in LABEL mode.
+    - **Params:** `{}`
+
+4.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
+    - **Params:** `{"reason": "<summary>"}`
 
 **== NAVIGATION COMMANDS ==**
 
-3.  **`NAVIGATE`**: Goes directly to a specific URL. (Do NOT use this for search engines).
+5.  **`NAVIGATE`**: Goes directly to a URL.
     - **Params:** `{"url": "<full_url>"}`
 
-4.  **`CUSTOM_SEARCH`**: Performs a search using the dedicated "Clicky Search" engine (powered by Google). THIS IS YOUR ONLY SEARCH TOOL. Use advanced search operators like `"exact phrase"` or `keyword1 OR keyword2` for better results.
+6.  **`CUSTOM_SEARCH`**: Performs a search using "Clicky Search".
     - **Params:** `{"query": "<search_term>"}`
-    - **Example:** `{"command": "CUSTOM_SEARCH", "params": {"query": "\\"latest AI news\\" OR \\"machine learning breakthroughs\\""}, "thought": "I will use the required 'Clicky Search' tool with specific operators to find relevant information.", "speak": "Searching for the latest news on AI and machine learning..."}`
 
-5.  **`GO_BACK`**: Navigates to the previous page in history (like the browser's back arrow).
+7.  **`GO_BACK`**: Navigates to the previous page in history.
     - **Params:** `{}`
-    - **Example:** `{"command": "GO_BACK", "params": {}, "thought": "This page has a CAPTCHA, so I must go back to the search results to pick another link.", "speak": "This page is blocked. Going back to find another source."}`
 
 **== PAGE INTERACTION COMMANDS ==**
 
-6.  **`CLICK`**: Clicks an element identified by its label number.
+8.  **`CLICK`**: (LABEL MODE ONLY) Clicks an element identified by its label number.
     - **Params:** `{"label": <int>}`
 
-7.  **`TYPE`**: Types text where the cursor is. **IMPORTANT: You MUST `CLICK` a text field before using `TYPE`.**
+9.  **`GRID_CLICK`**: (GRID MODE ONLY) Clicks the center of a specified grid cell.
+    - **Params:** `{"cell": "<e.g., 'C5', 'G12'>"}`
+    - **Example:** `{"command": "GRID_CLICK", "params": {"cell": "D10"}, "thought": "The 'Continue' button is in cell D10. I will now click it.", "speak": "Clicking D10."}`
+
+10. **`TYPE`**: Types text. You MUST `CLICK` an input field first.
     - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
 
-8.  **`CLEAR`**: Clears all text from an input field.
+11. **`CLEAR`**: (LABEL MODE ONLY) Clears text from an input field.
     - **Params:** `{"label": <int>}`
 
-9.  **`SCROLL`**: Scrolls the page up or down. You should do this often.
+12. **`SCROLL`**: Scrolls the page.
     - **Params:** `{"direction": "<up|down>"}`
-    - **Example:** `{"command": "SCROLL", "params": {"direction": "down"}, "thought": "I have loaded the page, now I must scroll down to see all the content.", "speak": "Scrolling down to read the page."}`
 
 **== TAB MANAGEMENT COMMANDS ==**
 
-10. **`NEW_TAB`**: Opens a new tab.
-    - **Params:** `{"url": "<optional_url_to_open>"}`
-
-11. **`SWITCH_TO_TAB`**: Switches to a different open tab.
-    - **Params:** `{"tab_id": <int>}`
-
-12. **`CLOSE_TAB`**: Closes the currently active tab.
-    - **Params:** `{}`
+13. **`NEW_TAB`**, **`SWITCH_TO_TAB`**, **`CLOSE_TAB`**
 
 **== USER INTERACTION COMMANDS ==**
 
-13. **`PAUSE_AND_ASK`**: Pauses the task to ask the user a question. Use this when you are blocked, need personal information (like login details), or need to clarify a request (like for shopping).
-    - **Params:** `{"question": "<your_question_for_the_user>"}`
-    - **Example:** `{"command": "PAUSE_AND_ASK", "params": {"question": "I've reached the login page. Do you want me to proceed? If so, please provide your username."}, "thought": "I need user credentials to continue.", "speak": "I've found the login page. I'll need your username to proceed. Is that okay?"}`
+14. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
+    - **Params:** `{"question": "<your_question>"}`
 
-14. **`SPEAK`**: For use in CHAT mode for simple conversation.
+15. **`SPEAK`**: For simple conversation.
     - **Params:** `{"text": "<your_response>"}`
 """
 
@@ -201,7 +211,7 @@ def get_or_create_session(phone_number):
         session = {
             "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
             "user_dir": user_dir, "labeled_elements": {}, "tab_handles": {},
-            "is_processing": False
+            "is_processing": False, "interaction_mode": "LABEL" # NEW: Add interaction mode state
         }
         user_dir.mkdir(parents=True, exist_ok=True)
         user_sessions[phone_number] = session
@@ -216,7 +226,7 @@ def start_browser(session):
     options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
     try:
         driver = webdriver.Chrome(options=options)
-        session["driver"] = driver; session["mode"] = "BROWSER"
+        session["driver"] = driver; session["mode"] = "BROWSER"; session["interaction_mode"] = "LABEL"
         return driver
     except Exception as e: print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc(); return None
 
@@ -226,7 +236,8 @@ def close_browser(session):
         try: session["driver"].quit()
         except: pass
         session["driver"] = None
-    session["mode"] = "CHAT"; session["original_prompt"] = ""; session["labeled_elements"] = {}; session["tab_handles"] = {}
+    session["mode"] = "CHAT"; session["original_prompt"] = ""; session["labeled_elements"] = {}
+    session["tab_handles"] = {}; session["interaction_mode"] = "LABEL" # Reset mode
 
 def get_page_state(driver, session):
     screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
@@ -239,20 +250,43 @@ def get_page_state(driver, session):
         driver.switch_to.window(current_handle)
         tab_info_text = "Open Tabs:\n" + "".join([f"  Tab {t['id']}: {t['title'][:70]}{' (Current)' if t['is_active'] else ''}\n" for t in tabs])
     except Exception as e: print(f"Could not get tab info: {e}"); return None, "", ""
+    
     try:
-        elements = driver.execute_script(JS_GET_INTERACTIVE_ELEMENTS)
-        session["labeled_elements"] = {el['label']: el for el in elements}
-        labels_text = "Interactive Elements:\n" + "\n".join([f"  {l}: {e['tag']} '{e['text']}'" for l, e in session["labeled_elements"].items()])
-        png_data = driver.get_screenshot_as_png(); image = Image.open(io.BytesIO(png_data)); draw = ImageDraw.Draw(image)
-        try: font = ImageFont.truetype("DejaVuSans.ttf", size=14)
+        png_data = driver.get_screenshot_as_png()
+        image = Image.open(io.BytesIO(png_data))
+        draw = ImageDraw.Draw(image)
+        try: font = ImageFont.truetype("DejaVuSans.ttf", size=12)
         except IOError: font = ImageFont.load_default()
-        for label, el in session["labeled_elements"].items():
-            x, y, w, h = el['x'], el['y'], el['width'], el['height']
-            draw.rectangle([x, y, x + w, y + h], outline="red", width=2)
-            draw.text((x, y - 15 if y > 15 else y), str(label), fill="red", font=font)
-        image.save(screenshot_path); print(f"State captured: {len(elements)} labels, {len(tabs)} tabs.")
+
+        # --- NEW: MODE-AWARE SCREENSHOT GENERATION ---
+        labels_text = ""
+        if session["interaction_mode"] == "GRID":
+            print("Capturing state in GRID mode.")
+            labels_text = "GRID MODE: Use GRID_CLICK with a cell coordinate (e.g., 'C5')."
+            cols = image.width // GRID_CELL_SIZE
+            rows = image.height // GRID_CELL_SIZE
+            for i in range(rows):
+                for j in range(cols):
+                    x1, y1 = j * GRID_CELL_SIZE, i * GRID_CELL_SIZE
+                    draw.rectangle([x1, y1, x1 + GRID_CELL_SIZE, y1 + GRID_CELL_SIZE], outline="rgba(255,0,0,100)")
+                    label = f"{chr(ord('A')+j)}{i+1}"
+                    draw.text((x1 + 2, y1 + 2), label, fill="red", font=font)
+        else: # Default LABEL mode
+            print("Capturing state in LABEL mode.")
+            elements = driver.execute_script(JS_GET_INTERACTIVE_ELEMENTS)
+            session["labeled_elements"] = {el['label']: el for el in elements}
+            labels_text = "Interactive Elements:\n" + "\n".join([f"  {l}: {e['tag']} '{e['text']}'" for l, e in session["labeled_elements"].items()])
+            for label, el in session["labeled_elements"].items():
+                x, y, w, h = el['x'], el['y'], el['width'], el['height']
+                draw.rectangle([x, y, x + w, y + h], outline="red", width=2)
+                draw.text((x, y - 15 if y > 15 else y), str(label), fill="red", font=font)
+        
+        image.save(screenshot_path)
+        print(f"State captured in {session['interaction_mode']} mode.")
         return screenshot_path, labels_text, tab_info_text
-    except Exception as e: print(f"Error getting page state: {e}"); traceback.print_exc(); return None, "", tab_info_text
+    except Exception as e:
+        print(f"Error getting page state: {e}"); traceback.print_exc()
+        return None, "", tab_info_text
 
 def call_ai(chat_history, context_text="", image_path=None):
     prompt_parts = [context_text]
@@ -290,28 +324,45 @@ def process_ai_command(from_number, ai_response_text):
         return
         
     command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
-    print(f"Executing: {command} | Params: {params} | Thought: {thought}")
+    print(f"Executing: {command} | Params: {params} | Thought: {thought} | Mode: {session['interaction_mode']}")
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
     if speak: send_whatsapp_message(from_number, speak)
     
     driver = session.get("driver")
     
-    # --- SMARTER COMMAND HANDLING: If browser is closed, start it and retry the command. ---
     if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER"]:
         send_whatsapp_message(from_number, "The browser was closed. I'm starting it up to continue your task...")
         driver = start_browser(session)
         if not driver:
             send_whatsapp_message(from_number, "I failed to restart the browser. Please start a new task.")
-            close_browser(session)
-            return
+            close_browser(session); return
         time.sleep(1)
-        # Re-run the same command now that the browser is open.
-        process_ai_command(from_number, ai_response_text)
-        return
+        process_ai_command(from_number, ai_response_text); return
 
     try:
         action_was_performed = True
-        if command == "START_BROWSER":
+        # --- NEW: GRID MODE COMMANDS ---
+        if command == "SWITCH_TO_GRID_MODE":
+            session["interaction_mode"] = "GRID"
+        elif command == "SWITCH_TO_LABEL_MODE":
+            session["interaction_mode"] = "LABEL"
+        elif command == "GRID_CLICK":
+            if session["interaction_mode"] != "GRID":
+                send_whatsapp_message(from_number, "Error: Cannot use GRID_CLICK in LABEL mode."); action_was_performed = False
+            else:
+                cell = params.get("cell", "").upper()
+                if not cell or not cell[0].isalpha() or not cell[1:].isdigit():
+                    send_whatsapp_message(from_number, f"Invalid cell format: {cell}."); action_was_performed = False
+                else:
+                    col_index = ord(cell[0]) - ord('A')
+                    row_index = int(cell[1:]) - 1
+                    x = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
+                    y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
+                    print(f"Grid clicking at ({x}, {y}) for cell {cell}")
+                    body = driver.find_element(By.TAG_NAME, 'body')
+                    ActionChains(driver).move_to_element_with_offset(body, int(x), int(y)).click().perform()
+        # --- REGULAR COMMANDS ---
+        elif command == "START_BROWSER":
             driver = start_browser(session)
             if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
             time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); time.sleep(1)
@@ -319,11 +370,8 @@ def process_ai_command(from_number, ai_response_text):
             return
         elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
         elif command == "CUSTOM_SEARCH":
-            query = quote_plus(params.get('query', ''))
-            search_url = CUSTOM_SEARCH_URL_TEMPLATE % query
-            driver.get(search_url)
-        elif command == "GO_BACK": # <-- NEW COMMAND IMPLEMENTATION
-            driver.back()
+            driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
+        elif command == "GO_BACK": driver.back()
         elif command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
         elif command == "CLOSE_TAB":
             if len(driver.window_handles) > 1: driver.close(); driver.switch_to.window(driver.window_handles[0])
@@ -333,23 +381,25 @@ def process_ai_command(from_number, ai_response_text):
             if handle: driver.switch_to.window(handle)
             else: send_whatsapp_message(from_number, "I couldn't find that tab ID."); action_was_performed = False
         elif command == "CLICK":
-            label = params.get("label")
-            if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} is not a valid choice."); action_was_performed = False
+            if session["interaction_mode"] != "LABEL":
+                send_whatsapp_message(from_number, "Error: Cannot use CLICK in GRID mode."); action_was_performed = False
             else:
-                try: driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
-                except Exception as e: print(f"Click failed: {e}"); send_whatsapp_message(from_number, "I tried to click that, but something went wrong.")
+                label = params.get("label")
+                if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} not valid."); action_was_performed = False
+                else:
+                    try: driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
+                    except Exception as e: print(f"Click failed: {e}"); send_whatsapp_message(from_number, "Click failed.")
         elif command == "TYPE":
-            action = ActionChains(driver); action.send_keys(params.get("text", "")).perform()
+            ActionChains(driver).send_keys(params.get("text", "")).perform()
             if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
         elif command == "CLEAR":
-            label = params.get("label")
-            if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} is not valid for clearing."); action_was_performed = False
+            if session["interaction_mode"] != "LABEL":
+                send_whatsapp_message(from_number, "Error: Cannot use CLEAR in GRID mode."); action_was_performed = False
             else:
-                try:
-                    element = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
-                    element.send_keys(Keys.CONTROL + "a"); element.send_keys(Keys.DELETE)
-                except Exception as e: print(f"Clear failed: {e}"); send_whatsapp_message(from_number, "I tried to clear that field, but something went wrong.")
-        elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {600 if params.get('direction', 'down') == 'down' else -600});")
+                label = params.get("label")
+                element_to_clear = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
+                element_to_clear.send_keys(Keys.CONTROL + "a"); element_to_clear.send_keys(Keys.DELETE)
+        elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {800 if params.get('direction', 'down') == 'down' else -800});")
         elif command == "END_BROWSER": send_whatsapp_message(from_number, f"*Summary:*\n{params.get('reason', 'Task done.')}"); close_browser(session); return
         elif command == "PAUSE_AND_ASK": return
         elif command == "SPEAK": return
@@ -382,7 +432,6 @@ def webhook():
             print(f"Received from {from_number}: '{user_message_text}'")
             session = get_or_create_session(from_number)
             
-            # --- NEW: HANDLE USER COMMANDS ---
             command_text = user_message_text.strip().lower()
             if command_text == "/stop":
                 print(f"User {from_number} issued /stop command.")
@@ -400,7 +449,6 @@ def webhook():
                 send_whatsapp_message(from_number, "Your session and chat history have been cleared.")
                 print(f"Session for {from_number} cleared.")
                 return Response(status=200)
-            # --- END OF USER COMMANDS ---
 
             if session.get("is_processing"):
                 send_whatsapp_message(from_number, "Please wait, I'm still working on your previous request."); return Response(status=200)
