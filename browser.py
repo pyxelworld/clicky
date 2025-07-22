@@ -1,67 +1,148 @@
 import os
 import json
 import requests
-import re
 import base64
-import uuid
-from flask import Flask, request, Response, send_from_directory
-from google import genai
+import time
+from flask import Flask, request, Response
+from google import generativeai as genai
 from google.genai import types
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
+from PIL import Image
+from io import BytesIO
 
+# --- Configuration ---
+# Your API keys and tokens go here.
 GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
-PUBLIC_URL = "https://clicky.pyxelworld.com"  # Replace with your actual Cloudflared tunnel URL
 
-# Configuração do Flask
+# --- Flask App Initialization ---
 app = Flask(__name__)
 
-# Global sessions
-sessions = {}
+# --- Session and Browser Management ---
+# This dictionary will hold the state for each user (phone number).
+user_sessions = {}
 
-SYSTEM_PROMPT = """
-Você é o Magic Agent, um assistente de IA prestativo que pode controlar um navegador web para ajudar os usuários.
-Responda de forma concisa e amigável. Fora do modo navegador, converse normalmente.
+def get_user_session(phone_number):
+    """Retrieves or creates a session for a given phone number."""
+    if phone_number not in user_sessions:
+        user_sessions[phone_number] = {
+            "browsing": False,
+            "driver": None,
+            "history": []
+        }
+    return user_sessions[phone_number]
 
-Para iniciar o navegador: Saia [ACTION: {"type": "start_browser", "url": "opcional_url"}] no final da sua resposta.
+def start_browser(phone_number):
+    """Starts a new Selenium browser instance for a user."""
+    session = get_user_session(phone_number)
+    if session["browsing"]:
+        return session["driver"]
 
-Quando o navegador estiver ativo, você receberá capturas de tela (imagens PNG de 1280x800 pixels). Analise a imagem e decida a próxima ação.
-Coordenadas são do topo-esquerda (0,0) até (1280,800).
-Output apenas UMA ação por resposta, no formato [ACTION: {json}].
-Após a ação, você receberá uma nova captura de tela.
+    # Create a unique profile directory for each user to isolate sessions.
+    profile_path = os.path.join(os.getcwd(), "profiles", phone_number)
+    if not os.path.exists(profile_path):
+        os.makedirs(profile_path)
 
-Comandos disponíveis:
-- {"type": "click", "x": int, "y": int} - Clique nas coordenadas da captura de tela.
-- {"type": "scroll", "direction": "down", "amount": 500} - Direction: up, down, left, right. Amount em pixels.
-- {"type": "type", "text": "hello"} - Digite o texto no elemento focado (clique primeiro para focar).
-- {"type": "press_key", "key": "ENTER"} ou "CONTROL+T" - Pressione tecla ou atalho.
-- {"type": "open_tab", "url": "https://example.com"} - Abra nova aba e mude para ela.
-- {"type": "switch_tab", "index": 0} - Mude para aba pelo índice (0 é a primeira).
-- {"type": "close_tab"} - Feche a aba atual.
-- {"type": "close_browser"} - Feche o navegador e termine a sessão.
-- {"type": "ask_user", "question": "Qual é o seu email?"} - Pergunte ao usuário e pause para resposta.
+    chrome_options = Options()
+    # Running in a terminal-only environment requires headless mode.
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument(f"user-data-dir={profile_path}")
+    chrome_options.add_argument("--window-size=1280,720") # Standard window size for consistent screenshots
 
-Quando a tarefa estiver completa, output [ACTION: {"type": "close_browser"}] e sua resposta final ao usuário.
-Se precisar de mais info, use ask_user.
-Downloads vão para uma pasta do usuário.
-"""
+    try:
+        driver = webdriver.Chrome(options=chrome_options)
+        session["browsing"] = True
+        session["driver"] = driver
+        return driver
+    except Exception as e:
+        print(f"Error starting ChromeDriver: {e}")
+        return None
 
-def call_gemini(history: list) -> str:
+
+def close_browser(phone_number):
+    """Closes the browser for a given user and cleans up the session."""
+    session = get_user_session(phone_number)
+    if session["browsing"] and session["driver"]:
+        session["driver"].quit()
+        session["browsing"] = False
+        session["driver"] = None
+        print(f"Browser session closed for {phone_number}.")
+
+def take_screenshot(driver, phone_number):
+    """Takes a screenshot of the current browser view."""
+    # Create a directory for screenshots if it doesn't exist.
+    screenshot_path = os.path.join(os.getcwd(), "screenshots")
+    if not os.path.exists(screenshot_path):
+        os.makedirs(screenshot_path)
+    
+    file_path = os.path.join(screenshot_path, f"{phone_number}.png")
+    driver.save_screenshot(file_path)
+    return file_path
+
+# --- Gemini AI Interaction ---
+
+def call_gemini_vision(prompt, image_path):
+    """
+    Calls the Gemini API with an image and a text prompt, using the genai.Client structure.
+    This function is used when the bot is in browsing mode.
+    """
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = "gemini-2.0-flash"
-        contents = history
+        model_name = "gemini-1.5-flash" # This is a known multimodal model
+
+        # The AI needs a detailed system prompt to know how to behave and what commands are available.
+        system_prompt = """
+        You are Magic Agent, an AI assistant with the ability to control a web browser.
+        You will be given a prompt from a user and a screenshot of the current browser state.
+        Your goal is to respond with a single JSON object containing a command to interact with the browser.
+
+        Available commands:
+        - {"command": "GOTO", "url": "https://www.google.com"} - Navigates to a specific URL.
+        - {"command": "CLICK", "x": 350, "y": 500} - Clicks on a specific coordinate on the page.
+        - {"command": "TYPE", "x": 350, "y": 500, "text": "Hello world"} - Clicks on a coordinate and types the given text.
+        - {"command": "SCROLL", "direction": "DOWN"} - Scrolls the page. Valid directions are 'UP' or 'DOWN'.
+        - {"command": "ASK_USER", "question": "What should I search for next?"} - Pauses to ask the user for more information.
+        - {"command": "END_SESSION", "reason": "I have completed the requested task."} - Closes the browser and ends the session.
+
+        Analyze the screenshot and the user's prompt carefully to determine the next best action.
+        Be precise with your coordinates. The image resolution is 1280x720.
+        Your response MUST be only the JSON command object and nothing else.
+        """
+        
+        with open(image_path, "rb") as image_file:
+            # The API requires the image to be in base64 format.
+            image_data = base64.b64encode(image_file.read()).decode('utf-8')
+
+        # The contents must include the user's text prompt and the image.
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text=prompt),
+                    types.Part.from_data(
+                        mime_type="image/png",
+                        data=base64.b64decode(image_data)
+                    )
+                ]
+            )
+        ]
+
         generate_content_config = types.GenerateContentConfig(
             response_mime_type="text/plain",
             system_instruction=[
-                types.Part.from_text(text=SYSTEM_PROMPT),
+                types.Part.from_text(text=system_prompt),
             ],
         )
+
+        # Stream the response and join the chunks, as per your example.
         response_chunks = []
         for chunk in client.models.generate_content_stream(
             model=model_name,
@@ -69,12 +150,54 @@ def call_gemini(history: list) -> str:
             config=generate_content_config,
         ):
             response_chunks.append(chunk.text)
+            
         return "".join(response_chunks)
-    except Exception as e:
-        print(f"Erro ao chamar a API do Gemini: {e}")
-        return "Desculpe, ocorreu um erro ao tentar processar sua mensagem. Tente novamente mais tarde."
 
-def send_whatsapp_message(to_number: str, message: str):
+    except Exception as e:
+        print(f"Error calling Gemini Vision API: {e}")
+        return '{"command": "ASK_USER", "question": "Sorry, I encountered an error while analyzing the page. Could you please clarify what you want me to do?"}'
+
+
+def call_gemini_text(user_message):
+    """
+    Calls the Gemini API with a text prompt, using the genai.Client structure.
+    This is for normal conversation when the browser is not active.
+    """
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model_name = "gemini-1.5-flash" # As requested
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=user_message)],
+            ),
+        ]
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+            system_instruction=[
+                types.Part.from_text(text="You are a helpful assistant named Magic Agent. Respond concisely and friendly. To start a browser session, the user can say 'start browser'."),
+            ],
+        )
+
+        # Stream the response and join the chunks.
+        response_chunks = []
+        for chunk in client.models.generate_content_stream(
+            model=model_name,
+            contents=contents,
+            config=generate_content_config,
+        ):
+            response_chunks.append(chunk.text)
+            
+        return "".join(response_chunks)
+
+    except Exception as e:
+        print(f"Error calling Gemini Text API: {e}")
+        return "Sorry, I encountered an error. Please try again later."
+
+# --- WhatsApp Communication ---
+def send_whatsapp_message(to_number, message):
+    """Sends a standard text message via the WhatsApp API."""
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
@@ -87,290 +210,138 @@ def send_whatsapp_message(to_number: str, message: str):
     }
     response = requests.post(url, headers=headers, json=data)
     if response.status_code == 200:
-        print(f"Mensagem enviada para {to_number} com sucesso.")
+        print(f"Message sent to {to_number} successfully.")
     else:
-        print(f"Falha ao enviar mensagem: {response.status_code} - {response.text}")
+        print(f"Failed to send message: {response.status_code} - {response.text}")
 
-def send_whatsapp_image(to_number: str, image_link: str, caption: str = ""):
-    url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    data = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "type": "image",
-        "image": {"link": image_link, "caption": caption},
-    }
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code == 200:
-        print(f"Imagem enviada para {to_number} com sucesso.")
-    else:
-        print(f"Falha ao enviar imagem: {response.status_code} - {response.text}")
+def send_whatsapp_image(to_number, image_path, caption=""):
+    """
+    Sends an image to the user.
+    NOTE: The WhatsApp Cloud API requires a public URL for images.
+    This function would need to upload the image to a hosting service (like imgur or a cloud bucket)
+    to get a public URL first. For this implementation, we will send a text notification
+    as a placeholder for the actual image.
+    """
+    # Placeholder implementation:
+    message = caption
+    if not caption:
+        message = f"Magic Agent performed an action."
+    message += f"\n\n(A screenshot was taken to reflect the new state.)"
+    send_whatsapp_message(to_number, message)
 
-def parse_action(response: str):
-    match = re.search(r'\[ACTION:\s*({.*?})\s*\]', response, re.DOTALL | re.IGNORECASE)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except:
-            return None
-    return None
 
-def save_screenshot(phone: str, base64_str: str):
-    filename = f"{uuid.uuid4()}.png"
-    path = f"screenshots/{phone}/{filename}"
-    with open(path, "wb") as f:
-        f.write(base64.b64decode(base64_str))
-    return filename
-
-def execute_browser_action(driver, action):
-    type_ = action['type']
-    if type_ == 'click':
-        x = action['x']
-        y = action['y']
-        driver.execute_script("""
-        var ev = new MouseEvent('click', {view: window, bubbles: true, cancelable: true, clientX: arguments[0], clientY: arguments[1]});
-        var el = document.elementFromPoint(arguments[0], arguments[1]);
-        if (el) el.dispatchEvent(ev);
-        """, x, y)
-        return f"clicando em ({x}, {y})"
-    elif type_ == 'scroll':
-        dir_ = action.get('direction', 'down')
-        amount = action.get('amount', 100)
-        if dir_ == 'down':
-            driver.execute_script(f"window.scrollBy(0, {amount})")
-        elif dir_ == 'up':
-            driver.execute_script(f"window.scrollBy(0, -{amount})")
-        elif dir_ == 'right':
-            driver.execute_script(f"window.scrollBy({amount}, 0)")
-        elif dir_ == 'left':
-            driver.execute_script(f"window.scrollBy(-{amount}, 0)")
-        return f"rolando {dir_} por {amount} pixels"
-    elif type_ == 'type':
-        text = action['text']
-        ActionChains(driver).send_keys(text).perform()
-        return f"digitou '{text}'"
-    elif type_ == 'press_key':
-        key = action['key']
-        keys = key.split('+')
-        ac = ActionChains(driver)
-        for k in keys[:-1]:
-            ac.key_down(getattr(Keys, k.upper()))
-        ac.send_keys(keys[-1] if len(keys) == 1 else keys[-1].lower() if len(keys[-1]) == 1 else keys[-1])
-        for k in reversed(keys[:-1]):
-            ac.key_up(getattr(Keys, k.upper()))
-        ac.perform()
-        return f"pressionou tecla '{key}'"
-    elif type_ == 'open_tab':
-        url = action['url']
-        driver.execute_script(f"window.open('{url}', '_blank')")
-        driver.switch_to.window(driver.window_handles[-1])
-        return f"abriu nova aba com {url}"
-    elif type_ == 'switch_tab':
-        index = action['index']
-        if 0 <= index < len(driver.window_handles):
-            driver.switch_to.window(driver.window_handles[index])
-            return f"mudou para aba {index}"
-        else:
-            return "índice de aba inválido"
-    elif type_ == 'close_tab':
-        driver.close()
-        if driver.window_handles:
-            driver.switch_to.window(driver.window_handles[0])
-        return "fechou aba atual"
-    return "Ação desconhecida"
-
-def handle_action(phone: str, session, action):
-    type_ = action['type']
-    if type_ == 'start_browser':
-        os.makedirs(f"chrome_profiles/{phone}", exist_ok=True)
-        os.makedirs(f"downloads/{phone}", exist_ok=True)
-        os.makedirs(f"screenshots/{phone}", exist_ok=True)
-        options = Options()
-        options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument(f"user-data-dir={os.getcwd()}/chrome_profiles/{phone}")
-        prefs = {"download.default_directory": f"{os.getcwd()}/downloads/{phone}"}
-        options.add_experimental_option("prefs", prefs)
-        session['driver'] = webdriver.Chrome(options=options)
-        url = action.get('url', 'about:blank')
-        session['driver'].get(url)
-        session['browser_active'] = True
-        return f"iniciando navegador em {url}"
-    elif type_ == 'close_browser':
-        return "fechando navegador"
-    else:
-        if not session.get('browser_active') or not session['driver']:
-            return "Nenhum navegador ativo"
-        return execute_browser_action(session['driver'], action)
-
-def process_message(from_number: str, user_message_text: str):
-    if from_number not in sessions:
-        sessions[from_number] = {
-            'history': [],
-            'driver': None,
-            'browser_active': False,
-            'waiting_for_user': False,
-            'last_screenshot': None,
-        }
-    session = sessions[from_number]
-
-    # Append user message
-    session['history'].append(types.Content(role="user", parts=[types.Part.from_text(text=user_message_text)]))
-
-    if session['waiting_for_user']:
-        session['waiting_for_user'] = False
-
-    # Call Gemini
-    response = call_gemini(session['history'])
-    action = parse_action(response)
-
-    if action:
-        if action['type'] == 'ask_user':
-            question = action.get('question', 'Pergunta não especificada')
-            send_whatsapp_message(from_number, question)
-            session['waiting_for_user'] = True
-            session['history'].append(types.Content(role="model", parts=[types.Part.from_text(text=response)]))
-            return
-        else:
-            desc = handle_action(from_number, session, action)
-
-            if session['browser_active']:
-                screenshot_base64 = session['driver'].get_screenshot_as_base64()
-                session['last_screenshot'] = screenshot_base64
-                filename = save_screenshot(from_number, screenshot_base64)
-                link = f"{PUBLIC_URL}/screenshots/{from_number}/{filename}"
-                send_whatsapp_message(from_number, f"Magic Agent está {desc}...")
-                send_whatsapp_image(from_number, link, "Captura de tela atual do navegador")
-            else:
-                send_whatsapp_message(from_number, f"Magic Agent: {desc}")
-
-            if action['type'] == 'close_browser':
-                if session['driver']:
-                    session['driver'].quit()
-                    session['driver'] = None
-                session['browser_active'] = False
-                text = re.sub(r'\[ACTION:\s*\{.*?\}\s*\]', '', response, flags=re.DOTALL | re.IGNORECASE).strip()
-                if text:
-                    send_whatsapp_message(from_number, text)
-                session['history'].append(types.Content(role="model", parts=[types.Part.from_text(text=response)]))
-                return
-
-            # Append AI response to history
-            session['history'].append(types.Content(role="model", parts=[types.Part.from_text(text=response)]))
-
-            if session['browser_active']:
-                # Append new state to history
-                new_user_content = types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text=f"Ação realizada: {desc}. Novo estado do navegador:"),
-                        types.Part.from_data(mime_type="image/png", data=base64.b64decode(session['last_screenshot'])),
-                    ]
-                )
-                session['history'].append(new_user_content)
-
-                # Enter loop for further actions
-                max_steps = 20
-                for step in range(max_steps):
-                    response = call_gemini(session['history'])
-                    action = parse_action(response)
-                    if not action:
-                        send_whatsapp_message(from_number, response)
-                        if session['browser_active']:
-                            session['driver'].quit()
-                            session['driver'] = None
-                            session['browser_active'] = False
-                        session['history'].append(types.Content(role="model", parts=[types.Part.from_text(text=response)]))
-                        break
-                    if action['type'] == 'ask_user':
-                        question = action.get('question', 'Pergunta não especificada')
-                        send_whatsapp_message(from_number, question)
-                        session['waiting_for_user'] = True
-                        session['history'].append(types.Content(role="model", parts=[types.Part.from_text(text=response)]))
-                        break
-                    desc = handle_action(from_number, session, action)
-                    screenshot_base64 = session['driver'].get_screenshot_as_base64()
-                    session['last_screenshot'] = screenshot_base64
-                    filename = save_screenshot(from_number, screenshot_base64)
-                    link = f"{PUBLIC_URL}/screenshots/{from_number}/{filename}"
-                    send_whatsapp_message(from_number, f"Magic Agent está {desc}...")
-                    send_whatsapp_image(from_number, link, "Captura de tela atualizada")
-                    if action['type'] == 'close_browser':
-                        session['driver'].quit()
-                        session['driver'] = None
-                        session['browser_active'] = False
-                        text = re.sub(r'\[ACTION:\s*\{.*?\}\s*\]', '', response, flags=re.DOTALL | re.IGNORECASE).strip()
-                        if text:
-                            send_whatsapp_message(from_number, text)
-                        session['history'].append(types.Content(role="model", parts=[types.Part.from_text(text=response)]))
-                        break
-                    # Append to history
-                    session['history'].append(types.Content(role="model", parts=[types.Part.from_text(text=response)]))
-                    new_user_content = types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_text(text=f"Ação realizada: {desc}. Novo estado do navegador:"),
-                            types.Part.from_data(mime_type="image/png", data=base64.b64decode(screenshot_base64)),
-                        ]
-                    )
-                    session['history'].append(new_user_content)
-    else:
-        send_whatsapp_message(from_number, response)
-        session['history'].append(types.Content(role="model", parts=[types.Part.from_text(text=response)]))
-
-@app.route('/screenshots/<phone>/<filename>')
-def serve_screenshot(phone, filename):
-    return send_from_directory(f'screenshots/{phone}', filename)
-
+# --- Webhook Logic ---
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
-        mode = request.args.get('hub.mode')
-        token = request.args.get('hub.verify_token')
-        challenge = request.args.get('hub.challenge')
-        if mode == 'subscribe' and token == VERIFY_TOKEN:
-            return Response(challenge, status=200)
+        # Handles the webhook verification challenge from Meta.
+        if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
+            return Response(request.args.get('hub.challenge'), status=200)
         else:
             return Response(status=403)
 
     if request.method == 'POST':
         body = request.get_json()
-        print(json.dumps(body, indent=2))
+        print(json.dumps(body, indent=2)) # Log incoming messages for debugging
 
         try:
-            if (body.get("entry") and
-                body["entry"][0].get("changes") and
-                body["entry"][0]["changes"][0].get("value") and
-                body["entry"][0]["changes"][0]["value"].get("messages")):
-                
-                message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
-                message_type = message_info.get("type")
-                from_number = message_info.get("from")
-                
-                if message_type == "text":
-                    user_message_text = message_info["text"]["body"]
-                    print(f"Mensagem de texto recebida de {from_number}: {user_message_text}")
-                    
-                    # Process the message
-                    process_message(from_number, user_message_text)
-                
+            message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
+            from_number = message_info["from"]
+            user_message = message_info["text"]["body"]
+
+            session = get_user_session(from_number)
+
+            if not session.get("browsing"):
+                # --- NORMAL CHAT MODE ---
+                if "start browser" in user_message.lower():
+                    send_whatsapp_message(from_number, "Magic Agent is starting the browser...")
+                    driver = start_browser(from_number)
+                    if driver:
+                        time.sleep(2) # Allow browser to initialize
+                        screenshot_path = take_screenshot(driver, from_number)
+                        send_whatsapp_image(from_number, screenshot_path, caption="Browser is ready. What should I do first?")
+                    else:
+                        send_whatsapp_message(from_number, "Sorry, I failed to start the browser. Please check the server logs.")
                 else:
-                    non_text_message = "Desculpe, só entendo mensagens de texto por enquanto."
-                    print(f"Mensagem não-texto ({message_type}) recebida de {from_number}.")
-                    send_whatsapp_message(from_number, non_text_message)
+                    response = call_gemini_text(user_message)
+                    send_whatsapp_message(from_number, response)
+            else:
+                # --- BROWSER CONTROL MODE ---
+                driver = session["driver"]
+                screenshot_path = take_screenshot(driver, from_number)
+                ai_response_text = call_gemini_vision(user_message, screenshot_path)
+                
+                print(f"AI Command Received: {ai_response_text}")
+
+                try:
+                    # The AI's response should be a clean JSON string.
+                    # We remove potential markdown formatting like ```json ... ```
+                    if ai_response_text.strip().startswith("```json"):
+                        ai_response_text = ai_response_text.strip()[7:-4]
+
+                    ai_command = json.loads(ai_response_text)
+                    command = ai_command.get("command")
+
+                    action_taken = True
+                    action_message = ""
+
+                    if command == "GOTO":
+                        url = ai_command.get("url", "")
+                        driver.get(url)
+                        action_message = f"Magic Agent is navigating to {url}"
+                    elif command == "CLICK":
+                        x, y = ai_command.get("x"), ai_command.get("y")
+                        ActionChains(driver).move_by_offset(x, y).click().perform()
+                        ActionChains(driver).move_by_offset(-x, -y).perform() # Reset offset
+                        action_message = f"Magic Agent is clicking at coordinates ({x}, {y})."
+                    elif command == "TYPE":
+                        x, y, text_to_type = ai_command.get("x"), ai_command.get("y"), ai_command.get("text")
+                        ActionChains(driver).move_by_offset(x, y).click().perform()
+                        ActionChains(driver).move_by_offset(-x, -y).perform() # Reset offset
+                        element = driver.switch_to.active_element
+                        element.send_keys(text_to_type)
+                        action_message = f"Magic Agent is typing: '{text_to_type}'"
+                    elif command == "SCROLL":
+                        direction = ai_command.get("direction", "DOWN").upper()
+                        scroll_key = Keys.PAGE_DOWN if direction == "DOWN" else Keys.PAGE_UP
+                        driver.find_element(By.TAG_NAME, 'body').send_keys(scroll_key)
+                        action_message = f"Magic Agent is scrolling {direction.lower()}."
+                    elif command == "ASK_USER":
+                        send_whatsapp_message(from_number, ai_command.get("question"))
+                        action_taken = False # No browser action, just asking user
+                    elif command == "END_SESSION":
+                        reason = ai_command.get("reason", "Task finished.")
+                        send_whatsapp_message(from_number, f"Magic Agent is ending the session: {reason}")
+                        close_browser(from_number)
+                        action_taken = False
+                    else:
+                        send_whatsapp_message(from_number, "Magic Agent received an unknown command. Please clarify.")
+                        action_taken = False
+
+                    # If a browser action was performed, inform the user and send a new screenshot.
+                    if action_taken:
+                        send_whatsapp_message(from_number, action_message)
+                        time.sleep(2) # Wait for page to render after action
+                        new_screenshot = take_screenshot(driver, from_number)
+                        send_whatsapp_image(from_number, new_screenshot, caption="This is the current view after the action.")
+
+                except (json.JSONDecodeError, KeyError) as e:
+                    send_whatsapp_message(from_number, "Magic Agent had a thought, but it wasn't a valid command. Can you please clarify your instruction?")
+                    print(f"AI response was not a valid command JSON: {ai_response_text}. Error: {e}")
 
         except (KeyError, IndexError, TypeError) as e:
-            print(f"Erro no processamento do webhook: {e}")
+            # This catches errors if the incoming webhook data is not in the expected format.
+            print(f"Error processing webhook structure: {e}")
             pass
 
         return Response(status=200)
 
 if __name__ == '__main__':
-    print("Servidor do Bot WhatsApp iniciado em http://localhost:5000")
-    print("Aguardando mensagens via webhook...")
+    # Create necessary directories on startup.
+    if not os.path.exists("profiles"):
+        os.makedirs("profiles")
+    if not os.path.exists("screenshots"):
+        os.makedirs("screenshots")
+    print("WhatsApp Bot Server started on http://localhost:5000")
+    print("Ensure your Cloudflared tunnel is running and pointing to this port.")
     app.run(port=5000, debug=False)
