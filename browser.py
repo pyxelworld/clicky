@@ -14,16 +14,10 @@ import re
 import time
 import tempfile
 import threading # FIX: Import threading for background tasks
-
-# --- Constants ---
-# IMPORTANT: Replace with your actual credentials. Do not hardcode them here in production.
-# Use environment variables for security.
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"  # e.g., os.environ.get("GEMINI_API_KEY")
-WHATSAPP_TOKEN = "YOUR_WHATSAPP_TOKEN" # e.g., os.environ.get("WHATSAPP_TOKEN")
-WHATSAPP_PHONE_NUMBER_ID = "YOUR_WHATSAPP_PHONE_ID" # e.g., os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
-VERIFY_TOKEN = "YOUR_VERIFY_TOKEN" # e.g., os.environ.get("VERIFY_TOKEN")
-
-
+GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
+WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
+WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
+VERIFY_TOKEN = "121222220611"
 # --- Flask App ---
 app = Flask(__name__)
 
