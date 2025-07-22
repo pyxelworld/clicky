@@ -4,6 +4,7 @@ import requests
 import time
 import io
 import traceback
+from urllib.parse import quote_plus
 from flask import Flask, request, Response
 from pathlib import Path
 from selenium import webdriver
@@ -15,12 +16,9 @@ import google.generativeai as genai
 
 # --- CONFIGURATION ---
 GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
-# NEW TOKEN AS PROVIDED
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
-
-# --- AI MODEL CONFIGURATION ---
 AI_MODEL_NAME = "gemini-2.0-flash"
 
 # --- PROJECT SETUP ---
@@ -28,91 +26,109 @@ app = Flask(__name__)
 BASE_DIR = Path(__file__).parent
 USER_DATA_DIR = BASE_DIR / "user_data"
 USER_DATA_DIR.mkdir(exist_ok=True)
-
 user_sessions = {}
 
 # --- JAVASCRIPT FOR ELEMENT LABELING ---
 JS_GET_INTERACTIVE_ELEMENTS = """
-    const elements = Array.from(document.querySelectorAll(
-        'a, button, input:not([type="hidden"]), textarea, [role="button"], [role="link"], [onclick]'
-    ));
-    const interactiveElements = [];
-    for (let i = 0; i < elements.length; i++) {
-        const elem = elements[i];
-        const rect = elem.getBoundingClientRect();
-        // Filter out invisible or very small elements
-        if (rect.width > 5 && rect.height > 5 && rect.top >= 0 && rect.left >= 0) {
-            let text = (elem.innerText || elem.value || elem.getAttribute('aria-label') || elem.getAttribute('placeholder') || 'No text').trim().substring(0, 50);
-            interactiveElements.push({
-                label: i + 1,
-                x: rect.left,
-                y: rect.top,
-                width: rect.width,
-                height: rect.height,
-                tag: elem.tagName.toLowerCase(),
-                text: text
-            });
-        }
-    }
-    return interactiveElements;
+// ... (JavaScript code remains the same as previous version) ...
 """
 
-# --- SYSTEM PROMPT (UPDATED FOR ELEMENT LABELING) ---
+# --- NEW, MORE DETAILED SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
-You are "Magic Agent," a highly intelligent AI assistant that controls a web browser. You operate in two modes: CHAT and BROWSER. Your responses MUST ALWAYS be in a JSON format.
+You are "Magic Agent," an AI expert at controlling a web browser to complete tasks for a user.
+You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
 
-**Interaction Model:**
-When in BROWSER mode, you will receive a screenshot where interactive elements (links, buttons, inputs) are marked with a numbered red box. You must choose the number of the element you want to interact with.
+**CORE WORKFLOW:**
+1.  **Analyze User Request:** Understand the user's ultimate goal.
+2.  **Choose Command:** Select ONE command from the list below that makes progress towards the goal.
+3.  **Provide Rationale:** In the "thought" field, explain WHY you chose this command.
+4.  **Inform User:** In the "speak" field, write a brief, friendly message for the user about what you're doing.
 
-**JSON Response Structure:**
-{
-  "command": "COMMAND_NAME",
-  "params": { ... },
-  "thought": "Your reasoning for choosing this command and element.",
-  "speak": "A short, user-friendly message describing your action."
-}
+**CONTEXT PROVIDED TO YOU ON EACH TURN (IN BROWSER MODE):**
+- **Screenshot:** A PNG image of the current tab. Interactive elements are marked with red numbered boxes.
+- **Element List:** A text list of the numbered elements, their type (e.g., 'button', 'input'), and their visible text.
+- **Tab List:** A text list of all open tabs, their titles, and which one is currently active.
 
---- AVAILABLE COMMANDS ---
+**Your responses MUST ALWAYS be a single JSON object.**
 
-1.  **Start Browser Session:**
-    - `command`: "START_BROWSER"
-    - `params`: {}
+--- COMMAND REFERENCE ---
 
-2.  **Type Text:**
-    - Description: Types text into an input field or textarea identified by its label number.
-    - `command`: "TYPE"
-    - `params`: {"label": <int>, "text": "<text_to_type>", "enter": <true/false>}
-    - Example: `{"command": "TYPE", "params": {"label": 5, "text": "weather in london", "enter": true}, "thought": "The user wants to search. Label 5 is the search input field. I will type the query and press enter.", "speak": "Typing 'weather in london' into the search bar."}`
+**== BROWSER START/STOP COMMANDS ==**
 
-3.  **Click Element:**
-    - Description: Clicks on an element identified by its label number.
-    - `command`: "CLICK"
-    - `params`: {"label": <int>}
-    - Example: `{"command": "CLICK", "params": {"label": 8}, "thought": "Label 8 is the 'Search' button. I need to click it to proceed.", "speak": "Clicking the search button."}`
+1.  **`START_BROWSER`**:
+    - **Description:** Initiates a new browser session. Use this as the very first step when a task requires web access.
+    - **Params:** `{}`
+    - **Example:** `{"command": "START_BROWSER", "params": {}, "thought": "The user wants me to find something online. I must start the browser first.", "speak": "Okay, opening the browser to get started."}`
 
-4.  **Scroll Page:**
-    - Description: Scrolls the page 'up' or 'down'. No label needed.
-    - `command`: "SCROLL"
-    - `params`: {"direction": "<up|down>"}
+2.  **`END_BROWSER`**:
+    - **Description:** Closes the entire browser session. Use this ONLY when the user's task is fully complete.
+    - **Params:** `{"reason": "<summary of findings or completion message>"}`
+    - **Example:** `{"command": "END_BROWSER", "params": {"reason": "The temperature in London is 15°C. I have found the answer."}, "thought": "The task is complete. I will now close the browser and provide the final answer.", "speak": "All done! Here is the information you requested."}`
 
-5.  **End Browser Session:**
-    - Description: Closes the browser and summarizes findings.
-    - `command`: "END_BROWSER"
-    - `params`: {"reason": "<summary_of_findings>"}
+**== NAVIGATION COMMANDS ==**
 
-6.  **Ask User for Information:**
-    - Description: Pauses the browser session to ask the user for clarification.
-    - `command`: "PAUSE_AND_ASK"
-    - `params`: {"question": "What should I do next?"}
+3.  **`NAVIGATE`**:
+    - **Description:** Goes directly to a specific URL in the current tab. Most efficient way to visit a known website.
+    - **Params:** `{"url": "<full_url>"}`
+    - **Example:** `{"command": "NAVIGATE", "params": {"url": "https://www.github.com"}, "thought": "The user wants to go to GitHub. Navigating directly is the best way.", "speak": "Heading over to GitHub now."}`
 
-7.  **Answer Directly (Chat Mode):**
-    - Description: Used in CHAT mode for simple conversation.
-    - `command`: "SPEAK"
-    - `params`: {"text": "Your response to the user."}
+4.  **`GOOGLE`**:
+    - **Description:** Performs a Google search in the current tab. This is much faster than loading google.com and typing manually.
+    - **Params:** `{"query": "<search_term>"}`
+    - **Example:** `{"command": "GOOGLE", "params": {"query": "latest news on AI"}, "thought": "The user wants to search for news. Using the GOOGLE command is the most direct method.", "speak": "Googling 'latest news on AI' for you."}`
+
+**== PAGE INTERACTION COMMANDS ==**
+
+5.  **`CLICK`**:
+    - **Description:** Clicks an element on the page, identified by its label number from the screenshot.
+    - **Params:** `{"label": <int>}`
+    - **Example:** `{"command": "CLICK", "params": {"label": 12}, "thought": "Label 12 is the 'Next Page' link, which I need to click to see more results.", "speak": "Clicking the 'Next Page' link."}`
+
+6.  **`TYPE`**:
+    - **Description:** Types text into an input field. **This command automatically clicks the element first.** Identify the element by its label number.
+    - **Params:** `{"label": <int>, "text": "<text_to_type>", "enter": <true/false>}` (set "enter" to true to press Enter after typing)
+    - **Example:** `{"command": "TYPE", "params": {"label": 4, "text": "my-username", "enter": false}, "thought": "Label 4 is the username field. I will type the username into it.", "speak": "Typing in the username."}`
+
+7.  **`SCROLL`**:
+    - **Description:** Scrolls the current page up or down to see more content.
+    - **Params:** `{"direction": "<up|down>"}`
+    - **Example:** `{"command": "SCROLL", "params": {"direction": "down"}, "thought": "The information I need is likely further down the page. I will scroll.", "speak": "Scrolling down to see more..."}`
+
+**== TAB MANAGEMENT COMMANDS ==**
+
+8.  **`NEW_TAB`**:
+    - **Description:** Opens a new browser tab.
+    - **Params:** `{"url": "<optional_url_to_open>"}` (If URL is provided, the new tab will open directly to it).
+    - **Example:** `{"command": "NEW_TAB", "params": {"url": "https://en.wikipedia.org"}, "thought": "I need to look something up on Wikipedia without losing my current page. I'll open it in a new tab.", "speak": "Opening Wikipedia in a new tab."}`
+
+9.  **`SWITCH_TO_TAB`**:
+    - **Description:** Switches focus to a different open tab. Use the `tab_id` provided in the context.
+    - **Params:** `{"tab_id": <int>}`
+    - **Example:** `{"command": "SWITCH_TO_TAB", "params": {"tab_id": 1}, "thought": "I am finished on the current tab and need to return to the first tab to continue the task.", "speak": "Switching back to the first tab."}`
+
+10. **`CLOSE_TAB`**:
+    - **Description:** Closes the **currently active** tab.
+    - **Params:** `{}`
+    - **Example:** `{"command": "CLOSE_TAB", "params": {}, "thought": "I have extracted the necessary information from this tab and no longer need it. I will close it to reduce clutter.", "speak": "Closing the current tab."}`
+
+**== USER INTERACTION COMMANDS ==**
+
+11. **`PAUSE_AND_ASK`**:
+    - **Description:** If you are blocked or need more information from the user, use this to pause the browser session and ask a question.
+    - **Params:** `{"question": "<your_question_for_the_user>"}`
+
+12. **`SPEAK`**:
+    - **Description:** For use in CHAT mode (when browser is not open) for simple conversation.
+    - **Params:** `{"text": "<your_response>"}`
 """
 
+# --- All other functions (send_whatsapp_message, etc.) remain largely the same,
+# but the core logic for browser interaction will be updated.
+# For brevity, I will show the changed/new functions and the main loop.
+# ... (Functions from previous version go here, I will rewrite the key ones below) ...
 genai.configure(api_key=GEMINI_API_KEY)
 
+# --- WHATSAPP & BROWSER HELPER FUNCTIONS (UNCHANGED) ---
 def send_whatsapp_message(to, text):
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
@@ -133,9 +149,7 @@ def send_whatsapp_image(to, image_path, caption=""):
         response = requests.post(upload_url, headers=headers, files=files)
         response.raise_for_status()
         media_id = response.json().get('id')
-    except requests.exceptions.RequestException as e:
-        print(f"Error uploading WhatsApp media: {e} - {response.text}")
-        return
+    except requests.exceptions.RequestException as e: print(f"Error uploading WhatsApp media: {e} - {response.text}"); return
     if not media_id: return
     send_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
@@ -143,8 +157,9 @@ def send_whatsapp_image(to, image_path, caption=""):
     try:
         requests.post(send_url, headers=headers, json=data).raise_for_status()
         print(f"Sent image message to {to} with caption: {caption}")
-    except requests.exceptions.RequestException as e:
-        print(f"Error sending WhatsApp image message: {e} - {response.text}")
+    except requests.exceptions.RequestException as e: print(f"Error sending WhatsApp image message: {e} - {response.text}")
+
+# --- UPDATED/NEW BROWSER AUTOMATION FUNCTIONS ---
 
 def get_or_create_session(phone_number):
     if phone_number not in user_sessions:
@@ -152,11 +167,9 @@ def get_or_create_session(phone_number):
         user_dir = USER_DATA_DIR / phone_number
         session = {
             "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
-            "user_dir": user_dir, "downloads_dir": user_dir / "downloads",
-            "profile_dir": user_dir / "profile", "labeled_elements": {}
+            "user_dir": user_dir, "labeled_elements": {}, "tab_handles": {}
         }
-        session["downloads_dir"].mkdir(parents=True, exist_ok=True)
-        session["profile_dir"].mkdir(parents=True, exist_ok=True)
+        user_dir.mkdir(parents=True, exist_ok=True)
         user_sessions[phone_number] = session
     return user_sessions[phone_number]
 
@@ -168,9 +181,7 @@ def start_browser(session):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1280,800")
-    options.add_argument(f"--user-data-dir={session['profile_dir']}")
-    prefs = {"download.default_directory": str(session['downloads_dir'])}
-    options.add_experimental_option("prefs", prefs)
+    options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
     try:
         driver = webdriver.Chrome(options=options)
         session["driver"] = driver
@@ -190,73 +201,95 @@ def close_browser(session):
     session["mode"] = "CHAT"
     session["original_prompt"] = ""
     session["labeled_elements"] = {}
+    session["tab_handles"] = {}
 
-def take_screenshot_with_labels(driver, session):
-    """Takes screenshot, finds elements, draws labels, and stores element data."""
-    screenshot_path = session["user_dir"] / f"screenshot_{int(time.time())}.png"
+def get_page_state(driver, session):
+    """Gets screenshot, labels, and tab info."""
+    screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
+    
+    # 1. Get Tab Info
+    tab_info_text = "No open tabs."
+    try:
+        window_handles = driver.window_handles
+        current_handle = driver.current_window_handle
+        tabs = []
+        session["tab_handles"] = {}
+        for i, handle in enumerate(window_handles):
+            tab_id = i + 1
+            session["tab_handles"][tab_id] = handle
+            driver.switch_to.window(handle)
+            tabs.append({"id": tab_id, "title": driver.title, "is_active": handle == current_handle})
+        
+        # Switch back to the originally active tab
+        driver.switch_to.window(current_handle)
+
+        tab_info_text = "Open Tabs:\n"
+        for tab in tabs:
+            active_marker = " (Current)" if tab["is_active"] else ""
+            tab_info_text += f"  Tab {tab['id']}: {tab['title'][:70]}{active_marker}\n"
+    except Exception as e:
+        print(f"Could not get tab info: {e}")
+        return None, "", ""
+    
+    # 2. Get Labeled Screenshot
     try:
         elements = driver.execute_script(JS_GET_INTERACTIVE_ELEMENTS)
         session["labeled_elements"] = {el['label']: el for el in elements}
-
+        labels_text = "Interactive Elements:\n" + "\n".join([f"  {l}: {e['tag']} '{e['text']}'" for l, e in session["labeled_elements"].items()])
+        
         png_data = driver.get_screenshot_as_png()
         image = Image.open(io.BytesIO(png_data))
         draw = ImageDraw.Draw(image)
         try: font = ImageFont.truetype("DejaVuSans.ttf", size=14)
         except IOError: font = ImageFont.load_default()
-
+        
         for label, el in session["labeled_elements"].items():
             x, y, w, h = el['x'], el['y'], el['width'], el['height']
             draw.rectangle([x, y, x + w, y + h], outline="red", width=2)
             draw.text((x, y - 15 if y > 15 else y), str(label), fill="red", font=font)
         
         image.save(screenshot_path)
-        print(f"Screenshot with {len(elements)} labels saved to {screenshot_path}")
-        return screenshot_path, session["labeled_elements"]
+        print(f"State captured: {len(elements)} labels, {len(tabs)} tabs.")
+        return screenshot_path, labels_text, tab_info_text
     except Exception as e:
-        print(f"Error taking screenshot with labels: {e}"); traceback.print_exc()
-        return None, {}
+        print(f"Error getting page state: {e}"); traceback.print_exc()
+        return None, "", tab_info_text
 
-def call_ai(chat_history, labels_text="", image_path=None):
-    model = genai.GenerativeModel(
-        AI_MODEL_NAME,
-        system_instruction=SYSTEM_PROMPT,
-        generation_config={"response_mime_type": "application/json"}
-    )
+def call_ai(chat_history, context_text="", image_path=None):
+    model = genai.GenerativeModel(AI_MODEL_NAME, system_instruction=SYSTEM_PROMPT, generation_config={"response_mime_type": "application/json"})
     chat = model.start_chat(history=chat_history)
-    
-    last_user_message = chat_history[-1]['parts'][0] if chat_history and chat_history[-1]['role'] == 'user' else ""
-    prompt_content = f"{last_user_message}\n{labels_text}"
-    prompt_parts = [prompt_content]
-
+    prompt_parts = [context_text]
     if image_path:
-        print(f"AI Call: Vision mode with image {image_path.name}")
         try:
             img_part = {"mime_type": "image/png", "data": image_path.read_bytes()}
             prompt_parts.append(img_part)
         except Exception as e:
-            print(f"Error reading image file for AI: {e}")
-            return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error reading screen image: {e}"}, "thought": "Image read failed.", "speak": "Error with screen view."})
-    else:
-        print("AI Call: Chat mode")
-    
+            return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error: {e}"}, "thought": "Image read failed.", "speak": "Error with screen view."})
     try:
         response = chat.send_message(prompt_parts)
         return response.text
     except Exception as e:
-        print(f"CRITICAL: Error calling Gemini API: {e}")
-        return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI model error: {e}"}, "thought": "AI API failed.", "speak": "Error connecting to my brain."})
+        return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {e}"}, "thought": "AI API failed.", "speak": "Error connecting to my brain."})
+
+def process_next_browser_step(from_number, session, caption):
+    screenshot_path, labels_text, tab_info_text = get_page_state(session["driver"], session)
+    if screenshot_path:
+        context_text = f"User's Goal: {session['original_prompt']}\n\n{tab_info_text}\n{labels_text}"
+        send_whatsapp_image(from_number, screenshot_path, caption=caption)
+        ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
+        process_ai_command(from_number, ai_response)
+    else:
+        send_whatsapp_message(from_number, "Could not get a view of the page. Closing browser."); close_browser(session)
+
+# --- MAIN LOGIC ---
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
     try:
-        print(f"AI Response: {ai_response_text}")
         command_data = json.loads(ai_response_text)
     except json.JSONDecodeError:
         send_whatsapp_message(from_number, ai_response_text)
-        session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
-        if session["mode"] == "BROWSER":
-             send_whatsapp_message(from_number, "Internal command error. Closing browser.")
-             close_browser(session)
+        if session["mode"] == "BROWSER": close_browser(session)
         return
 
     command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
@@ -264,88 +297,79 @@ def process_ai_command(from_number, ai_response_text):
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
     if speak: send_whatsapp_message(from_number, speak)
 
+    driver = session.get("driver")
+
     if command == "START_BROWSER":
         driver = start_browser(session)
         if not driver:
-            send_whatsapp_message(from_number, "Could not open browser.")
-            close_browser(session)
-            return
-        time.sleep(1)
-        # Go to a default page
-        driver.get("https://www.google.com")
-        time.sleep(1)
-        process_next_browser_step(from_number, session, "Browser started. What's next?")
-    
-    elif command in ["TYPE", "CLICK", "SCROLL"] and session["mode"] == "BROWSER":
-        driver = session.get("driver")
-        if not driver:
-            send_whatsapp_message(from_number, "Browser lost. Please start over."); close_browser(session); return
-        try:
-            if command in ["TYPE", "CLICK"]:
-                label = params.get("label")
-                target_element = session["labeled_elements"].get(label)
-                if not target_element:
-                    send_whatsapp_message(from_number, f"I tried to use label {label}, but it's not valid. Let me look again.")
-                    process_next_browser_step(from_number, session, "Invalid label chosen, retrying.")
-                    return
-                
-                # Center of the element for more reliable clicking
-                x = target_element['x'] + target_element['width'] / 2
-                y = target_element['y'] + target_element['height'] / 2
+            send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
+        time.sleep(1); driver.get("https://www.google.com"); time.sleep(1)
+        process_next_browser_step(from_number, session, "Browser started at Google.com. What's next?")
+        return
+
+    if not driver and command not in ["SPEAK", "START_BROWSER"]:
+        send_whatsapp_message(from_number, "Browser isn't running. Please start a task first."); return
+
+    try:
+        # Browser is running for all commands below this line
+        if command == "NAVIGATE":
+            driver.get(params.get("url", "https://google.com"))
+        elif command == "GOOGLE":
+            query = quote_plus(params.get("query", ""))
+            driver.get(f"https://www.google.com/search?q={query}")
+        elif command == "NEW_TAB":
+            driver.switch_to.new_window('tab')
+            if "url" in params: driver.get(params["url"])
+        elif command == "CLOSE_TAB":
+            if len(driver.window_handles) > 1:
+                driver.close()
+                driver.switch_to.window(driver.window_handles[0]) # Switch to first available tab
+            else: send_whatsapp_message(from_number, "I can't close the last tab.")
+        elif command == "SWITCH_TO_TAB":
+            handle = session["tab_handles"].get(params.get("tab_id"))
+            if handle: driver.switch_to.window(handle)
+            else: send_whatsapp_message(from_number, "I couldn't find that tab ID."); # Don't take new screenshot
+        elif command in ["TYPE", "CLICK"]:
+            label = params.get("label")
+            target_element = session["labeled_elements"].get(label)
+            if not target_element:
+                send_whatsapp_message(from_number, f"Label {label} is not valid. Let me look again.")
+            else:
+                x, y = target_element['x'] + target_element['width']/2, target_element['y'] + target_element['height']/2
                 body = driver.find_element(By.TAG_NAME, 'body')
                 action = ActionChains(driver).move_to_element_with_offset(body, 0, 0).move_by_offset(x, y).click()
-
                 if command == "TYPE":
-                    action.send_keys(params.get("text", ""))
-                    if params.get("enter"):
-                        action.send_keys(u'\ue007') # Enter key
-                action.perform()
+                    action.send_keys(params.get("text", "")).perform()
+                    if params.get("enter"): ActionChains(driver).send_keys(u'\ue007').perform()
+                else: action.perform()
+        elif command == "SCROLL":
+            scroll_amount = 600 if params.get('direction', 'down') == 'down' else -600
+            driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
+        elif command == "END_BROWSER":
+            send_whatsapp_message(from_number, f"*Summary from Magic Agent:*\n{params.get('reason', 'Task done.')}"); close_browser(session); return
+        elif command == "PAUSE_AND_ASK": send_whatsapp_message(from_number, params.get("question", "I need info.")); return
+        elif command == "SPEAK": return # Already handled
+        else: print(f"Unknown command: {command}"); return
 
-            elif command == "SCROLL":
-                scroll_amount = 600 if params.get('direction', 'down') == 'down' else -600
-                driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
+        time.sleep(2)
+        process_next_browser_step(from_number, session, f"Action done: {speak}")
 
-            time.sleep(2)
-            process_next_browser_step(from_number, session, f"Action done: {speak}")
-        except Exception as e:
-            print(f"Error during browser action: {e}"); traceback.print_exc()
-            send_whatsapp_message(from_number, f"Action failed: {e}. Closing browser.")
-            close_browser(session)
+    except Exception as e:
+        print(f"Error during browser action: {e}"); traceback.print_exc()
+        send_whatsapp_message(from_number, f"Action failed: {e}. Closing browser."); close_browser(session)
 
-    elif command == "PAUSE_AND_ASK": send_whatsapp_message(from_number, params.get("question", "I need info."))
-    elif command == "END_BROWSER":
-        send_whatsapp_message(from_number, f"*Summary from Magic Agent:*\n{params.get('reason', 'Task done.')}")
-        close_browser(session)
-    elif command == "SPEAK": pass
-    else:
-        print(f"Unknown command: {command}")
-        if session["mode"] == "BROWSER": close_browser(session)
-
-def process_next_browser_step(from_number, session, caption):
-    """Shared logic for taking a screenshot and calling the AI in browser mode."""
-    screenshot_path, labeled_elements = take_screenshot_with_labels(session["driver"], session)
-    if screenshot_path:
-        labels_text = "Interactive elements:\n" + "\n".join([f"  {l}: {e['tag']} '{e['text']}'" for l, e in labeled_elements.items()])
-        send_whatsapp_image(from_number, screenshot_path, caption=caption)
-        ai_response = call_ai(session["chat_history"], labels_text=labels_text, image_path=screenshot_path)
-        process_ai_command(from_number, ai_response)
-    else:
-        send_whatsapp_message(from_number, "Could not get a view of the page. Closing browser.")
-        close_browser(session)
-
+# --- FLASK WEBHOOK (UNCHANGED) ---
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
-        if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
-            return Response(request.args.get('hub.challenge'), status=200)
+        if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN: return Response(request.args.get('hub.challenge'), status=200)
         return Response('Verification token mismatch', status=403)
     if request.method == 'POST':
         body = request.get_json()
         try:
             message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
             if message_info.get("type") != "text":
-                send_whatsapp_message(message_info.get("from"), "I only process text messages.")
-                return Response(status=200)
+                send_whatsapp_message(message_info.get("from"), "I only process text messages."); return Response(status=200)
 
             from_number, user_message_text = message_info["from"], message_info["text"]["body"]
             print(f"Received from {from_number}: '{user_message_text}'")
@@ -354,16 +378,11 @@ def webhook():
 
             if session["mode"] == "CHAT":
                 session["original_prompt"] = user_message_text
-                ai_response = call_ai(session["chat_history"])
+                ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                 process_ai_command(from_number, ai_response)
             elif session["mode"] == "BROWSER":
-                driver = session.get("driver")
-                if not driver:
-                    close_browser(session)
-                    ai_response = call_ai(session["chat_history"])
-                    process_ai_command(from_number, ai_response)
-                    return Response(status=200)
-                
+                if not session.get("driver"):
+                    close_browser(session); ai_response = call_ai(session["chat_history"], context_text=user_message_text); process_ai_command(from_number, ai_response); return Response(status=200)
                 send_whatsapp_message(from_number, "Okay, using that info to continue...")
                 process_next_browser_step(from_number, session, "Continuing with new instructions.")
         except (KeyError, IndexError, TypeError): pass
@@ -371,6 +390,35 @@ def webhook():
         return Response(status=200)
 
 if __name__ == '__main__':
+    # JS code is large, so define it here to keep the top of the file clean
+    JS_GET_INTERACTIVE_ELEMENTS = """
+        const elements = Array.from(document.querySelectorAll(
+            'a, button, input:not([type="hidden"]), textarea, [role="button"], [role="link"], [onclick]'
+        ));
+        const interactiveElements = [];
+        let labelCounter = 1;
+        for (let i = 0; i < elements.length; i++) {
+            const elem = elements[i];
+            const rect = elem.getBoundingClientRect();
+            // Filter out invisible, off-screen, or very small elements
+            if (rect.width > 5 && rect.height > 5 && rect.top >= 0 && rect.left >= 0 &&
+                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                rect.right <= (window.innerWidth || document.documentElement.clientWidth)) {
+                let text = (elem.innerText || elem.value || elem.getAttribute('aria-label') || elem.getAttribute('placeholder') || '').trim().replace(/\\s+/g, ' ').substring(0, 50);
+                interactiveElements.push({
+                    label: labelCounter,
+                    x: rect.left,
+                    y: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                    tag: elem.tagName.toLowerCase(),
+                    text: text
+                });
+                labelCounter++;
+            }
+        }
+        return interactiveElements;
+    """
     print("--- Magic Agent WhatsApp Bot Server ---")
     app.name = 'whatsapp'
     app.run(port=5000, debug=False)
