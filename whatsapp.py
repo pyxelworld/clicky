@@ -9,12 +9,13 @@ from google import genai
 from google.genai import types
 
 # --- INÍCIO DAS CONFIGURAÇÕES E CHAVES ---
-# ATENÇÃO: É uma má prática de segurança colocar chaves diretamente no código.
-# Use variáveis de ambiente em um ambiente de produção.
-GEMINI_API_KEY = "SUA_CHAVE_API_DO_GEMINI_AQUI"
-WHATSAPP_TOKEN = "SEU_TOKEN_DE_ACESSO_DO_WHATSAPP_AQUI"
-WHATSAPP_PHONE_NUMBER_ID = "SEU_ID_DO_NUMERO_DE_TELEFONE_AQUI"
-VERIFY_TOKEN = "SEU_TOKEN_DE_VERIFICACAO_AQUI" # Ex: 12122222061
+# Chave da API do Google Gemini
+GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
+
+# Credenciais da API do WhatsApp (Meta)
+WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
+WHATSAPP_PHONE_NUMBER_ID = "757771334076445" # Observação: IDs de número de telefone costumam ser mais longos. Se tiver problemas, confirme este valor no painel da Meta.
+VERIFY_TOKEN = "12122222061" # Este token é usado para verificar a identidade do seu webhook
 # --- FIM DAS CONFIGURAÇÕES E CHAVES ---
 
 # Configuração do Flask
