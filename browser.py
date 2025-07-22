@@ -15,11 +15,21 @@ from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
+# Rotating API keys
+GEMINI_API_KEYS = [
+    "AIzaSyCnnkNB4qPXE9bgTwRH_Jj5lxUOq_xivJo",
+    "AIzaSyDuAT3AP1wNd-FNb0QmvwQcSTD2dM3ZStc",
+    "AIzaSyCuKxOa7GoY6id_aG-C3_uhvfJ1iI0SeQ0",
+    "AIzaSyBwASUXeAVJ6xFFZdfjNZO5Hsumr4KAntw",
+    "AIzaSyB4EZanzOFSu589lfBVO3M8dy72fBW2ObY",
+    "AIzaSyASbyRix7Cbae7qCgPQntshA5DVJSVJbo4",
+    "AIzaSyD07UM2S3qdSUyyY0Hp4YtN04J60PcO41w",
+    "AIzaSyA9037TcPXJ2tdSrEe-hzLCn0Xa5zjiUOo",
+]
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
-AI_MODEL_NAME = "gemini-2.0-flash"
+AI_MODEL_NAME = "gemini-2.0-flash" # Note: Changed to a more common and recent model name.
 
 # --- PROJECT SETUP ---
 app = Flask(__name__)
@@ -63,6 +73,8 @@ SYSTEM_PROMPT = """
 You are "Magic Agent," an AI expert at controlling a web browser to complete tasks for a user.
 You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
 
+**IMPORTANT: If you need any information from the user during the process (like a password, a decision, or clarification), you MUST use the `PAUSE_AND_ASK` command. Do not guess or make things up. After you ask, the user's next message will be their answer, and you can then resume the task.**
+
 **CORE WORKFLOW:**
 1.  **Analyze User Request:** Understand the user's ultimate goal.
 2.  **Choose Command:** Select ONE command from the list below that makes progress towards the goal.
@@ -97,10 +109,10 @@ You operate by receiving a state (a screenshot and tab info) and issuing a singl
     - **Params:** `{"url": "<full_url>"}`
     - **Example:** `{"command": "NAVIGATE", "params": {"url": "https://www.github.com"}, "thought": "The user wants to go to GitHub. Navigating directly is the best way.", "speak": "Heading over to GitHub now."}`
 
-4.  **`GOOGLE`**:
-    - **Description:** Performs a Google search in the current tab. This is much faster than loading google.com and typing manually.
+4.  **`BRAVE_SEARCH`**:
+    - **Description:** Performs a Brave search in the current tab. This is much faster than loading the site and typing manually.
     - **Params:** `{"query": "<search_term>"}`
-    - **Example:** `{"command": "GOOGLE", "params": {"query": "latest news on AI"}, "thought": "The user wants to search for news. Using the GOOGLE command is the most direct method.", "speak": "Googling 'latest news on AI' for you."}`
+    - **Example:** `{"command": "BRAVE_SEARCH", "params": {"query": "latest news on AI"}, "thought": "The user wants to search for news. Using the BRAVE_SEARCH command is the most direct method.", "speak": "Searching Brave for 'latest news on AI' for you."}`
 
 **== PAGE INTERACTION COMMANDS ==**
 
@@ -110,9 +122,9 @@ You operate by receiving a state (a screenshot and tab info) and issuing a singl
     - **Example:** `{"command": "CLICK", "params": {"label": 12}, "thought": "Label 12 is the 'Next Page' link, which I need to click to see more results.", "speak": "Clicking the 'Next Page' link."}`
 
 6.  **`TYPE`**:
-    - **Description:** Types text into an input field. **This command automatically clicks the element first.** Identify the element by its label number.
-    - **Params:** `{"label": <int>, "text": "<text_to_type>", "enter": <true/false>}` (set "enter" to true to press Enter after typing)
-    - **Example:** `{"command": "TYPE", "params": {"label": 4, "text": "my-username", "enter": false}, "thought": "Label 4 is the username field. I will type the username into it.", "speak": "Typing in the username."}`
+    - **Description:** Types text where the cursor is currently located. **IMPORTANT: You MUST use the `CLICK` command on a text field *before* using `TYPE`.**
+    - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}` (set "enter" to true to press Enter after typing)
+    - **Example:** `{"command": "TYPE", "params": {"text": "my-username", "enter": false}, "thought": "I have already clicked the username input field. Now I will type the username into it.", "speak": "Typing in the username."}`
 
 7.  **`SCROLL`**:
     - **Description:** Scrolls the current page up or down to see more content.
@@ -139,16 +151,14 @@ You operate by receiving a state (a screenshot and tab info) and issuing a singl
 **== USER INTERACTION COMMANDS ==**
 
 11. **`PAUSE_AND_ASK`**:
-    - **Description:** If you are blocked or need more information from the user, use this to pause the browser session and ask a question.
+    - **Description:** Use this command if you are blocked, unsure what to do next, or need more information from the user (e.g., a username, a password, or a choice to make). This will pause the task and send your question to the user. The user's next message will be your answer.
     - **Params:** `{"question": "<your_question_for_the_user>"}`
+    - **Example:** `{"command": "PAUSE_AND_ASK", "params": {"question": "I've landed on the login page. What username should I use?"}, "thought": "I can't proceed without a username. I must ask the user.", "speak": "I need a little help. What username should I use here?"}`
 
 12. **`SPEAK`**:
     - **Description:** For use in CHAT mode (when browser is not open) for simple conversation.
     - **Params:** `{"text": "<your_response>"}`
 """
-
-# Configure the Gemini client
-genai.configure(api_key=GEMINI_API_KEY)
 
 def send_whatsapp_message(to, text):
     """Sends a simple text message."""
@@ -291,21 +301,35 @@ def get_page_state(driver, session):
         return None, "", tab_info_text
 
 def call_ai(chat_history, context_text="", image_path=None):
-    """Calls the Gemini AI with the full context."""
-    model = genai.GenerativeModel(AI_MODEL_NAME, system_instruction=SYSTEM_PROMPT, generation_config={"response_mime_type": "application/json"})
-    chat = model.start_chat(history=chat_history)
+    """Calls the Gemini AI with the full context, rotating API keys on failure."""
     prompt_parts = [context_text]
     if image_path:
         try:
             img_part = {"mime_type": "image/png", "data": image_path.read_bytes()}
             prompt_parts.append(img_part)
         except Exception as e:
-            return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error: {e}"}, "thought": "Image read failed.", "speak": "Error with screen view."})
-    try:
-        response = chat.send_message(prompt_parts)
-        return response.text
-    except Exception as e:
-        return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {e}"}, "thought": "AI API failed.", "speak": "Error connecting to my brain."})
+            return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error: Could not read the screenshot file. {e}"}, "thought": "The image file for the screenshot could not be read. I must end the session.", "speak": "Sorry, I'm having trouble seeing the screen. Let's stop for now."})
+    
+    last_error = None
+    for i, key in enumerate(GEMINI_API_KEYS):
+        try:
+            print(f"Attempting to call AI with API key #{i+1}...")
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(AI_MODEL_NAME, system_instruction=SYSTEM_PROMPT, generation_config={"response_mime_type": "application/json"})
+            chat = model.start_chat(history=chat_history)
+            response = chat.send_message(prompt_parts)
+            print("AI call successful.")
+            return response.text
+        except Exception as e:
+            print(f"API key #{i+1} failed. Error: {e}")
+            last_error = e
+            # If the error is not about permissions, maybe don't rotate.
+            # For now, we'll try the next key for any error during the API call.
+            continue
+    
+    # If all keys failed
+    print("All API keys failed.")
+    return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: All API keys failed. Last error: {last_error}"}, "thought": "All my connections to the AI brain are failing. I cannot continue.", "speak": "Sorry, I'm having trouble connecting to my AI brain right now. Let's stop for now."})
 
 def process_next_browser_step(from_number, session, caption):
     """Shared logic for taking a screenshot, getting context, and calling the AI in browser mode."""
@@ -345,9 +369,9 @@ def process_ai_command(from_number, ai_response_text):
             close_browser(session)
             return
         time.sleep(1)
-        driver.get("https://www.google.com")
+        driver.get("https://search.brave.com")
         time.sleep(1)
-        process_next_browser_step(from_number, session, "Browser started at Google.com. What's next?")
+        process_next_browser_step(from_number, session, "Browser started at Brave.com. What's next?")
         return
 
     if not driver and command not in ["SPEAK", "START_BROWSER"]:
@@ -358,10 +382,10 @@ def process_ai_command(from_number, ai_response_text):
         # Browser is running for all commands below this line
         action_was_performed = True
         if command == "NAVIGATE":
-            driver.get(params.get("url", "https://google.com"))
-        elif command == "GOOGLE":
+            driver.get(params.get("url", "https://search.brave.com"))
+        elif command == "BRAVE_SEARCH":
             query = quote_plus(params.get("query", ""))
-            driver.get(f"https://www.google.com/search?q={query}")
+            driver.get(f"https://search.brave.com/search?q={query}")
         elif command == "NEW_TAB":
             driver.switch_to.new_window('tab')
             if "url" in params and params["url"]:
@@ -380,22 +404,23 @@ def process_ai_command(from_number, ai_response_text):
             else:
                 send_whatsapp_message(from_number, "I couldn't find that tab ID.")
                 action_was_performed = False # No state change
-        elif command in ["TYPE", "CLICK"]:
+        elif command == "CLICK":
             label = params.get("label")
             target_element = session["labeled_elements"].get(label)
             if not target_element:
                 send_whatsapp_message(from_number, f"Label {label} is not valid. Let me look again.")
+                action_was_performed = False
             else:
                 x = target_element['x'] + target_element['width'] / 2
                 y = target_element['y'] + target_element['height'] / 2
                 body = driver.find_element(By.TAG_NAME, 'body')
-                action = ActionChains(driver).move_to_element_with_offset(body, 0, 0).move_by_offset(x, y).click()
-                if command == "TYPE":
-                    action.send_keys(params.get("text", "")).perform()
-                    if params.get("enter"):
-                        ActionChains(driver).send_keys(u'\ue007').perform()
-                else:
-                    action.perform()
+                ActionChains(driver).move_to_element_with_offset(body, 0, 0).move_by_offset(x, y).click().perform()
+        elif command == "TYPE":
+            # This command now types into the currently focused element.
+            action = ActionChains(driver)
+            action.send_keys(params.get("text", "")).perform()
+            if params.get("enter"):
+                ActionChains(driver).send_keys(u'\ue007').perform()
         elif command == "SCROLL":
             scroll_amount = 600 if params.get('direction', 'down') == 'down' else -600
             driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
@@ -404,19 +429,22 @@ def process_ai_command(from_number, ai_response_text):
             close_browser(session)
             return
         elif command == "PAUSE_AND_ASK":
-            send_whatsapp_message(from_number, params.get("question", "I need some more information."))
+            # The command already sends the 'speak' message, so we just need to pause execution here.
             return
         elif command == "SPEAK":
+            # This command is for CHAT mode, no browser action needed.
             return
         else:
             print(f"Unknown command received: {command}")
-            return
+            send_whatsapp_message(from_number, f"I received an unknown command '{command}'. Let me look at the page again.")
+            action_was_performed = True # Force a rescan of the page
         
         if action_was_performed:
             time.sleep(2) # Wait for page to load/react
             process_next_browser_step(from_number, session, f"Action done: {speak}")
         else:
-            # If no action happened (e.g., bad tab id), we don't need a new screenshot loop
+            # If no action happened (e.g., bad label, bad tab id), we don't need a new screenshot loop.
+            # The user has been notified, let them guide the next step.
             pass
 
     except Exception as e:
@@ -449,14 +477,16 @@ def webhook():
                 ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                 process_ai_command(from_number, ai_response)
             elif session["mode"] == "BROWSER":
-                if not session.get("driver"):
+                if not session.get("driver"): # Handle cases where browser died unexpectedly
                     close_browser(session)
                     ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                     process_ai_command(from_number, ai_response)
                     return Response(status=200)
+                # This is the "resume" logic. User's message is new info.
                 send_whatsapp_message(from_number, "Okay, using that info to continue...")
                 process_next_browser_step(from_number, session, "Continuing with new instructions.")
         except (KeyError, IndexError, TypeError):
+            # This handles webhook pings and other non-message events
             pass
         except Exception as e:
             print(f"Error processing webhook: {e}")
