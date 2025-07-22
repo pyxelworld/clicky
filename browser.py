@@ -44,7 +44,6 @@ processed_message_ids = set()
 CUSTOM_SEARCH_URL_BASE = "https://cse.google.com/cse?cx=b0ccd7d88551d4e50"
 CUSTOM_SEARCH_URL_TEMPLATE = "https://cse.google.com/cse?cx=b0ccd7d88551d4e50#gsc.tab=0&gsc.sort=&gsc.q=%s"
 
-
 # --- JAVASCRIPT FOR ELEMENT LABELING (ADDS A DATA ATTRIBUTE) ---
 JS_GET_INTERACTIVE_ELEMENTS = """
     const elements = Array.from(document.querySelectorAll(
@@ -79,79 +78,116 @@ JS_GET_INTERACTIVE_ELEMENTS = """
 
 # --- NEW, MORE DETAILED SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
-You are "Magic Agent," an AI expert at controlling a web browser to complete tasks for a user. You are autonomous, proactive, and resourceful.
+You are "Magic Agent," a highly autonomous AI expert at controlling a web browser to complete tasks for a user. You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
 
-**--- Guiding Principles ---**
-1.  **Be Self-Sufficient:** Your primary goal is to complete the task independently. Explore links, try different search queries, and thoroughly investigate websites before asking for help.
-2.  **Always Explore:** Websites have more content than is initially visible. **YOU MUST ALWAYS use the `SCROLL` command** with `direction: "down"` to look for more information before deciding a page is not useful. You may need to scroll multiple times to see the whole page.
-3.  **Strict Command Usage:** To search for information, **YOU MUST use the `CUSTOM_SEARCH` command.** DO NOT use the `NAVIGATE` command to go to other search engine websites like google.com or bing.com. Use `CUSTOM_SEARCH` for all searching tasks.
-4.  **When to Ask for Help:** Only use the `PAUSE_AND_ASK` command as a last resort. Use it only if:
-    - The task requires specific information only the user can provide (e.g., a username, password, a specific file name).
-    - You are presented with a choice that the user must make (e.g., "There are two flights to Paris, one in the morning and one at night. Which one should I book?").
-    - You have tried multiple approaches (different searches, clicking different links, scrolling) and are still unable to make any progress.
+--- GUIDING PRINCIPLES ---
 
-**--- Handling Obstacles ---**
--   If you encounter a "prove you are not a robot" (CAPTCHA) page, you cannot solve it. **DO NOT ask the user for help.** Instead, consider the current website a dead end. Use `CUSTOM_SEARCH` again with different keywords or click a different search result to find an alternative source of information.
+1.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after performing an action. The initial view is only the top of the page. You must scroll to understand the full context and find the information you need. Assume content exists "below the fold."
 
-**--- Core Workflow ---**
-1.  **Analyze:** Understand the user's ultimate goal.
-2.  **Choose Command:** Select ONE command that makes progress towards the goal.
-3.  **Provide Rationale:** In "thought", explain your choice.
-4.  **Inform User:** In "speak", write a brief, friendly message.
+2.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command. It is your only tool for searching. Do NOT use the `NAVIGATE` command to go to other search engines like google.com or bing.com.
 
-**Your responses MUST ALWAYS be a single JSON object.**
+3.  **HANDLING OBSTACLES (CAPTCHA):** If you land on a page with a CAPTCHA ("I'm not a robot", "reCAPTCHA", "Verify you are human"), you cannot solve it. DO NOT ask the user for help. Your strategy is to be self-sufficient: immediately use the `GO_BACK` command to return to the previous page (likely search results) and then choose a different link. If there are no other links, perform a new `CUSTOM_SEARCH` with a different query.
+
+4.  **INDEPENDENCE VS. ASKING FOR HELP:** Be independent and resourceful. Try to solve the user's request by exploring websites, scrolling, and trying different search queries. However, if you have genuinely tried multiple avenues and are still stuck, or if you require specific, personal information that only the user can provide (like a username, a password, or a personal preference), you MUST use the `PAUSE_AND_ASK` command to request the information.
+
+--- YOUR RESPONSE FORMAT ---
+
+Your response MUST ALWAYS be a single JSON object with "command", "params", "thought", and "speak" fields.
 
 --- COMMAND REFERENCE ---
+
 **== BROWSER START/STOP COMMANDS ==**
+
 1.  **`START_BROWSER`**: Initiates a new browser session.
-2.  **`END_BROWSER`**: Closes the browser when the task is fully complete. Params: `{"reason": "<summary>"}`
+    - **Params:** `{}`
+
+2.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
+    - **Params:** `{"reason": "<summary of findings or completion message>"}`
 
 **== NAVIGATION COMMANDS ==**
-3.  **`NAVIGATE`**: Goes directly to a specific URL. Params: `{"url": "<full_url>"}`
-4.  **`CUSTOM_SEARCH`**: Performs a search using the dedicated custom search engine. This is the ONLY way you should search. Params: `{"query": "<search_term>"}`
+
+3.  **`NAVIGATE`**: Goes directly to a specific URL. (Do NOT use this for search engines).
+    - **Params:** `{"url": "<full_url>"}`
+
+4.  **`CUSTOM_SEARCH`**: Performs a search using the dedicated custom search engine. THIS IS YOUR ONLY SEARCH TOOL.
+    - **Params:** `{"query": "<search_term>"}`
+    - **Example:** `{"command": "CUSTOM_SEARCH", "params": {"query": "latest AI news"}, "thought": "I will use the required search tool to find information.", "speak": "Searching for 'latest AI news'..."}`
+
+5.  **`GO_BACK`**: Navigates to the previous page in history (like the browser's back arrow).
+    - **Params:** `{}`
+    - **Example:** `{"command": "GO_BACK", "params": {}, "thought": "This page has a CAPTCHA, so I must go back to the search results to pick another link.", "speak": "This page is blocked. Going back to find another source."}`
 
 **== PAGE INTERACTION COMMANDS ==**
-5.  **`CLICK`**: Clicks an element by its label number. Params: `{"label": <int>}`
-6.  **`TYPE`**: Types text where the cursor is. **MUST use `CLICK` on a text field before using `TYPE`.** Params: `{"text": "<text>", "enter": <true/false>}`
-7.  **`CLEAR`**: Clears text from an input field. Params: `{"label": <int>}`
-8.  **`SCROLL`**: Scrolls the page. **You should always do this to see all content.** Params: `{"direction": "<up|down>"}`
+
+6.  **`CLICK`**: Clicks an element identified by its label number.
+    - **Params:** `{"label": <int>}`
+
+7.  **`TYPE`**: Types text where the cursor is. **IMPORTANT: You MUST `CLICK` a text field before using `TYPE`.**
+    - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
+
+8.  **`CLEAR`**: Clears all text from an input field.
+    - **Params:** `{"label": <int>}`
+
+9.  **`SCROLL`**: Scrolls the page up or down. You should do this often.
+    - **Params:** `{"direction": "<up|down>"}`
+    - **Example:** `{"command": "SCROLL", "params": {"direction": "down"}, "thought": "I have loaded the page, now I must scroll down to see all the content.", "speak": "Scrolling down to read the page."}`
 
 **== TAB MANAGEMENT COMMANDS ==**
-9.  **`NEW_TAB`**: Opens a new tab. Params: `{"url": "<optional_url>"}`
-10. **`SWITCH_TO_TAB`**: Switches focus to a different tab. Params: `{"tab_id": <int>}`
-11. **`CLOSE_TAB`**: Closes the current tab.
+
+10. **`NEW_TAB`**: Opens a new tab.
+    - **Params:** `{"url": "<optional_url_to_open>"}`
+
+11. **`SWITCH_TO_TAB`**: Switches to a different open tab.
+    - **Params:** `{"tab_id": <int>}`
+
+12. **`CLOSE_TAB`**: Closes the currently active tab.
+    - **Params:** `{}`
 
 **== USER INTERACTION COMMANDS ==**
-12. **`PAUSE_AND_ASK`**: Pauses the task to ask the user a question **only when you are completely stuck.** Params: `{"question": "<your_question>"}`
-13. **`SPEAK`**: For use in CHAT mode for simple conversation. Params: `{"text": "<your_response>"}`
+
+13. **`PAUSE_AND_ASK`**: Pauses the task to ask the user a question when you are truly blocked.
+    - **Params:** `{"question": "<your_question_for_the_user>"}`
+
+14. **`SPEAK`**: For use in CHAT mode for simple conversation.
+    - **Params:** `{"text": "<your_response>"}`
 """
 
 def send_whatsapp_message(to, text):
+    """Sends a simple text message."""
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
     data = {"messaging_product": "whatsapp", "to": to, "text": {"body": text}}
     try:
-        requests.post(url, headers=headers, json=data).raise_for_status()
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
         print(f"Sent text message to {to}: {text[:80]}...")
     except requests.exceptions.RequestException as e:
-        print(f"Error sending WhatsApp text message: {e} - {e.response.text if e.response else 'No response'}")
+        print(f"Error sending WhatsApp text message: {e} - {response.text}")
 
 def send_whatsapp_image(to, image_path, caption=""):
+    """Uploads an image and sends it to the user."""
     upload_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/media"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
     files = {'file': (image_path.name, open(image_path, 'rb'), 'image/png'), 'messaging_product': (None, 'whatsapp'), 'type': (None, 'image/png')}
+    media_id = None
     try:
         response = requests.post(upload_url, headers=headers, files=files)
         response.raise_for_status()
         media_id = response.json().get('id')
-        if not media_id:
-            print("Failed to get media ID from WhatsApp upload."); return
-        send_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
-        data = {"messaging_product": "whatsapp", "to": to, "type": "image", "image": {"id": media_id, "caption": caption}}
+    except requests.exceptions.RequestException as e:
+        print(f"Error uploading WhatsApp media: {e} - {response.text}")
+        return
+    if not media_id:
+        print("Failed to get media ID from WhatsApp upload.")
+        return
+    send_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to, "type": "image", "image": {"id": media_id, "caption": caption}}
+    try:
         requests.post(send_url, headers=headers, json=data).raise_for_status()
         print(f"Sent image message to {to} with caption: {caption}")
     except requests.exceptions.RequestException as e:
-        print(f"Error sending WhatsApp image message: {e} - {e.response.text if e.response else 'No response'}")
+        print(f"Error sending WhatsApp image message: {e} - {response.text}")
 
 def get_or_create_session(phone_number):
     if phone_number not in user_sessions:
@@ -170,16 +206,18 @@ def start_browser(session):
     if session.get("driver"): return session["driver"]
     print("Starting new browser instance...")
     options = Options()
-    options.add_argument("--headless=new"); options.add_argument("--no-sandbox"); options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1280,800"); options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
+    options.add_argument("--headless=new"); options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage"); options.add_argument("--window-size=1280,800")
+    options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
     try:
-        driver = webdriver.Chrome(options=options); session["driver"] = driver; session["mode"] = "BROWSER"; return driver
-    except Exception as e:
-        print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc(); return None
+        driver = webdriver.Chrome(options=options)
+        session["driver"] = driver; session["mode"] = "BROWSER"
+        return driver
+    except Exception as e: print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc(); return None
 
 def close_browser(session):
     if session.get("driver"):
-        print(f"Closing browser for session {session['user_dir'].name}");
+        print(f"Closing browser for session {session['user_dir'].name}")
         try: session["driver"].quit()
         except: pass
         session["driver"] = None
@@ -212,159 +250,108 @@ def get_page_state(driver, session):
     except Exception as e: print(f"Error getting page state: {e}"); traceback.print_exc(); return None, "", tab_info_text
 
 def call_ai(chat_history, context_text="", image_path=None):
-    prompt_parts = [context_text];
+    prompt_parts = [context_text]
     if image_path:
         try: prompt_parts.append({"mime_type": "image/png", "data": image_path.read_bytes()})
         except Exception as e: return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error: {e}"}, "thought": "Image read failed.", "speak": "Error with screen view."})
     last_error = None
     for i, key in enumerate(GEMINI_API_KEYS):
         try:
-            print(f"Attempting AI call with key #{i+1}..."); genai.configure(api_key=key)
+            print(f"Attempting to call AI with API key #{i+1}...")
+            genai.configure(api_key=key)
             model = genai.GenerativeModel(AI_MODEL_NAME, system_instruction=SYSTEM_PROMPT, generation_config={"response_mime_type": "application/json"})
-            response = model.start_chat(history=chat_history).send_message(prompt_parts); print("AI call successful.")
-            return response.text
+            chat = model.start_chat(history=chat_history)
+            response = chat.send_message(prompt_parts)
+            print("AI call successful."); return response.text
         except Exception as e: print(f"API key #{i+1} failed. Error: {e}"); last_error = e; continue
-    print("All API keys failed."); return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {last_error}"}, "thought": "AI API failed.", "speak": "Error connecting to my brain."})
+    print("All API keys failed.")
+    return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {last_error}"}, "thought": "AI API failed.", "speak": "Error connecting to my brain."})
 
 def process_next_browser_step(from_number, session, caption):
-    if not session.get("driver"):
-        print("process_next_browser_step called, but browser is not running. Aborting.")
-        return
     screenshot_path, labels_text, tab_info_text = get_page_state(session["driver"], session)
     if screenshot_path:
         context_text = f"User's Goal: {session['original_prompt']}\n\n{tab_info_text}\n{labels_text}"
         send_whatsapp_image(from_number, screenshot_path, caption=caption)
         ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
         process_ai_command(from_number, ai_response)
-    else:
-        send_whatsapp_message(from_number, "Could not get a view of the page. Closing browser.")
-        close_browser(session)
+    else: send_whatsapp_message(from_number, "Could not get a view of the page. Closing browser."); close_browser(session)
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
-    try:
-        command_data = json.loads(ai_response_text)
+    try: command_data = json.loads(ai_response_text)
     except json.JSONDecodeError:
-        send_whatsapp_message(from_number, "I received a malformed response from my brain. Please try again.")
+        send_whatsapp_message(from_number, ai_response_text)
         if session["mode"] == "BROWSER": close_browser(session)
         return
-
-    command = command_data.get("command")
-    params = command_data.get("params", {})
-    speak = command_data.get("speak", "")
-    
-    print(f"Executing: {command} | Params: {params} | Thought: {command_data.get('thought', '')}")
+        
+    command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
+    print(f"Executing: {command} | Params: {params} | Thought: {thought}")
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
-    if speak:
-        send_whatsapp_message(from_number, speak)
-
-    # --- RESTRUCTURED COMMAND HANDLING ---
-
-    # 1. Handle non-browser commands first
-    if command == "SPEAK":
-        return  # The message was already sent
+    if speak: send_whatsapp_message(from_number, speak)
     
-    # 2. Handle explicit browser start
-    if command == "START_BROWSER":
+    driver = session.get("driver")
+    
+    # --- SMARTER COMMAND HANDLING: If browser is closed, start it and retry the command. ---
+    if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER"]:
+        send_whatsapp_message(from_number, "The browser was closed. I'm starting it up to continue your task...")
         driver = start_browser(session)
         if not driver:
-            send_whatsapp_message(from_number, "I failed to start the browser.")
+            send_whatsapp_message(from_number, "I failed to restart the browser. Please start a new task.")
             close_browser(session)
             return
         time.sleep(1)
-        driver.get(CUSTOM_SEARCH_URL_BASE)
-        time.sleep(1)
-        process_next_browser_step(from_number, session, "Browser started. What's next?")
+        # Re-run the same command now that the browser is open.
+        process_ai_command(from_number, ai_response_text)
         return
 
-    # 3. For any other command, ensure the browser is running.
-    driver = session.get("driver")
-    if not driver:
-        print(f"Browser is not running for command '{command}'. Auto-starting.")
-        send_whatsapp_message(from_number, "I need the browser for that. Starting it now...")
-        driver = start_browser(session)
-        if not driver:
-            send_whatsapp_message(from_number, "I failed to start the browser. Please try again.")
-            return
-    
-    # 4. Now that we are sure a browser is open, execute the command.
     try:
         action_was_performed = True
-        if command == "NAVIGATE":
-            driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
+        if command == "START_BROWSER":
+            driver = start_browser(session)
+            if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
+            time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); time.sleep(1)
+            process_next_browser_step(from_number, session, "Browser started. What's next?")
+            return
+        elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
         elif command == "CUSTOM_SEARCH":
             query = quote_plus(params.get('query', ''))
-            driver.get(CUSTOM_SEARCH_URL_TEMPLATE % query)
-        elif command == "NEW_TAB":
-            driver.switch_to.new_window('tab')
-            if "url" in params and params["url"]:
-                driver.get(params["url"])
+            search_url = CUSTOM_SEARCH_URL_TEMPLATE % query
+            driver.get(search_url)
+        elif command == "GO_BACK": # <-- NEW COMMAND IMPLEMENTATION
+            driver.back()
+        elif command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
         elif command == "CLOSE_TAB":
-            if len(driver.window_handles) > 1:
-                driver.close()
-                driver.switch_to.window(driver.window_handles[0])
-            else:
-                send_whatsapp_message(from_number, "I can't close the last tab.")
-                action_was_performed = False
+            if len(driver.window_handles) > 1: driver.close(); driver.switch_to.window(driver.window_handles[0])
+            else: send_whatsapp_message(from_number, "I can't close the last tab."); action_was_performed = False
         elif command == "SWITCH_TO_TAB":
             handle = session["tab_handles"].get(params.get("tab_id"))
-            if handle:
-                driver.switch_to.window(handle)
-            else:
-                send_whatsapp_message(from_number, "I couldn't find that tab ID.")
-                action_was_performed = False
+            if handle: driver.switch_to.window(handle)
+            else: send_whatsapp_message(from_number, "I couldn't find that tab ID."); action_was_performed = False
         elif command == "CLICK":
             label = params.get("label")
-            if not session["labeled_elements"].get(label):
-                send_whatsapp_message(from_number, f"Label {label} is not a valid choice.")
-                action_was_performed = False
+            if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} is not a valid choice."); action_was_performed = False
             else:
-                try:
-                    driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
-                except Exception as e:
-                    print(f"Click failed: {e}")
-                    send_whatsapp_message(from_number, "I tried to click that, but something went wrong.")
+                try: driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
+                except Exception as e: print(f"Click failed: {e}"); send_whatsapp_message(from_number, "I tried to click that, but something went wrong.")
         elif command == "TYPE":
-            action = ActionChains(driver)
-            action.send_keys(params.get("text", "")).perform()
-            if params.get("enter"):
-                ActionChains(driver).send_keys(Keys.ENTER).perform()
+            action = ActionChains(driver); action.send_keys(params.get("text", "")).perform()
+            if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
         elif command == "CLEAR":
             label = params.get("label")
-            if not session["labeled_elements"].get(label):
-                send_whatsapp_message(from_number, f"Label {label} is not valid for clearing.")
-                action_was_performed = False
+            if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} is not valid for clearing."); action_was_performed = False
             else:
                 try:
-                    elem = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
-                    elem.send_keys(Keys.CONTROL + "a")
-                    elem.send_keys(Keys.DELETE)
-                except Exception as e:
-                    print(f"Clear failed: {e}")
-                    send_whatsapp_message(from_number, "I tried to clear that field, but something went wrong.")
-        elif command == "SCROLL":
-            scroll_amount = 600 if params.get('direction', 'down') == 'down' else -600
-            driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
-        elif command == "END_BROWSER":
-            send_whatsapp_message(from_number, f"*Summary:*\n{params.get('reason', 'Task done.')}")
-            close_browser(session)
-            return
-        elif command == "PAUSE_AND_ASK":
-            return # Just wait for user input
-        else:
-            print(f"Unknown command received: {command}")
-            send_whatsapp_message(from_number, f"I thought of an unknown command ('{command}'). I'll look at the page again.")
-            action_was_performed = True # Rescan page state
+                    element = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
+                    element.send_keys(Keys.CONTROL + "a"); element.send_keys(Keys.DELETE)
+                except Exception as e: print(f"Clear failed: {e}"); send_whatsapp_message(from_number, "I tried to clear that field, but something went wrong.")
+        elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {600 if params.get('direction', 'down') == 'down' else -600});")
+        elif command == "END_BROWSER": send_whatsapp_message(from_number, f"*Summary:*\n{params.get('reason', 'Task done.')}"); close_browser(session); return
+        elif command == "PAUSE_AND_ASK": return
+        elif command == "SPEAK": return
+        else: print(f"Unknown command: {command}"); send_whatsapp_message(from_number, f"Unknown command '{command}'."); action_was_performed = True
         
-        if action_was_performed:
-            time.sleep(2)  # Wait for page to load/react
-            process_next_browser_step(from_number, session, f"Action done: {speak}")
-
-    except Exception as e:
-        print(f"Error during browser action: {e}")
-        traceback.print_exc()
-        send_whatsapp_message(from_number, f"An action failed with an error: {e}. Closing the browser for safety.")
-        close_browser(session)
+        if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done: {speak}")
+    except Exception as e: print(f"Error during browser action: {e}"); traceback.print_exc(); send_whatsapp_message(from_number, "An action failed. Closing browser."); close_browser(session)
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
