@@ -59,32 +59,26 @@ JS_GET_INTERACTIVE_ELEMENTS = """
 # --- REFINED SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
 You are "Magic Agent," an AI expert controlling a web browser. Your #1 priority is to be cautious and precise.
-
 **GUIDING PRINCIPLES:**
 1.  **WHEN IN DOUBT, ASK:** The `PAUSE_AND_ASK` command is your most important tool for safety. Use it *only* when you are in BROWSER mode and have analyzed a screen that presents a problem (e.g., a CAPTCHA, a login form, an unexpected pop-up, or ambiguous options). Do not guess.
 2.  **HANDLING USER RESPONSES:** After you `PAUSE_AND_ASK`, the user might give a specific instruction or a vague one like "continue". If they say "continue" or "proceed", you MUST re-analyze the last screen and choose a different, logical action (like scrolling or trying an alternative button).
 3.  **NAVIGATE DIRECTLY:** If you know a URL, always use `NAVIGATE` instead of searching. It's faster and more reliable.
 4.  **BE THOROUGH:** If you don't see what you need, your default action should be to `SCROLL` down to explore the rest of the page.
-
 **CONTEXT PROVIDED:** In BROWSER mode, you get a screenshot with numbered elements, a list of those elements, and a list of open tabs.
 **Your responses MUST ALWAYS be a single JSON object.**
 
 --- COMMAND REFERENCE ---
-
 **== NAVIGATION & SEARCH (Starts browser automatically) ==**
 1. `NAVIGATE`: Goes directly to a URL. Params: `{"url": "<full_url>"}`
 2. `BRAVE_SEARCH`: Performs a Brave Search. Params: `{"query": "<search_term>"}`
-
 **== PAGE INTERACTION ==**
 3. `CLICK`: Clicks an element by its label number. Params: `{"label": <int>}`
 4. `TYPE`: Types text into an input field (clicks it first). Params: `{"label": <int>, "text": "<text_to_type>", "enter": <true/false>}`
 5. `SCROLL`: Scrolls the page. Params: `{"direction": "<up|down>"}`
-
 **== TAB MANAGEMENT ==**
 6. `NEW_TAB`: Opens a new tab. Params: `{"url": "<optional_url>"}`
 7. `SWITCH_TO_TAB`: Switches to an open tab by `tab_id`. Params: `{"tab_id": <int>}`
 8. `CLOSE_TAB`: Closes the current tab. Params: `{}`
-
 **== SESSION & CHAT ==**
 9. `PAUSE_AND_ASK`: **Use this in BROWSER mode when you are stuck.** The question you want to ask the user should be in the `speak` field.
    - Example: `{"command": "PAUSE_AND_ASK", "thought": "I see a login form, but I don't have credentials. I must ask the user.", "speak": "I've run into a login page. How should I proceed? Do you have credentials I can use?"}`
@@ -185,14 +179,31 @@ def process_next_browser_step(from_number, session, caption):
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
-    try: command_data = json.loads(ai_response_text)
-    except json.JSONDecodeError: send_whatsapp_message(from_number, ai_response_text); close_browser(session) if session["mode"] == "BROWSER" else None; return
     
+    # --- FIX FOR LIST VS DICT RESPONSE ---
+    try:
+        command_data = json.loads(ai_response_text)
+        if isinstance(command_data, list):
+            print("[System] AI returned a list of actions. Processing the first one.")
+            if command_data:
+                command_data = command_data[0] # Take the first action
+            else:
+                raise json.JSONDecodeError("AI returned an empty JSON list.", ai_response_text, 0)
+        
+        if not isinstance(command_data, dict):
+            raise json.JSONDecodeError("Parsed JSON is not a dictionary.", ai_response_text, 0)
+
+    except json.JSONDecodeError as e:
+        print(f"JSON Decode Error: {e}")
+        send_whatsapp_message(from_number, f"[System] I received an invalid instruction from my brain. Let me try to re-evaluate.")
+        if session["mode"] == "BROWSER":
+            process_next_browser_step(from_number, session, "[System] Re-evaluating the current page.")
+        return
+    # --- END FIX ---
+
     command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
     print(f"Executing: {command} | Params: {params} | Thought: {thought}")
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
-    
-    # Send the AI's conversational message first. This is now the primary way it talks.
     if speak: send_whatsapp_message(from_number, speak)
 
     driver = session.get("driver")
@@ -206,9 +217,7 @@ def process_ai_command(from_number, ai_response_text):
 
     if browser_was_started and command not in ["NAVIGATE", "BRAVE_SEARCH"]:
         send_whatsapp_message(from_number, "[System] Browser is open. Re-evaluating next step.")
-        time.sleep(1)
-        process_next_browser_step(from_number, session, "Okay, browser is open. Let's see what to do.")
-        return
+        time.sleep(1); process_next_browser_step(from_number, session, "Okay, browser is open. Let's see what to do."); return
 
     try:
         if command in BROWSER_COMMANDS and not driver: send_whatsapp_message(from_number, "[System] Action failed because browser is not running."); return
@@ -232,23 +241,11 @@ def process_ai_command(from_number, ai_response_text):
                 if command == "TYPE": action.send_keys(params.get("text", "")).perform(); ActionChains(driver).send_keys(u'\ue007').perform() if params.get("enter") else None
                 else: action.perform()
         elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {600 if params.get('direction', 'down') == 'down' else -600});")
-        elif command == "END_BROWSER":
-            # The 'speak' field was already sent. Now send the final reason.
-            send_whatsapp_message(from_number, f"*Summary from Magic Agent:*\n{params.get('reason', 'Task done.')}")
-            close_browser(session)
-            return
-        elif command == "PAUSE_AND_ASK":
-            # The AI's question was already sent via the `speak` field.
-            # We just need to halt the action loop.
-            return
-        elif command == "SPEAK":
-            # The message was already sent via the `speak` field.
-            return
-        else:
-            print(f"Unknown command received: {command}")
-            return
-        
-        if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done.") # Caption is simpler now
+        elif command == "END_BROWSER": send_whatsapp_message(from_number, f"*Summary from Magic Agent:*\n{params.get('reason', 'Task done.')}"); close_browser(session); return
+        elif command == "PAUSE_AND_ASK": return
+        elif command == "SPEAK": return
+        else: print(f"Unknown command received: {command}"); return
+        if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done.")
     except Exception as e: print(f"Error during browser action: {e}"); traceback.print_exc(); send_whatsapp_message(from_number, "[System] An action failed. Closing browser."); close_browser(session)
 
 @app.route('/webhook', methods=['GET', 'POST'])
