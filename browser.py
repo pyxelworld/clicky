@@ -23,7 +23,7 @@ VERIFY_TOKEN = "121222220611"
 # --- AI MODEL CONFIGURATION ---
 # Using gemini-1.5-flash as a stable, available vision model.
 # If you have confirmed access to 'gemini-2.0-flash', you can change it back here.
-AI_MODEL_NAME = "gemini-1.5-flash"
+AI_MODEL_NAME = "gemini-2.0-flash"
 
 # --- PROJECT SETUP ---
 app = Flask(__name__)
