@@ -1,5 +1,5 @@
 # Arquivo: bot_whatsapp.py
-# Este é o bot principal que responde às mensagens do WhatsApp.
+# CORRIGIDO para usar a API genai.Client e o método generate_content_stream.
 
 import os
 import json
@@ -10,33 +10,64 @@ from google.genai import types
 
 # --- INÍCIO DAS CONFIGURAÇÕES E CHAVES ---
 # ATENÇÃO: É uma má prática de segurança colocar chaves diretamente no código.
-# O ideal é usar variáveis de ambiente. Faça isso após seus testes.
-
-# Chave da API do Google Gemini
-GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
-
-# Credenciais da API do WhatsApp (Meta)
-WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
-WHATSAPP_PHONE_NUMBER_ID = "757771334076445" # Observação: IDs de número de telefone costumam ser mais longos. Se tiver problemas, confirme este valor no painel da Meta.
-VERIFY_TOKEN = "12122222061" # Este token é usado para verificar a identidade do seu webhook
-
+# Use variáveis de ambiente em um ambiente de produção.
+GEMINI_API_KEY = "SUA_CHAVE_API_DO_GEMINI_AQUI"
+WHATSAPP_TOKEN = "SEU_TOKEN_DE_ACESSO_DO_WHATSAPP_AQUI"
+WHATSAPP_PHONE_NUMBER_ID = "SEU_ID_DO_NUMERO_DE_TELEFONE_AQUI"
+VERIFY_TOKEN = "SEU_TOKEN_DE_VERIFICACAO_AQUI" # Ex: 12122222061
 # --- FIM DAS CONFIGURAÇÕES E CHAVES ---
 
 # Configuração do Flask
 app = Flask(__name__)
 
-# Configura o cliente da Google GenAI
-genai.configure(api_key=GEMINI_API_KEY)
-
 def call_gemini(user_message: str) -> str:
-    """Função que chama a API do Gemini e retorna a resposta."""
+    """
+    Função que chama a API do Gemini usando a estrutura genai.Client
+    e o método de streaming, conforme solicitado.
+    """
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(user_message)
-        return response.text
+        # 1. Cria o cliente, exatamente como no seu exemplo.
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        # 2. Define o modelo a ser usado.
+        model_name = "gemini-1.5-flash" # Modelo moderno e eficiente
+
+        # 3. Prepara o conteúdo da mensagem do usuário na estrutura correta.
+        # A mensagem do usuário é inserida aqui.
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text=user_message),
+                ],
+            ),
+        ]
+        
+        # 4. Define a configuração de geração, incluindo a instrução de sistema.
+        # A instrução de sistema define a personalidade do bot.
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+            system_instruction=[
+                types.Part.from_text(text="Você é um assistente prestativo chamado ClickyBot. Responda de forma concisa e amigável."),
+            ],
+        )
+
+        # 5. Chama o método de streaming e coleta os pedaços (chunks) da resposta.
+        # Como o WhatsApp não suporta streaming, juntamos tudo em uma única string.
+        response_chunks = []
+        for chunk in client.models.generate_content_stream(
+            model=model_name,
+            contents=contents,
+            config=generate_content_config,
+        ):
+            response_chunks.append(chunk.text)
+            
+        # 6. Retorna a resposta completa.
+        return "".join(response_chunks)
+
     except Exception as e:
         print(f"Erro ao chamar a API do Gemini: {e}")
-        return "Desculpe, ocorreu um erro ao tentar processar sua mensagem."
+        return "Desculpe, ocorreu um erro ao tentar processar sua mensagem. Tente novamente mais tarde."
 
 def send_whatsapp_message(to_number: str, message: str):
     """Envia uma mensagem de texto para um número de WhatsApp usando a API da Meta."""
@@ -59,9 +90,6 @@ def send_whatsapp_message(to_number: str, message: str):
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
-    # A verificação GET é necessária para a configuração inicial do webhook.
-    # O bot principal também precisa ter essa rota para o caso de a Meta
-    # tentar verificar novamente no futuro.
     if request.method == 'GET':
         mode = request.args.get('hub.mode')
         token = request.args.get('hub.verify_token')
@@ -72,10 +100,9 @@ def webhook():
         else:
             return Response(status=403)
 
-    # Rota POST para receber as mensagens do usuário
     if request.method == 'POST':
         body = request.get_json()
-        print(json.dumps(body, indent=2)) # Log para depuração
+        print(json.dumps(body, indent=2))
 
         try:
             if (body.get("entry") and
@@ -91,7 +118,10 @@ def webhook():
                     user_message_text = message_info["text"]["body"]
                     print(f"Mensagem de texto recebida de {from_number}: {user_message_text}")
                     
+                    # Chama a função Gemini corrigida
                     gemini_response = call_gemini(user_message_text)
+                    
+                    # Envia a resposta de volta
                     send_whatsapp_message(from_number, gemini_response)
                 
                 else:
@@ -99,12 +129,15 @@ def webhook():
                     print(f"Mensagem não-texto ({message_type}) recebida de {from_number}.")
                     send_whatsapp_message(from_number, non_text_message)
 
-        except (KeyError, IndexError, TypeError):
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"Erro no processamento do webhook: {e}")
             pass
 
         return Response(status=200)
 
 if __name__ == '__main__':
+    # Para rodar localmente com o Cloudflare Tunnel, você pode usar o servidor de desenvolvimento do Flask.
+    # Em produção real, é melhor usar Gunicorn ou similar.
     print("Servidor do Bot WhatsApp iniciado em http://localhost:5000")
-    print("Aguardando mensagens...")
-    app.run(port=5000, debug=True)
+    print("Aguardando mensagens via webhook...")
+    app.run(port=5000, debug=False)
