@@ -29,7 +29,7 @@ GEMINI_API_KEYS = [
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
-AI_MODEL_NAME = "gemini-2.0-flash" # Note: Changed to a more common and recent model name.
+AI_MODEL_NAME = "gemini-2.0-flash"
 
 # --- PROJECT SETUP ---
 app = Flask(__name__)
@@ -37,36 +37,6 @@ BASE_DIR = Path(__file__).parent
 USER_DATA_DIR = BASE_DIR / "user_data"
 USER_DATA_DIR.mkdir(exist_ok=True)
 user_sessions = {}
-
-# --- JAVASCRIPT FOR ELEMENT LABELING ---
-JS_GET_INTERACTIVE_ELEMENTS = """
-    const elements = Array.from(document.querySelectorAll(
-        'a, button, input:not([type="hidden"]), textarea, [role="button"], [role="link"], [onclick]'
-    ));
-    const interactiveElements = [];
-    let labelCounter = 1;
-    for (let i = 0; i < elements.length; i++) {
-        const elem = elements[i];
-        const rect = elem.getBoundingClientRect();
-        // Filter out invisible, off-screen, or very small elements
-        if (rect.width > 5 && rect.height > 5 && rect.top >= 0 && rect.left >= 0 &&
-            rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-            rect.right <= (window.innerWidth || document.documentElement.clientWidth)) {
-            let text = (elem.innerText || elem.value || elem.getAttribute('aria-label') || elem.getAttribute('placeholder') || '').trim().replace(/\\s+/g, ' ').substring(0, 50);
-            interactiveElements.push({
-                label: labelCounter,
-                x: rect.left,
-                y: rect.top,
-                width: rect.width,
-                height: rect.height,
-                tag: elem.tagName.toLowerCase(),
-                text: text
-            });
-            labelCounter++;
-        }
-    }
-    return interactiveElements;
-"""
 
 # --- NEW, MORE DETAILED SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
@@ -247,7 +217,7 @@ def close_browser(session):
     session["tab_handles"] = {}
 
 def get_page_state(driver, session):
-    """Gets screenshot, labels, and tab info."""
+    """Gets screenshot, labels (using Selenium), and tab info."""
     screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
     
     # 1. Get Tab Info
@@ -263,7 +233,7 @@ def get_page_state(driver, session):
             driver.switch_to.window(handle)
             tabs.append({"id": tab_id, "title": driver.title, "is_active": handle == current_handle})
         
-        driver.switch_to.window(current_handle) # Switch back to the originally active tab
+        driver.switch_to.window(current_handle)
 
         tab_info_text = "Open Tabs:\n"
         for tab in tabs:
@@ -273,11 +243,45 @@ def get_page_state(driver, session):
         print(f"Could not get tab info: {e}")
         return None, "", ""
     
-    # 2. Get Labeled Screenshot
+    # 2. Get Labeled Screenshot using Selenium finders (more robust)
     try:
-        elements = driver.execute_script(JS_GET_INTERACTIVE_ELEMENTS)
-        session["labeled_elements"] = {el['label']: el for el in elements}
-        labels_text = "Interactive Elements:\n" + "\n".join([f"  {l}: {e['tag']} '{e['text']}'" for l, e in session["labeled_elements"].items()])
+        # Define viewport dimensions
+        viewport_height = driver.execute_script("return window.innerHeight")
+        viewport_width = driver.execute_script("return window.innerWidth")
+
+        # Find all potential interactive elements
+        selector = 'a, button, input:not([type="hidden"]), textarea, [role="button"], [role="link"], [onclick]'
+        elements = driver.find_elements(By.CSS_SELECTOR, selector)
+        
+        session["labeled_elements"] = {}
+        label_counter = 1
+        visible_elements_for_drawing = []
+
+        for elem in elements:
+            if not elem.is_displayed():
+                continue
+            
+            rect = elem.rect
+            # Check if element is within the viewport
+            if rect['y'] < viewport_height and rect['x'] < viewport_width and \
+               (rect['y'] + rect['height']) > 0 and (rect['x'] + rect['width']) > 0:
+                
+                text = (elem.text or elem.get_attribute('value') or elem.get_attribute('aria-label') or elem.get_attribute('placeholder') or "").strip().replace('\s+', ' ').substring(0, 50)
+                
+                element_data = {
+                    'webelement': elem, # Store the actual WebElement
+                    'x': rect['x'],
+                    'y': rect['y'],
+                    'width': rect['width'],
+                    'height': rect['height'],
+                    'tag': elem.tag_name,
+                    'text': text
+                }
+                session["labeled_elements"][label_counter] = element_data
+                visible_elements_for_drawing.append((label_counter, element_data))
+                label_counter += 1
+
+        labels_text = "Interactive Elements:\n" + "\n".join([f"  {label}: {data['tag']} '{data['text']}'" for label, data in visible_elements_for_drawing])
         
         png_data = driver.get_screenshot_as_png()
         image = Image.open(io.BytesIO(png_data))
@@ -287,13 +291,13 @@ def get_page_state(driver, session):
         except IOError:
             font = ImageFont.load_default()
         
-        for label, el in session["labeled_elements"].items():
-            x, y, w, h = el['x'], el['y'], el['width'], el['height']
+        for label, data in visible_elements_for_drawing:
+            x, y, w, h = data['x'], data['y'], data['width'], data['height']
             draw.rectangle([x, y, x + w, y + h], outline="red", width=2)
             draw.text((x, y - 15 if y > 15 else y), str(label), fill="red", font=font)
         
         image.save(screenshot_path)
-        print(f"State captured: {len(elements)} labels, {len(tabs)} tabs.")
+        print(f"State captured: {len(session['labeled_elements'])} labels, {len(tabs)} tabs.")
         return screenshot_path, labels_text, tab_info_text
     except Exception as e:
         print(f"Error getting page state: {e}")
@@ -323,11 +327,8 @@ def call_ai(chat_history, context_text="", image_path=None):
         except Exception as e:
             print(f"API key #{i+1} failed. Error: {e}")
             last_error = e
-            # If the error is not about permissions, maybe don't rotate.
-            # For now, we'll try the next key for any error during the API call.
             continue
     
-    # If all keys failed
     print("All API keys failed.")
     return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: All API keys failed. Last error: {last_error}"}, "thought": "All my connections to the AI brain are failing. I cannot continue.", "speak": "Sorry, I'm having trouble connecting to my AI brain right now. Let's stop for now."})
 
@@ -379,7 +380,6 @@ def process_ai_command(from_number, ai_response_text):
         return
 
     try:
-        # Browser is running for all commands below this line
         action_was_performed = True
         if command == "NAVIGATE":
             driver.get(params.get("url", "https://search.brave.com"))
@@ -393,34 +393,32 @@ def process_ai_command(from_number, ai_response_text):
         elif command == "CLOSE_TAB":
             if len(driver.window_handles) > 1:
                 driver.close()
-                driver.switch_to.window(driver.window_handles[0]) # Switch to first available tab
+                driver.switch_to.window(driver.window_handles[0])
             else:
                 send_whatsapp_message(from_number, "I can't close the last tab.")
-                action_was_performed = False # No state change
+                action_was_performed = False
         elif command == "SWITCH_TO_TAB":
             handle = session["tab_handles"].get(params.get("tab_id"))
             if handle:
                 driver.switch_to.window(handle)
             else:
                 send_whatsapp_message(from_number, "I couldn't find that tab ID.")
-                action_was_performed = False # No state change
+                action_was_performed = False
         elif command == "CLICK":
             label = params.get("label")
-            target_element = session["labeled_elements"].get(label)
-            if not target_element:
+            target_element_data = session["labeled_elements"].get(label)
+            if not target_element_data:
                 send_whatsapp_message(from_number, f"Label {label} is not valid. Let me look again.")
                 action_was_performed = False
             else:
-                x = target_element['x'] + target_element['width'] / 2
-                y = target_element['y'] + target_element['height'] / 2
-                body = driver.find_element(By.TAG_NAME, 'body')
-                ActionChains(driver).move_to_element_with_offset(body, 0, 0).move_by_offset(x, y).click().perform()
+                element_to_click = target_element_data['webelement']
+                element_to_click.click() # More robust click
         elif command == "TYPE":
-            # This command now types into the currently focused element.
             action = ActionChains(driver)
-            action.send_keys(params.get("text", "")).perform()
+            action.send_keys(params.get("text", ""))
             if params.get("enter"):
-                ActionChains(driver).send_keys(u'\ue007').perform()
+                action.send_keys(u'\ue007')
+            action.perform()
         elif command == "SCROLL":
             scroll_amount = 600 if params.get('direction', 'down') == 'down' else -600
             driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
@@ -429,29 +427,27 @@ def process_ai_command(from_number, ai_response_text):
             close_browser(session)
             return
         elif command == "PAUSE_AND_ASK":
-            # The command already sends the 'speak' message, so we just need to pause execution here.
             return
         elif command == "SPEAK":
-            # This command is for CHAT mode, no browser action needed.
             return
         else:
             print(f"Unknown command received: {command}")
             send_whatsapp_message(from_number, f"I received an unknown command '{command}'. Let me look at the page again.")
-            action_was_performed = True # Force a rescan of the page
         
         if action_was_performed:
-            time.sleep(2) # Wait for page to load/react
+            time.sleep(2)
             process_next_browser_step(from_number, session, f"Action done: {speak}")
-        else:
-            # If no action happened (e.g., bad label, bad tab id), we don't need a new screenshot loop.
-            # The user has been notified, let them guide the next step.
-            pass
 
     except Exception as e:
         print(f"Error during browser action: {e}")
         traceback.print_exc()
-        send_whatsapp_message(from_number, f"An action failed with an error. I'm closing the browser for safety.")
-        close_browser(session)
+        if "element is not attached" in str(e):
+             send_whatsapp_message(from_number, "The page changed before I could act. Let me look again.")
+             time.sleep(2)
+             process_next_browser_step(from_number, session, "Page reloaded, trying again.")
+        else:
+            send_whatsapp_message(from_number, f"An action failed with an error. I'm closing the browser for safety.")
+            close_browser(session)
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
@@ -477,16 +473,14 @@ def webhook():
                 ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                 process_ai_command(from_number, ai_response)
             elif session["mode"] == "BROWSER":
-                if not session.get("driver"): # Handle cases where browser died unexpectedly
+                if not session.get("driver"):
                     close_browser(session)
                     ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                     process_ai_command(from_number, ai_response)
                     return Response(status=200)
-                # This is the "resume" logic. User's message is new info.
                 send_whatsapp_message(from_number, "Okay, using that info to continue...")
                 process_next_browser_step(from_number, session, "Continuing with new instructions.")
         except (KeyError, IndexError, TypeError):
-            # This handles webhook pings and other non-message events
             pass
         except Exception as e:
             print(f"Error processing webhook: {e}")
