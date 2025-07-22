@@ -1,6 +1,3 @@
-# Arquivo: bot_whatsapp.py
-# CORRIGIDO para usar a API genai.Client e o método generate_content_stream.
-
 import os
 import json
 import requests
@@ -8,30 +5,21 @@ from flask import Flask, request, Response
 from google import genai
 from google.genai import types
 
-# --- INÍCIO DAS CONFIGURAÇÕES E CHAVES ---
-# Chave da API do Google Gemini
 GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
-
-# Credenciais da API do WhatsApp (Meta)
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445" # Observação: IDs de número de telefone costumam ser mais longos. Se tiver problemas, confirme este valor no painel da Meta.
-VERIFY_TOKEN = "12122222061" # Este token é usado para verificar a identidade do seu webhook
-# --- FIM DAS CONFIGURAÇÕES E CHAVES ---
+VERIFY_TOKEN = "121222220611" # Este token é usado para verificar a identidade do seu webhook
 
 # Configuração do Flask
 app = Flask(__name__)
 
 def call_gemini(user_message: str) -> str:
-    """
-    Função que chama a API do Gemini usando a estrutura genai.Client
-    e o método de streaming, conforme solicitado.
-    """
     try:
         # 1. Cria o cliente, exatamente como no seu exemplo.
         client = genai.Client(api_key=GEMINI_API_KEY)
 
         # 2. Define o modelo a ser usado.
-        model_name = "gemini-1.5-flash" # Modelo moderno e eficiente
+        model_name = "gemini-2.0-flash" # Modelo moderno e eficiente
 
         # 3. Prepara o conteúdo da mensagem do usuário na estrutura correta.
         # A mensagem do usuário é inserida aqui.
@@ -137,8 +125,6 @@ def webhook():
         return Response(status=200)
 
 if __name__ == '__main__':
-    # Para rodar localmente com o Cloudflare Tunnel, você pode usar o servidor de desenvolvimento do Flask.
-    # Em produção real, é melhor usar Gunicorn ou similar.
     print("Servidor do Bot WhatsApp iniciado em http://localhost:5000")
     print("Aguardando mensagens via webhook...")
     app.run(port=5000, debug=False)
