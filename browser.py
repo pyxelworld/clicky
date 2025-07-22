@@ -30,7 +30,7 @@ WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aG
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
 # --- CHANGE ---: Using the officially recommended latest alias for the flash model.
-GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"
+GEMINI_MODEL_NAME = "gemini-2.0-flash"
 
 # --- AI Initialization ---
 genai.configure(api_key=GEMINI_API_KEY)
