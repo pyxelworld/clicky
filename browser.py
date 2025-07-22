@@ -134,7 +134,7 @@ def send_whatsapp_message(to, text):
         requests.post(url, headers=headers, json=data).raise_for_status()
         print(f"Sent text message to {to}: {text[:80]}...")
     except requests.exceptions.RequestException as e:
-        print(f"Error sending WhatsApp text message: {e} - {response.text}")
+        print(f"Error sending WhatsApp text message: {e} - {e.response.text if e.response else 'No response'}")
 
 def send_whatsapp_image(to, image_path, caption=""):
     upload_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/media"
@@ -151,7 +151,7 @@ def send_whatsapp_image(to, image_path, caption=""):
         requests.post(send_url, headers=headers, json=data).raise_for_status()
         print(f"Sent image message to {to} with caption: {caption}")
     except requests.exceptions.RequestException as e:
-        print(f"Error sending WhatsApp image message: {e} - {response.text}")
+        print(f"Error sending WhatsApp image message: {e} - {e.response.text if e.response else 'No response'}")
 
 def get_or_create_session(phone_number):
     if phone_number not in user_sessions:
@@ -227,6 +227,9 @@ def call_ai(chat_history, context_text="", image_path=None):
     print("All API keys failed."); return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {last_error}"}, "thought": "AI API failed.", "speak": "Error connecting to my brain."})
 
 def process_next_browser_step(from_number, session, caption):
+    if not session.get("driver"):
+        print("process_next_browser_step called, but browser is not running. Aborting.")
+        return
     screenshot_path, labels_text, tab_info_text = get_page_state(session["driver"], session)
     if screenshot_path:
         context_text = f"User's Goal: {session['original_prompt']}\n\n{tab_info_text}\n{labels_text}"
@@ -239,74 +242,129 @@ def process_next_browser_step(from_number, session, caption):
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
-    try: command_data = json.loads(ai_response_text)
+    try:
+        command_data = json.loads(ai_response_text)
     except json.JSONDecodeError:
-        send_whatsapp_message(from_number, ai_response_text)
+        send_whatsapp_message(from_number, "I received a malformed response from my brain. Please try again.")
         if session["mode"] == "BROWSER": close_browser(session)
         return
 
-    command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
-    print(f"Executing: {command} | Params: {params} | Thought: {thought}")
+    command = command_data.get("command")
+    params = command_data.get("params", {})
+    speak = command_data.get("speak", "")
+    
+    print(f"Executing: {command} | Params: {params} | Thought: {command_data.get('thought', '')}")
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
-    if speak: send_whatsapp_message(from_number, speak)
-    
-    driver = session.get("driver")
+    if speak:
+        send_whatsapp_message(from_number, speak)
 
-    # *** NEW LOGIC: AUTO-START BROWSER IF NEEDED ***
-    if not driver and command not in ["SPEAK", "START_BROWSER"]:
-        print(f"Browser is closed. Auto-starting for command: {command}")
-        send_whatsapp_message(from_number, "The browser was closed. I'm starting it now to handle your request...")
-        driver = start_browser(session)
-        if not driver:
-            send_whatsapp_message(from_number, "I failed to start the browser. Please try again later.")
-            close_browser(session)
-            return
+    # --- RESTRUCTURED COMMAND HANDLING ---
+
+    # 1. Handle non-browser commands first
+    if command == "SPEAK":
+        return  # The message was already sent
     
+    # 2. Handle explicit browser start
     if command == "START_BROWSER":
         driver = start_browser(session)
-        if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
-        time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); time.sleep(1)
+        if not driver:
+            send_whatsapp_message(from_number, "I failed to start the browser.")
+            close_browser(session)
+            return
+        time.sleep(1)
+        driver.get(CUSTOM_SEARCH_URL_BASE)
+        time.sleep(1)
         process_next_browser_step(from_number, session, "Browser started. What's next?")
         return
 
+    # 3. For any other command, ensure the browser is running.
+    driver = session.get("driver")
+    if not driver:
+        print(f"Browser is not running for command '{command}'. Auto-starting.")
+        send_whatsapp_message(from_number, "I need the browser for that. Starting it now...")
+        driver = start_browser(session)
+        if not driver:
+            send_whatsapp_message(from_number, "I failed to start the browser. Please try again.")
+            return
+    
+    # 4. Now that we are sure a browser is open, execute the command.
     try:
         action_was_performed = True
-        if command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
+        if command == "NAVIGATE":
+            driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
         elif command == "CUSTOM_SEARCH":
             query = quote_plus(params.get('query', ''))
             driver.get(CUSTOM_SEARCH_URL_TEMPLATE % query)
-        elif command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
+        elif command == "NEW_TAB":
+            driver.switch_to.new_window('tab')
+            if "url" in params and params["url"]:
+                driver.get(params["url"])
         elif command == "CLOSE_TAB":
-            if len(driver.window_handles) > 1: driver.close(); driver.switch_to.window(driver.window_handles[0])
-            else: send_whatsapp_message(from_number, "I can't close the last tab."); action_was_performed = False
+            if len(driver.window_handles) > 1:
+                driver.close()
+                driver.switch_to.window(driver.window_handles[0])
+            else:
+                send_whatsapp_message(from_number, "I can't close the last tab.")
+                action_was_performed = False
         elif command == "SWITCH_TO_TAB":
             handle = session["tab_handles"].get(params.get("tab_id"))
-            if handle: driver.switch_to.window(handle)
-            else: send_whatsapp_message(from_number, "I couldn't find that tab ID."); action_was_performed = False
+            if handle:
+                driver.switch_to.window(handle)
+            else:
+                send_whatsapp_message(from_number, "I couldn't find that tab ID.")
+                action_was_performed = False
         elif command == "CLICK":
             label = params.get("label")
-            if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} is not a valid choice."); action_was_performed = False
-            else:
-                try: driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
-                except Exception as e: print(f"Click failed: {e}"); send_whatsapp_message(from_number, "I tried to click that, but something went wrong.")
-        elif command == "TYPE":
-            action = ActionChains(driver); action.send_keys(params.get("text", "")).perform()
-            if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
-        elif command == "CLEAR":
-            label = params.get("label")
-            if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} is not valid for clearing."); action_was_performed = False
+            if not session["labeled_elements"].get(label):
+                send_whatsapp_message(from_number, f"Label {label} is not a valid choice.")
+                action_was_performed = False
             else:
                 try:
-                    elem = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]'); elem.send_keys(Keys.CONTROL + "a"); elem.send_keys(Keys.DELETE)
-                except Exception as e: print(f"Clear failed: {e}"); send_whatsapp_message(from_number, "I tried to clear that field, but something went wrong.")
-        elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {600 if params.get('direction', 'down') == 'down' else -600});")
-        elif command == "END_BROWSER": send_whatsapp_message(from_number, f"*Summary:*\n{params.get('reason', 'Task done.')}"); close_browser(session); return
-        elif command == "PAUSE_AND_ASK": return
-        elif command == "SPEAK": return # This case handles SPEAK in chat mode where driver is None
-        else: print(f"Unknown command: {command}"); send_whatsapp_message(from_number, f"Unknown command '{command}'."); action_was_performed = True
+                    driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
+                except Exception as e:
+                    print(f"Click failed: {e}")
+                    send_whatsapp_message(from_number, "I tried to click that, but something went wrong.")
+        elif command == "TYPE":
+            action = ActionChains(driver)
+            action.send_keys(params.get("text", "")).perform()
+            if params.get("enter"):
+                ActionChains(driver).send_keys(Keys.ENTER).perform()
+        elif command == "CLEAR":
+            label = params.get("label")
+            if not session["labeled_elements"].get(label):
+                send_whatsapp_message(from_number, f"Label {label} is not valid for clearing.")
+                action_was_performed = False
+            else:
+                try:
+                    elem = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
+                    elem.send_keys(Keys.CONTROL + "a")
+                    elem.send_keys(Keys.DELETE)
+                except Exception as e:
+                    print(f"Clear failed: {e}")
+                    send_whatsapp_message(from_number, "I tried to clear that field, but something went wrong.")
+        elif command == "SCROLL":
+            scroll_amount = 600 if params.get('direction', 'down') == 'down' else -600
+            driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
+        elif command == "END_BROWSER":
+            send_whatsapp_message(from_number, f"*Summary:*\n{params.get('reason', 'Task done.')}")
+            close_browser(session)
+            return
+        elif command == "PAUSE_AND_ASK":
+            return # Just wait for user input
+        else:
+            print(f"Unknown command received: {command}")
+            send_whatsapp_message(from_number, f"I thought of an unknown command ('{command}'). I'll look at the page again.")
+            action_was_performed = True # Rescan page state
         
-        if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done: {speak}")
-    except Exception as e: print(f"Error during browser action: {e}"); traceback.print_exc(); send_whatsapp_message(from_number, "An action failed. Closing browser."); close_browser(session)
+        if action_was_performed:
+            time.sleep(2)  # Wait for page to load/react
+            process_next_browser_step(from_number, session, f"Action done: {speak}")
+
+    except Exception as e:
+        print(f"Error during browser action: {e}")
+        traceback.print_exc()
+        send_whatsapp_message(from_number, f"An action failed with an error: {e}. Closing the browser for safety.")
+        close_browser(session)
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
