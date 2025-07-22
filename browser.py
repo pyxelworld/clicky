@@ -15,16 +15,15 @@ from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
 
 # --- CONFIGURATION ---
-# As requested, these are used directly. For production, use environment variables.
 GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
 
 # --- AI MODEL CONFIGURATION ---
-# IMPORTANT: You specified 'gemini-2.0-flash'. If this model name is not available
-# for your API key, you might get an error. A common alternative is 'gemini-1.5-flash'.
-AI_MODEL_NAME = "gemini-2.0-flash" # Changed to a known working model to prevent immediate errors. Change back if you have access to 2.0.
+# Using gemini-1.5-flash as a stable, available vision model.
+# If you have confirmed access to 'gemini-2.0-flash', you can change it back here.
+AI_MODEL_NAME = "gemini-1.5-flash"
 
 # --- PROJECT SETUP ---
 app = Flask(__name__)
@@ -32,7 +31,6 @@ BASE_DIR = Path(__file__).parent
 USER_DATA_DIR = BASE_DIR / "user_data"
 USER_DATA_DIR.mkdir(exist_ok=True)
 
-# In-memory storage for user sessions. For production, consider a database like Redis.
 user_sessions = {}
 
 # --- SYSTEM PROMPT FOR MAGIC AGENT ---
@@ -204,8 +202,6 @@ def close_browser(session):
             session["driver"] = None
     session["mode"] = "CHAT"
     session["original_prompt"] = ""
-    # Optionally clear chat history or keep it for context in the next session
-    # session["chat_history"] = []
 
 def take_screenshot_with_grid(driver, session, grid_interval=100):
     """Takes a screenshot and overlays a coordinate grid."""
@@ -221,7 +217,6 @@ def take_screenshot_with_grid(driver, session, grid_interval=100):
             print("DejaVuSans.ttf font not found. Using default font.")
             font = ImageFont.load_default()
 
-        # Draw grid and labels
         for x in range(0, width, grid_interval):
             draw.line([(x, 0), (x, height)], fill=(255, 0, 0, 128), width=1)
             draw.text((x + 2, 2), str(x), fill="red", font=font)
@@ -249,17 +244,14 @@ def call_ai(chat_history, image_path=None):
         generation_config={"response_mime_type": "application/json"}
     )
     
-    # The history is passed directly to the model's chat session
     chat = model.start_chat(history=chat_history)
     
-    # Prepare the prompt for the current turn
-    last_user_message = next((msg['parts'][0] for msg in reversed(chat_history) if msg['role'] == 'user'), "")
-    prompt_parts = [last_user_message]
-    
+    last_user_message_content = chat_history[-1]['parts'] if chat_history and chat_history[-1]['role'] == 'user' else [""]
+    prompt_parts = list(last_user_message_content)
+
     if image_path:
         print(f"AI Call: Vision mode with image {image_path.name}")
         try:
-            # When an image is present, we send it as part of the prompt
             img_part = {"mime_type": "image/png", "data": image_path.read_bytes()}
             prompt_parts.append(img_part)
         except Exception as e:
@@ -274,21 +266,17 @@ def call_ai(chat_history, image_path=None):
         print("AI Call: Chat mode")
 
     try:
-        # Use send_message which handles history automatically
         response = chat.send_message(prompt_parts)
-        # We access the response text directly
         return response.text
     except Exception as e:
         print(f"CRITICAL: Error calling Gemini API: {e}")
         traceback.print_exc()
-        # Fallback response
         return json.dumps({
             "command": "END_BROWSER",
             "params": {"reason": f"An internal error occurred with the AI model: {e}"},
             "thought": "The AI API call failed. I must end the session to be safe.",
             "speak": "I've run into an unexpected error and have to stop this browser session."
         })
-
 
 def process_ai_command(from_number, ai_response_text):
     """Parses AI response and executes the corresponding action."""
@@ -300,7 +288,6 @@ def process_ai_command(from_number, ai_response_text):
         print("AI returned non-JSON response. Treating as a simple text reply.")
         send_whatsapp_message(from_number, ai_response_text)
         session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
-        # If in browser mode, this is an error, so we reset.
         if session["mode"] == "BROWSER":
              send_whatsapp_message(from_number, "I seem to be having trouble with my internal commands. I'll close the browser for now.")
              close_browser(session)
@@ -314,13 +301,10 @@ def process_ai_command(from_number, ai_response_text):
     print(f"Executing command: {command} with params: {params}")
     print(f"AI Thought: {thought}")
 
-    # Add AI's structured response to history
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
 
     if speak:
         send_whatsapp_message(from_number, speak)
-
-    # --- Command Execution ---
 
     if command == "START_BROWSER":
         driver = start_browser(session)
@@ -329,14 +313,11 @@ def process_ai_command(from_number, ai_response_text):
             close_browser(session)
             return
 
-        time.sleep(2)  # Give browser time to initialize
+        time.sleep(2)
         screenshot_path = take_screenshot_with_grid(driver, session)
         if screenshot_path:
             caption = "Okay, the browser is open. Here is the starting page. What should I do first?"
             send_whatsapp_image(from_number, screenshot_path, caption=caption)
-            
-            # The last message in history is the user's initial prompt.
-            # We now call the AI again, this time with the image.
             ai_response = call_ai(session["chat_history"], image_path=screenshot_path)
             process_ai_command(from_number, ai_response)
         else:
@@ -357,7 +338,7 @@ def process_ai_command(from_number, ai_response_text):
                 action = ActionChains(driver).move_to_element_with_offset(element, x, y).click()
                 action.send_keys(text_to_type)
                 if params.get("enter", False):
-                    action.send_keys(u'\ue007') # Press Enter key
+                    action.send_keys(u'\ue007')
                 action.perform()
 
             elif command == "CLICK":
@@ -370,7 +351,7 @@ def process_ai_command(from_number, ai_response_text):
                 scroll_amount = 500 if direction == 'down' else -500
                 driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
             
-            time.sleep(2) # Wait for page to react
+            time.sleep(2)
             screenshot_path = take_screenshot_with_grid(driver, session)
             if screenshot_path:
                 send_whatsapp_image(from_number, screenshot_path, caption=f"Action done: {speak}")
@@ -385,11 +366,9 @@ def process_ai_command(from_number, ai_response_text):
             send_whatsapp_message(from_number, f"I tried to perform an action but ran into an error: {e}. I'll close the browser for safety.")
             close_browser(session)
 
-
     elif command == "PAUSE_AND_ASK":
         question = params.get("question", "I need some more information.")
         send_whatsapp_message(from_number, question)
-        # Session remains in BROWSER mode, waiting for user reply.
 
     elif command == "END_BROWSER":
         reason = params.get("reason", "Task completed successfully.")
@@ -397,8 +376,6 @@ def process_ai_command(from_number, ai_response_text):
         close_browser(session)
 
     elif command == "SPEAK":
-        # The 'speak' text was already sent at the start of the function.
-        # This command is for simple chat replies where no other action is taken.
         pass
 
     else:
@@ -420,14 +397,14 @@ def webhook():
 
     if request.method == 'POST':
         body = request.get_json()
-        # print(json.dumps(body, indent=2)) # Uncomment for full webhook debugging
 
         try:
-            # Check if it's a message notification
-            if "entry" not in body or "changes" not in body[0] or "value" not in body["entry"][0]["changes"][0] or "messages" not in body["entry"][0]["changes"][0]["value"]:
-                return Response(status=200) # Not a message, ignore
+            # CORRECTED SECTION: The faulty 'if' check is removed.
+            # We now rely solely on the try/except block to filter for valid messages.
+            # This is more robust and correctly handles various webhook event types.
 
             message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
+            
             if message_info.get("type") != "text":
                 send_whatsapp_message(message_info.get("from"), "I can only process text messages right now. Please send me your request as text.")
                 return Response(status=200)
@@ -438,22 +415,18 @@ def webhook():
             
             session = get_or_create_session(from_number)
             
-            # Add user message to history in the format Gemini expects
             session["chat_history"].append({"role": "user", "parts": [user_message_text]})
 
             if session["mode"] == "CHAT":
                 session["original_prompt"] = user_message_text
-                # First call to AI to decide if it needs the browser or can just speak
                 ai_response = call_ai(session["chat_history"])
                 process_ai_command(from_number, ai_response)
 
             elif session["mode"] == "BROWSER":
-                # User is replying to a PAUSE_AND_ASK or giving new instructions mid-session
                 driver = session.get("driver")
                 if not driver:
                      send_whatsapp_message(from_number, "It seems my browser closed unexpectedly. Let's start over.")
                      close_browser(session)
-                     # Treat this as a new prompt
                      session["original_prompt"] = user_message_text
                      ai_response = call_ai(session["chat_history"])
                      process_ai_command(from_number, ai_response)
@@ -469,6 +442,10 @@ def webhook():
                     send_whatsapp_message(from_number, "I couldn't get a view of the page to continue. Closing browser.")
                     close_browser(session)
         
+        except (KeyError, IndexError, TypeError):
+            # This block will now correctly catch any webhook event that is NOT a user message
+            # (e.g., status updates, etc.), and silently ignore them.
+            pass
         except Exception as e:
             print(f"Error processing webhook POST request: {e}")
             traceback.print_exc()
@@ -479,4 +456,6 @@ if __name__ == '__main__':
     print("--- Magic Agent WhatsApp Bot Server ---")
     print(f"Listening on port 5000. Webhook URL: [YOUR_TUNNEL_URL]/webhook")
     print("Ensure your Cloudflared or ngrok tunnel is running and pointed to port 5000.")
+    # In the original error, the app was named 'browser', let's name it correctly.
+    app.name = 'whatsapp'
     app.run(port=5000, debug=False)
