@@ -118,7 +118,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 
 **== NAVIGATION COMMANDS ==**
 
-5.  **`NAVIGATE`**: Goes directly to a URL.
+5.  **`NAVIGATE`**: Goes directly to a URL. IF YOU KNOW THE URL OF SOMETHING, DONT WASTE YOUR TIME USING CUSTOM SEARCH. GO DIRECTLY WHERE YOU NEED TO GO.
     - **Params:** `{"url": "<full_url>"}`
 
 6.  **`CUSTOM_SEARCH`**: Performs a search using "Bing".
