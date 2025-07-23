@@ -42,8 +42,9 @@ user_sessions = {}
 processed_message_ids = set()
 
 # --- CONSTANTS ---
-CUSTOM_SEARCH_URL_BASE = "https://cse.google.com/cse?cx=b0ccd7d88551d4e50"
-CUSTOM_SEARCH_URL_TEMPLATE = "https://cse.google.com/cse?cx=b0ccd7d88551d4e50#gsc.tab=0&gsc.sort=&gsc.q=%s"
+# NEW: Switched to Bing Search
+CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
+CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
 GRID_CELL_SIZE = 40 # The size of each grid cell in pixels for grid mode
 
 # --- JAVASCRIPT FOR ELEMENT LABELING (ADDS A DATA ATTRIBUTE) ---
@@ -98,7 +99,7 @@ You operate in one of two modes: LABEL mode or GRID mode. You must manage switch
 
 2.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action. The initial view is only the top of the page. You must scroll to understand the full context.
 
-3.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command with our "Clicky Search" engine. Do NOT use `NAVIGATE` to go to other search engines.
+3.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command, which uses the Bing search engine. Do NOT use `NAVIGATE` to go to other search engines.
 
 4.  **LOGIN & CREDENTIALS:** If a page requires a login, you MUST NOT attempt to fill it in. Stop and ask the user for permission using the `PAUSE_AND_ASK` command. Follow the same if you are asked a verification code or other.
 
@@ -134,7 +135,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 5.  **`NAVIGATE`**: Goes directly to a URL.
     - **Params:** `{"url": "<full_url>"}`
 
-6.  **`CUSTOM_SEARCH`**: Performs a search using "Clicky Search".
+6.  **`CUSTOM_SEARCH`**: Performs a search using Bing.
     - **Params:** `{"query": "<search_term>"}`
 
 7.  **`GO_BACK`**: Navigates to the previous page in history.
@@ -322,15 +323,14 @@ def process_next_browser_step(from_number, session, caption):
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
     
-    # --- NEW: Check for user-triggered stop or interrupt flags ---
     if session.get("stop_requested"):
         print("Stop was requested, ignoring AI command.")
-        session["stop_requested"] = False # Reset flag
+        session["stop_requested"] = False 
         session["chat_history"] = []
         return
     if session.get("interrupt_requested"):
         print("Interrupt was requested, ignoring AI command.")
-        session["interrupt_requested"] = False # Reset flag
+        session["interrupt_requested"] = False
         return
 
     try: command_data = json.loads(ai_response_text)
@@ -374,21 +374,19 @@ def process_ai_command(from_number, ai_response_text):
                     x = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     print(f"Grid clicking at viewport coordinates ({x}, {y}) for cell {cell}")
-                    # --- FIX: Use correct string identifier "mouse" for PointerInput ---
-                    pointer = PointerInput("mouse", "mouse")
-                    actions = ActionChains(driver)
-                    actions.w3c_actions.add_action(pointer.create_pointer_move(duration=0, x=int(x), y=int(y), origin="viewport"))
-                    actions.w3c_actions.add_action(pointer.create_pointer_down(PointerInput.LEFT_BUTTON))
-                    actions.w3c_actions.add_action(pointer.create_pointer_up(PointerInput.LEFT_BUTTON))
-                    actions.perform()
+                    # --- FIX: Use a simple, robust ActionChain to click at an absolute coordinate ---
+                    html_element = driver.find_element(By.TAG_NAME, 'html')
+                    ActionChains(driver).move_to_element_with_offset(html_element, int(x), int(y)).click().perform()
         elif command == "START_BROWSER":
             driver = start_browser(session)
             if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
+            # NEW: Navigate to Bing on start
             time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); time.sleep(1)
-            process_next_browser_step(from_number, session, "Browser started. What's next?")
+            process_next_browser_step(from_number, session, "Browser started on Bing. What's next?")
             return
         elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
         elif command == "CUSTOM_SEARCH":
+            # NEW: Uses Bing template
             driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
         elif command == "GO_BACK": driver.back()
         elif command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
@@ -425,13 +423,11 @@ def process_ai_command(from_number, ai_response_text):
         else: print(f"Unknown command: {command}"); send_whatsapp_message(from_number, f"Unknown command '{command}'."); action_was_performed = True
         
         if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done: {speak}")
-    # --- NEW: Improved error handling without closing the browser ---
     except Exception as e:
         error_summary = f"Error during command '{command}': {e}"
         print(f"CRITICAL: {error_summary}"); traceback.print_exc()
         send_whatsapp_message(from_number, f"An action failed. I will show the AI what happened so it can try to recover.")
         time.sleep(1)
-        # Give the AI context about the error and let it decide the next step
         process_next_browser_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -459,7 +455,6 @@ def webhook():
             session = get_or_create_session(from_number)
             
             command_text = user_message_text.strip().lower()
-            # --- NEW: /stop and /interrupt command logic ---
             if command_text == "/stop":
                 print(f"User {from_number} issued /stop command.")
                 session["stop_requested"] = True
@@ -474,7 +469,7 @@ def webhook():
                     send_whatsapp_message(from_number, "There is no browser task to interrupt.")
                 else:
                     session["interrupt_requested"] = True
-                    session["is_processing"] = False # Allow new user input
+                    session["is_processing"] = False
                     send_whatsapp_message(from_number, "Interrupted. The current action will be ignored. What would you like to do instead?")
                 return Response(status=200)
 
@@ -499,7 +494,6 @@ def webhook():
                     ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                     process_ai_command(from_number, ai_response)
                 elif session["mode"] == "BROWSER":
-                    # When user provides input during a browser session
                     process_next_browser_step(from_number, session, f"Continuing with new instructions from user: {user_message_text}")
             finally:
                 if not session.get("interrupt_requested"):
