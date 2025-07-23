@@ -39,7 +39,6 @@ user_sessions = {}
 processed_message_ids = set()
 
 # --- CONSTANTS ---
-# MODIFIED: Grid is now much larger for full-screen control
 GRID_WIDTH = 20
 GRID_HEIGHT = 20
 
@@ -112,7 +111,6 @@ def send_whatsapp_image(to, image_path, caption=""):
     except requests.exceptions.RequestException as e:
         print(f"Error sending/uploading WhatsApp image message: {e} - {getattr(e, 'response', '') and e.response.text}")
 
-
 def get_or_create_session(phone_number):
     if phone_number not in user_sessions:
         print(f"Creating new session for {phone_number}")
@@ -128,12 +126,12 @@ def start_browser(session):
     if session.get("browser_process"): return
     print("Starting new browser instance...")
     try:
-        # Just open Chrome, don't control it. PyAutoGUI will do the rest.
-        session["browser_process"] = subprocess.Popen(["google-chrome", "--start-maximized", "--no-first-run"])
-        time.sleep(2) # Give it a moment to open
+        # MODIFIED: Added --disable-gpu for better stability in virtual environments like Xvfb
+        session["browser_process"] = subprocess.Popen(["google-chrome", "--start-maximized", "--no-first-run", "--disable-gpu"])
+        time.sleep(3) # Increased sleep to give it more time to render
     except Exception as e:
         print(f"CRITICAL: Error starting Chrome: {e}")
-        print("Reminder: If on a server, you must use 'xvfb-run' to launch this script.")
+        print("Reminder: You MUST run this script using 'xvfb-run -a python your_script.py'")
         traceback.print_exc()
 
 def close_browser(session):
@@ -152,7 +150,8 @@ def get_screen_state(session):
     screenshot_path = USER_DATA_DIR / f"state_{int(time.time())}.png"
     try:
         with mss.mss() as sct:
-            monitor = sct.monitors[1] # sct.monitors[0] is the whole desktop, [1] is the primary monitor
+            # Grab the primary monitor
+            monitor = sct.monitors[1]
             img = sct.grab(monitor)
             image = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
         
@@ -245,7 +244,6 @@ def process_ai_command(from_number, ai_response_text):
             text_to_find = params.get("text")
             if not text_to_find: raise ValueError("No text provided for CLICK_TEXT")
             
-            # Use OCR to find the text on the screen
             screenshot = pyautogui.screenshot()
             ocr_data = pytesseract.image_to_data(screenshot, output_type=pytesseract.Output.DICT)
             
@@ -277,13 +275,12 @@ def process_ai_command(from_number, ai_response_text):
             return
 
         elif command == "PAUSE_AND_ASK":
-             # This command now just waits for the user's next message
-            return
+             return
 
         else:
             raise ValueError(f"Unknown command: {command}")
         
-        time.sleep(2) # Wait for the UI to react
+        time.sleep(2)
         process_next_step(from_number, session, f"Action done: {speak}")
 
     except Exception as e:
@@ -303,10 +300,26 @@ def webhook():
     
     if request.method == 'POST':
         body = request.get_json()
-        try:
-            message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
-            message_id = message_info.get("id")
+        print(f"Received webhook: {json.dumps(body, indent=2)}") # Log the full body for debugging
 
+        try:
+            # --- FIX START ---
+            # Check if the 'messages' key exists. If not, it's likely a status update (e.g., 'delivered'), not a user message.
+            # In that case, we should ignore it and not crash.
+            if (
+                "entry" in body and body["entry"] and
+                "changes" in body["entry"][0] and body["entry"][0]["changes"] and
+                "value" in body["entry"][0]["changes"][0] and
+                "messages" in body["entry"][0]["changes"][0]["value"] and body["entry"][0]["changes"][0]["value"]["messages"]
+            ):
+                message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
+            else:
+                # This is not a user message payload, so we can ignore it.
+                print("Received a non-message webhook (e.g., status update). Ignoring.")
+                return Response(status=200)
+            # --- FIX END ---
+
+            message_id = message_info.get("id")
             if message_id in processed_message_ids: return Response(status=200)
             processed_message_ids.add(message_id)
             
@@ -314,24 +327,23 @@ def webhook():
                 send_whatsapp_message(message_info.get("from"), "I only process text messages."); return Response(status=200)
 
             from_number, user_message_text = message_info["from"], message_info["text"]["body"]
-            print(f"Received from {from_number}: '{user_message_text}'")
+            print(f"Processing message from {from_number}: '{user_message_text}'")
             session = get_or_create_session(from_number)
 
             session["chat_history"].append({"role": "user", "parts": [user_message_text]})
 
-            if not session.get("browser_process"): # First message of a task
+            if not session.get("browser_process"):
                 session["original_prompt"] = user_message_text
                 start_browser(session)
-                # Now that the browser is open, immediately process the first step
                 process_next_step(from_number, session, "Browser started. Here is the screen. What should I do first?")
-            else: # Follow-up message during a task
+            else:
                 process_next_step(from_number, session, f"Continuing with new instructions from user: {user_message_text}")
 
         except Exception as e:
-            print(f"Error in webhook: {e}"); traceback.print_exc()
+            print(f"Error in webhook processing: {e}"); traceback.print_exc()
         return Response(status=200)
 
 if __name__ == '__main__':
     print("--- Magic Agent Desktop Automator ---")
-    pyautogui.FAILSAFE = False # Disables the failsafe that moves mouse to corner to stop
+    pyautogui.FAILSAFE = False
     app.run(port=5000, debug=False)
