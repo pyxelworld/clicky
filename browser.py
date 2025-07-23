@@ -82,6 +82,9 @@ JS_GET_INTERACTIVE_ELEMENTS = """
 SYSTEM_PROMPT = """
 You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
 
+--- ERROR RECOVERY ---
+If you are told that a command failed, the page may have changed unexpectedly or the command was invalid. Analyze the new screenshot and the error message provided. Do not repeat the failed command. Instead, assess the situation and issue a new command to recover or proceed. For example, if a click failed, the element might not exist anymore; look for an alternative.
+
 --- INTERACTION MODES ---
 
 You operate in one of two modes: LABEL mode or GRID mode. You must manage switching between them.
@@ -212,7 +215,8 @@ def get_or_create_session(phone_number):
         session = {
             "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
             "user_dir": user_dir, "labeled_elements": {}, "tab_handles": {},
-            "is_processing": False, "interaction_mode": "LABEL" # NEW: Add interaction mode state
+            "is_processing": False, "interaction_mode": "LABEL",
+            "stop_requested": False, "interrupt_requested": False # Flags for user control
         }
         user_dir.mkdir(parents=True, exist_ok=True)
         user_sessions[phone_number] = session
@@ -238,7 +242,7 @@ def close_browser(session):
         except: pass
         session["driver"] = None
     session["mode"] = "CHAT"; session["original_prompt"] = ""; session["labeled_elements"] = {}
-    session["tab_handles"] = {}; session["interaction_mode"] = "LABEL" # Reset mode
+    session["tab_handles"] = {}; session["interaction_mode"] = "LABEL"
 
 def get_page_state(driver, session):
     screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
@@ -259,7 +263,6 @@ def get_page_state(driver, session):
         try: font = ImageFont.truetype("DejaVuSans.ttf", size=12)
         except IOError: font = ImageFont.load_default()
 
-        # --- NEW: MODE-AWARE SCREENSHOT GENERATION ---
         labels_text = ""
         if session["interaction_mode"] == "GRID":
             print("Capturing state in GRID mode.")
@@ -310,14 +313,26 @@ def call_ai(chat_history, context_text="", image_path=None):
 def process_next_browser_step(from_number, session, caption):
     screenshot_path, labels_text, tab_info_text = get_page_state(session["driver"], session)
     if screenshot_path:
-        context_text = f"User's Goal: {session['original_prompt']}\n\n{tab_info_text}\n{labels_text}"
+        context_text = f"User's Goal: {session['original_prompt']}\n\n{tab_info_text}\n{labels_text}\n\n{caption}"
         send_whatsapp_image(from_number, screenshot_path, caption=caption)
         ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
         process_ai_command(from_number, ai_response)
-    else: send_whatsapp_message(from_number, "Could not get a view of the page. Closing browser."); close_browser(session)
+    else: send_whatsapp_message(from_number, "Could not get a view of the page. I will close the browser."); close_browser(session)
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
+    
+    # --- NEW: Check for user-triggered stop or interrupt flags ---
+    if session.get("stop_requested"):
+        print("Stop was requested, ignoring AI command.")
+        session["stop_requested"] = False # Reset flag
+        session["chat_history"] = []
+        return
+    if session.get("interrupt_requested"):
+        print("Interrupt was requested, ignoring AI command.")
+        session["interrupt_requested"] = False # Reset flag
+        return
+
     try: command_data = json.loads(ai_response_text)
     except json.JSONDecodeError:
         send_whatsapp_message(from_number, ai_response_text)
@@ -342,7 +357,6 @@ def process_ai_command(from_number, ai_response_text):
 
     try:
         action_was_performed = True
-        # --- NEW: GRID MODE COMMANDS ---
         if command == "SWITCH_TO_GRID_MODE":
             session["interaction_mode"] = "GRID"
         elif command == "SWITCH_TO_LABEL_MODE":
@@ -360,16 +374,13 @@ def process_ai_command(from_number, ai_response_text):
                     x = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     print(f"Grid clicking at viewport coordinates ({x}, {y}) for cell {cell}")
-
-                    # Use W3C Actions to click at absolute viewport coordinates. This is more robust
-                    # as it's not relative to an element like 'body' which might have margins/offsets.
-                    pointer = PointerInput(PointerInput.MOUSE, "mouse")
+                    # --- FIX: Use correct string identifier "mouse" for PointerInput ---
+                    pointer = PointerInput("mouse", "mouse")
                     actions = ActionChains(driver)
                     actions.w3c_actions.add_action(pointer.create_pointer_move(duration=0, x=int(x), y=int(y), origin="viewport"))
                     actions.w3c_actions.add_action(pointer.create_pointer_down(PointerInput.LEFT_BUTTON))
                     actions.w3c_actions.add_action(pointer.create_pointer_up(PointerInput.LEFT_BUTTON))
                     actions.perform()
-        # --- REGULAR COMMANDS ---
         elif command == "START_BROWSER":
             driver = start_browser(session)
             if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
@@ -414,7 +425,14 @@ def process_ai_command(from_number, ai_response_text):
         else: print(f"Unknown command: {command}"); send_whatsapp_message(from_number, f"Unknown command '{command}'."); action_was_performed = True
         
         if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done: {speak}")
-    except Exception as e: print(f"Error during browser action: {e}"); traceback.print_exc(); send_whatsapp_message(from_number, "An action failed. Closing browser."); close_browser(session)
+    # --- NEW: Improved error handling without closing the browser ---
+    except Exception as e:
+        error_summary = f"Error during command '{command}': {e}"
+        print(f"CRITICAL: {error_summary}"); traceback.print_exc()
+        send_whatsapp_message(from_number, f"An action failed. I will show the AI what happened so it can try to recover.")
+        time.sleep(1)
+        # Give the AI context about the error and let it decide the next step
+        process_next_browser_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
@@ -441,12 +459,23 @@ def webhook():
             session = get_or_create_session(from_number)
             
             command_text = user_message_text.strip().lower()
+            # --- NEW: /stop and /interrupt command logic ---
             if command_text == "/stop":
                 print(f"User {from_number} issued /stop command.")
+                session["stop_requested"] = True
                 close_browser(session)
-                session["chat_history"] = []
                 session["is_processing"] = False
-                send_whatsapp_message(from_number, "Request stopped. Your current task has been cancelled.")
+                send_whatsapp_message(from_number, "Request stopped. Your current task has been cancelled. Any pending actions will be ignored.")
+                return Response(status=200)
+
+            if command_text == "/interrupt":
+                print(f"User {from_number} issued /interrupt command.")
+                if session["mode"] != "BROWSER":
+                    send_whatsapp_message(from_number, "There is no browser task to interrupt.")
+                else:
+                    session["interrupt_requested"] = True
+                    session["is_processing"] = False # Allow new user input
+                    send_whatsapp_message(from_number, "Interrupted. The current action will be ignored. What would you like to do instead?")
                 return Response(status=200)
 
             if command_text == "/clear":
@@ -459,7 +488,7 @@ def webhook():
                 return Response(status=200)
 
             if session.get("is_processing"):
-                send_whatsapp_message(from_number, "Please wait, I'm still working on your previous request."); return Response(status=200)
+                send_whatsapp_message(from_number, "Please wait, I'm still working on your previous request. You can use /interrupt to stop the current action or /stop to end the task completely."); return Response(status=200)
             
             try:
                 session["is_processing"] = True
@@ -470,10 +499,11 @@ def webhook():
                     ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                     process_ai_command(from_number, ai_response)
                 elif session["mode"] == "BROWSER":
-                    send_whatsapp_message(from_number, "Okay, using that info to continue...")
-                    process_next_browser_step(from_number, session, "Continuing with new instructions.")
+                    # When user provides input during a browser session
+                    process_next_browser_step(from_number, session, f"Continuing with new instructions from user: {user_message_text}")
             finally:
-                session["is_processing"] = False
+                if not session.get("interrupt_requested"):
+                    session["is_processing"] = False
 
         except (KeyError, IndexError, TypeError): pass
         except Exception as e: print(f"Error processing webhook: {e}"); traceback.print_exc()
