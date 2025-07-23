@@ -31,7 +31,7 @@ GEMINI_API_KEYS = [
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
 VERIFY_TOKEN = "121222220611"
-AI_MODEL_NAME = "gemini-1.5-flash" # Usei o 1.5 Flash, que é ótimo com imagens e mais recente.
+AI_MODEL_NAME = "gemini-2.0-flash" # Usei o 1.5 Flash, que é ótimo com imagens e mais recente.
 
 # --- PROJECT SETUP ---
 app = Flask(__name__)
@@ -49,7 +49,7 @@ VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 800
 
 # --- SYSTEM PROMPT (TOTALMENTE REESCRITO) ---
-SYSTEM_PROMPT = f""
+SYSTEM_PROMPT = """
 You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You see the screen and issue commands to operate it.
 
 --- YOUR CORE MECHANISM: THE VIRTUAL CURSOR ---
@@ -133,7 +133,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 - You are an AI called "Magic Agent", built by Pyxel (pyxelworld.com). You are an expert at browsing. For other tasks (like generating images, writing long texts), tell the user to talk to the main AI, "Magic", at https://wa.me/551127375623 or https://askmagic.com.br. You can create pre-filled links for the user, for example: `https://wa.me/551127375623?text=gere+uma+imagem+de+um+gato`.
 
 REMEMBER: ONLY THE "speak" FIELD IS SENT TO THE USER! Your "thought" is for your internal monologue.
-""
+"""
 
 def send_whatsapp_message(to, text):
     """Sends a simple text message."""
