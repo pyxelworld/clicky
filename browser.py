@@ -90,11 +90,8 @@ You operate in one of three modes, which you must manage by switching between th
 3.  **GRID Mode (Precision):** If you need to click something that has no text and is not labeled in LABEL mode (e.g., a specific point on a map, an image in a CAPTCHA), you must switch to this mode using `SWITCH_TO_GRID_MODE`. The screenshot will be overlaid with a clear, high-contrast coordinate grid (A1, B2, etc.). Use the `GRID_CLICK` command with the cell coordinate.
 
 --- GUIDING PRINCIPLES ---
-
 1.  **MODE SWITCHING STRATEGY:** Always start in TEXT mode. If you can't click something with `CLICK_TEXT`, switch to LABEL mode. If an element isn't labeled, switch to GRID mode for a precision click. After using LABEL or GRID mode for a specific action, you should generally switch back to the default TEXT mode using `SWITCH_TO_TEXT_MODE` for the next steps.
-
 2.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action. The initial view is only the top of the page. You must scroll to understand the full context.
-
 3.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command with our "Bing" search engine. Do NOT use `NAVIGATE` to go to other search engines.
 
 --- YOUR RESPONSE FORMAT ---
@@ -281,31 +278,40 @@ def process_ai_command(from_number, ai_response_text):
                 if not text_to_find:
                     send_whatsapp_message(from_number, "Error: CLICK_TEXT received no text."); action_was_performed = False
                 else:
-                    # --- NEW ROBUST LOGIC ---
                     found_element = None
-                    # 1. Prepare search text (lowercase) and XPath for case-insensitive search
                     search_text_lower = text_to_find.lower()
-                    upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                    lower = "abcdefghijklmnopqrstuvwxyz"
-                    # This XPath finds any element containing the text, ignoring case.
+                    upper, lower = "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
                     xpath = f"//*[contains(translate(normalize-space(.), '{upper}', '{lower}'), '{search_text_lower}')]"
-                    
-                    # 2. Find all potential elements in the source code (DOM)
                     potential_elements = driver.find_elements(By.XPATH, xpath)
-                    
-                    # 3. Iterate and find the first one that is VISIBLE and CLICKABLE
                     for element in potential_elements:
                         if element.is_displayed() and element.is_enabled():
                             found_element = element
                             print(f"Found visible, clickable element for text '{text_to_find}': {element.tag_name}")
-                            break # Use the first valid element
-                    
+                            break
+
                     if found_element:
+                        # --- NEW ROBUST CLICKING LOGIC ---
                         try:
-                            found_element.click() # Standard click
+                            # 1. Scroll the element into view.
+                            print("Scrolling element into view...")
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", found_element)
+                            time.sleep(0.5)  # Wait for scroll to complete
+
+                            # 2. Attempt a more human-like click via ActionChains.
+                            print("Attempting ActionChains click...")
+                            ActionChains(driver).move_to_element(found_element).click().perform()
+                            print("ActionChains click successful.")
                         except Exception as e:
-                            print(f"Standard click failed: {e}. Trying JS click.")
-                            driver.execute_script("arguments[0].click();", found_element) # Fallback click
+                            # 3. If that fails, fall back to a forceful JavaScript click.
+                            print(f"ActionChains click failed: {e}. Falling back to JavaScript click.")
+                            try:
+                                driver.execute_script("arguments[0].click();", found_element)
+                                print("JavaScript click successful.")
+                            except Exception as e2:
+                                print(f"JavaScript click also failed: {e2}")
+                                error_msg = f"I found '{text_to_find}' but failed to click it, even with advanced methods."
+                                send_whatsapp_message(from_number, error_msg)
+                                action_was_performed = False
                     else:
                         error_msg = f"I couldn't find a *visible and clickable* element with the text '{text_to_find}'."
                         send_whatsapp_message(from_number, error_msg)
@@ -325,7 +331,12 @@ def process_ai_command(from_number, ai_response_text):
                 label = params.get("label");
                 if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Invalid label: {label}."); action_was_performed = False
                 else:
-                    try: driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
+                    try: 
+                        element_to_click = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
+                        # Also make this click more robust
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", element_to_click)
+                        time.sleep(0.2)
+                        element_to_click.click()
                     except Exception as e: print(f"Click failed: {e}"); send_whatsapp_message(from_number, "Click failed.")
         elif command == "START_BROWSER":
             driver = start_browser(session)
