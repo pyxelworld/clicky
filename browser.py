@@ -13,6 +13,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.actions.pointer_input import PointerInput
+from selenium.webdriver.common.actions.action_builder import ActionBuilder # Import for clarity
 from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
 
@@ -42,8 +43,9 @@ user_sessions = {}
 processed_message_ids = set()
 
 # --- CONSTANTS ---
-CUSTOM_SEARCH_URL_BASE = "https://cse.google.com/cse?cx=b0ccd7d88551d4e50"
-CUSTOM_SEARCH_URL_TEMPLATE = "https://cse.google.com/cse?cx=b0ccd7d88551d4e50#gsc.tab=0&gsc.sort=&gsc.q=%s"
+# MODIFIED: Changed default search to Bing
+CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
+CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
 GRID_CELL_SIZE = 40 # The size of each grid cell in pixels for grid mode
 
 # --- JAVASCRIPT FOR ELEMENT LABELING (ADDS A DATA ATTRIBUTE) ---
@@ -79,6 +81,7 @@ JS_GET_INTERACTIVE_ELEMENTS = """
 """
 
 # --- NEW, MORE DETAILED SYSTEM PROMPT ---
+# MODIFIED: Changed search engine reference to Bing
 SYSTEM_PROMPT = """
 You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
 
@@ -98,7 +101,7 @@ You operate in one of two modes: LABEL mode or GRID mode. You must manage switch
 
 2.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action. The initial view is only the top of the page. You must scroll to understand the full context.
 
-3.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command with our "Clicky Search" engine. Do NOT use `NAVIGATE` to go to other search engines.
+3.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command with our "Bing" search engine. Do NOT use `NAVIGATE` to go to other search engines.
 
 4.  **LOGIN & CREDENTIALS:** If a page requires a login, you MUST NOT attempt to fill it in. Stop and ask the user for permission using the `PAUSE_AND_ASK` command. Follow the same if you are asked a verification code or other.
 
@@ -134,7 +137,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 5.  **`NAVIGATE`**: Goes directly to a URL.
     - **Params:** `{"url": "<full_url>"}`
 
-6.  **`CUSTOM_SEARCH`**: Performs a search using "Clicky Search".
+6.  **`CUSTOM_SEARCH`**: Performs a search using "Bing".
     - **Params:** `{"query": "<search_term>"}`
 
 7.  **`GO_BACK`**: Navigates to the previous page in history.
@@ -226,14 +229,22 @@ def start_browser(session):
     if session.get("driver"): return session["driver"]
     print("Starting new browser instance...")
     options = Options()
-    options.add_argument("--headless=new"); options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage"); options.add_argument("--window-size=1280,800")
+    # MODIFIED: Removed the "--headless=new" argument to run a visible Chrome instance.
+    # IMPORTANT: This will crash on a server without a display.
+    # You MUST run this script using `xvfb-run -a python your_script.py` on a headless server.
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1280,800")
     options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
     try:
         driver = webdriver.Chrome(options=options)
         session["driver"] = driver; session["mode"] = "BROWSER"; session["interaction_mode"] = "LABEL"
         return driver
-    except Exception as e: print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc(); return None
+    except Exception as e:
+        print(f"CRITICAL: Error starting Selenium browser: {e}")
+        print("Reminder: If on a server, you must use 'xvfb-run' to launch this script.")
+        traceback.print_exc()
+        return None
 
 def close_browser(session):
     if session.get("driver"):
@@ -322,15 +333,14 @@ def process_next_browser_step(from_number, session, caption):
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
     
-    # --- NEW: Check for user-triggered stop or interrupt flags ---
     if session.get("stop_requested"):
         print("Stop was requested, ignoring AI command.")
-        session["stop_requested"] = False # Reset flag
+        session["stop_requested"] = False
         session["chat_history"] = []
         return
     if session.get("interrupt_requested"):
         print("Interrupt was requested, ignoring AI command.")
-        session["interrupt_requested"] = False # Reset flag
+        session["interrupt_requested"] = False
         return
 
     try: command_data = json.loads(ai_response_text)
@@ -363,23 +373,30 @@ def process_ai_command(from_number, ai_response_text):
             session["interaction_mode"] = "LABEL"
         elif command == "GRID_CLICK":
             if session["interaction_mode"] != "GRID":
-                send_whatsapp_message(from_number, "Error: Cannot use GRID_CLICK in LABEL mode."); action_was_performed = False
+                send_whatsapp_message(from_number, "Error: Cannot use GRID_CLICK in LABEL mode.")
+                action_was_performed = False
             else:
                 cell = params.get("cell", "").upper()
                 if not cell or not cell[0].isalpha() or not cell[1:].isdigit():
-                    send_whatsapp_message(from_number, f"Invalid cell format: {cell}."); action_was_performed = False
+                    send_whatsapp_message(from_number, f"Invalid cell format: {cell}.")
+                    action_was_performed = False
                 else:
                     col_index = ord(cell[0]) - ord('A')
                     row_index = int(cell[1:]) - 1
                     x = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     print(f"Grid clicking at viewport coordinates ({x}, {y}) for cell {cell}")
-                    # --- FIX: Use correct string identifier "mouse" for PointerInput ---
-                    pointer = PointerInput("mouse", "mouse")
+                    
                     actions = ActionChains(driver)
-                    actions.w3c_actions.add_action(pointer.create_pointer_move(duration=0, x=int(x), y=int(y), origin="viewport"))
-                    actions.w3c_actions.add_action(pointer.create_pointer_down(PointerInput.LEFT_BUTTON))
-                    actions.w3c_actions.add_action(pointer.create_pointer_up(PointerInput.LEFT_BUTTON))
+                    actions.w3c_actions.pointer_action.create_pointer_move(
+                        duration=0, x=int(x), y=int(y), origin="viewport"
+                    )
+                    actions.w3c_actions.pointer_action.create_pointer_down(
+                        button=PointerInput.LEFT_BUTTON
+                    )
+                    actions.w3c_actions.pointer_action.create_pointer_up(
+                        button=PointerInput.LEFT_BUTTON
+                    )
                     actions.perform()
         elif command == "START_BROWSER":
             driver = start_browser(session)
@@ -425,13 +442,11 @@ def process_ai_command(from_number, ai_response_text):
         else: print(f"Unknown command: {command}"); send_whatsapp_message(from_number, f"Unknown command '{command}'."); action_was_performed = True
         
         if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done: {speak}")
-    # --- NEW: Improved error handling without closing the browser ---
     except Exception as e:
         error_summary = f"Error during command '{command}': {e}"
         print(f"CRITICAL: {error_summary}"); traceback.print_exc()
         send_whatsapp_message(from_number, f"An action failed. I will show the AI what happened so it can try to recover.")
         time.sleep(1)
-        # Give the AI context about the error and let it decide the next step
         process_next_browser_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -459,7 +474,6 @@ def webhook():
             session = get_or_create_session(from_number)
             
             command_text = user_message_text.strip().lower()
-            # --- NEW: /stop and /interrupt command logic ---
             if command_text == "/stop":
                 print(f"User {from_number} issued /stop command.")
                 session["stop_requested"] = True
@@ -499,7 +513,6 @@ def webhook():
                     ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                     process_ai_command(from_number, ai_response)
                 elif session["mode"] == "BROWSER":
-                    # When user provides input during a browser session
                     process_next_browser_step(from_number, session, f"Continuing with new instructions from user: {user_message_text}")
             finally:
                 if not session.get("interrupt_requested"):
