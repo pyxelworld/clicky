@@ -1,130 +1,423 @@
 import os
 import json
 import requests
+import time
+import io
+import traceback
+from urllib.parse import quote_plus
 from flask import Flask, request, Response
-from google import genai
-from google.genai import types
+from pathlib import Path
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from PIL import Image, ImageDraw, ImageFont
+import google.generativeai as genai
 
-GEMINI_API_KEY = "AIzaSyA3lDQ2Um5-2q7TJdruo2hNpjflYR9U4LU"
-WHATSAPP_TOKEN = "EAARw2Bvip3MBPBJBZBWZCTvjyafC4y1a3X0dttPlqRWOV7PW364uLYBrih7aGDC8RiGyDpBd0MkHlxZAGK9BKiJKhs2V8GZCE7kOjk3cbCV8VJX9y655qpqQqZAZA418a0SoHcCeaxLgrIoxm0xZBqxjf9nWGMzuyLSCjHYVyVcl6g6idMe9xjrFnsf4PNqZCEoASwZDZD"
-WHATSAPP_PHONE_NUMBER_ID = "757771334076445" # Observação: IDs de número de telefone costumam ser mais longos. Se tiver problemas, confirme este valor no painel da Meta.
-VERIFY_TOKEN = "121222220611" # Este token é usado para verificar a identidade do seu webhook
+# --- CONFIGURATION ---
+# Rotating API keys!
+GEMINI_API_KEYS = [
+    # Suas chaves de API vão aqui.
+    "AIzaSyCnnkNB4qPXE9bgTwRH_Jj5lxUOq_xivJo",
+    "AIzaSyDuAT3AP1wNd-FNb0QmvwQcSTD2dM3ZStc",
+    "AIzaSyCuKxOa7GoY6id_aG-C3_uhvfJ1iI0SeQ0",
+    "AIzaSyBwASUXeAVJ6xFFZdfjNZO5Hsumr4KAntw",
+    "AIzaSyB4EZanzOFSu589lfBVO3M8dy72fBW2ObY",
+    "AIzaSyASbyRix7Cbae7qCgPQntshA5DVJSVJbo4",
+    "AIzaSyD07UM2S3qdSUyyY0Hp4YtN04J60PcO41w",
+    "AIzaSyA9037TcPXJ2tdSrEe-hzLCn0Xa5zjiUOo",
+]
+WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
+WHATSAPP_PHONE_NUMBER_ID = "757771334076445"
+VERIFY_TOKEN = "121222220611"
+AI_MODEL_NAME = "gemini-2.0-flash" # MANTIDO CONFORME SOLICITADO
 
-# Configuração do Flask
+# --- PROJECT SETUP ---
 app = Flask(__name__)
+BASE_DIR = Path(__file__).parent
+USER_DATA_DIR = BASE_DIR / "user_data"
+USER_DATA_DIR.mkdir(exist_ok=True)
+user_sessions = {}
+processed_message_ids = set()
 
-def call_gemini(user_message: str) -> str:
-    try:
-        # 1. Cria o cliente, exatamente como no seu exemplo.
-        client = genai.Client(api_key=GEMINI_API_KEY)
+# --- CONSTANTS ---
+CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
+CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
+VIEWPORT_WIDTH = 1280
+VIEWPORT_HEIGHT = 800
 
-        # 2. Define o modelo a ser usado.
-        model_name = "gemini-2.0-flash" # Modelo moderno e eficiente
+# --- SYSTEM PROMPT (MELHORADO E CORRIGIDO) ---
+SYSTEM_PROMPT = """
+You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You see the screen and issue commands to operate it.
 
-        # 3. Prepara o conteúdo da mensagem do usuário na estrutura correta.
-        # A mensagem do usuário é inserida aqui.
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=user_message),
-                ],
-            ),
-        ]
-        
-        # 4. Define a configuração de geração, incluindo a instrução de sistema.
-        # A instrução de sistema define a personalidade do bot.
-        generate_content_config = types.GenerateContentConfig(
-            response_mime_type="text/plain",
-            system_instruction=[
-                types.Part.from_text(text="Você é um assistente prestativo chamado ClickyBot. Responda de forma concisa e amigável."),
-            ],
-        )
+--- YOUR CORE MECHANISM: THE VIRTUAL CURSOR ---
 
-        # 5. Chama o método de streaming e coleta os pedaços (chunks) da resposta.
-        # Como o WhatsApp não suporta streaming, juntamos tudo em uma única string.
-        response_chunks = []
-        for chunk in client.models.generate_content_stream(
-            model=model_name,
-            contents=contents,
-            config=generate_content_config,
-        ):
-            response_chunks.append(chunk.text)
-            
-        # 6. Retorna a resposta completa.
-        return "".join(response_chunks)
+You operate by controlling a **virtual cursor**, which appears as a **large red dot** on the screenshot you receive. Your interaction method is a mandatory two-step process:
 
-    except Exception as e:
-        print(f"Erro ao chamar a API do Gemini: {e}")
-        return "Desculpe, ocorreu um erro ao tentar processar sua mensagem. Tente novamente mais tarde."
+1.  **MOVE:** First, you decide where you want to click. You issue the `MOVE_CURSOR` command with the precise (x, y) coordinates. The top-left corner is (0, 0) and the bottom-right is (1280, 800).
+2.  **VERIFY AND ACT:** After you use `MOVE_CURSOR`, you will get a new screenshot. **YOU MUST VERIFY THE RED DOT'S POSITION.** If it's not perfectly on your target, issue another `MOVE_CURSOR` command to adjust it. Only when you are certain the cursor is correctly placed, issue an action command like `CLICK`.
 
-def send_whatsapp_message(to_number: str, message: str):
-    """Envia uma mensagem de texto para um número de WhatsApp usando a API da Meta."""
+This MOVE-VERIFY-ACT cycle is crucial for accuracy. Do not rush to click.
+
+--- ERROR RECOVERY ---
+If a command failed (e.g., a `CLICK` did nothing), it's likely your cursor placement was slightly off. Analyze the new screenshot, use `MOVE_CURSOR` to adjust the position more carefully, and then try `CLICK` again. Do not repeat the exact same failed command.
+
+--- GUIDING PRINCIPLES ---
+
+1.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down after a page loads or after an action to see the full content. The initial view is just the top of the page. Use the `SCROLL` command.
+
+2.  **SEARCH STRATEGY:** To search the web, you MUST use the `CUSTOM_SEARCH` command. Do NOT use `NAVIGATE` to go to other search engines.
+
+3.  **LOGIN & CREDENTIALS:** If a page requires a login, you MUST NOT attempt to fill it in. Stop and ask the user for permission using the `PAUSE_AND_ASK` command. Do the same for verification codes.
+
+4.  **TYPING STRATEGY:** To type in a field, you must first `MOVE_CURSOR` to the text field, `CLICK` to focus it, and only then use the `TYPE` command.
+
+--- YOUR RESPONSE FORMAT ---
+
+Your response MUST ALWAYS be a single JSON object with "command", "params", "thought", and "speak" fields.
+
+--- COMMAND REFERENCE ---
+
+**== CURSOR & INTERACTION COMMANDS ==**
+
+1.  **`MOVE_CURSOR`**: Moves the virtual cursor (red dot) to a specific coordinate. This is your primary way of aiming.
+    - **Params:** `{"x": <int>, "y": <int>}`
+    - **Example:** `{"command": "MOVE_CURSOR", "params": {"x": 430, "y": 512}, "thought": "I need to click the 'Login' button. I will first move my cursor over it.", "speak": "Movendo meu cursor para o botão de login."}`
+
+2.  **`CLICK`**: Performs a REAL mouse click at the current location of the virtual cursor. You MUST have verified the cursor's position before using this.
+    - **Params:** `{}`
+    - **Example:** `{"command": "CLICK", "params": {}, "thought": "The red dot is now perfectly on the 'Login' button. I will click.", "speak": "Clicando agora."}`
+
+3.  **`TYPE`**: Types text. You MUST `CLICK` an input field first.
+    - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
+
+4.  **`CLEAR`**: Clears text from the input field located under the virtual cursor.
+    - **Params:** `{}`
+
+5.  **`SCROLL`**: Scrolls the page up or down.
+    - **Params:** `{"direction": "<up|down>"}`
+
+**== BROWSER & NAVIGATION COMMANDS ==**
+
+6.  **`START_BROWSER`**: Initiates a new browser session.
+    - **Params:** `{}`
+7.  **`NAVIGATE`**: Goes directly to a URL.
+    - **Params:** `{"url": "<full_url>"}`
+8.  **`CUSTOM_SEARCH`**: Performs a search using "Bing".
+    - **Params:** `{"query": "<search_term>"}`
+9.  **`GO_BACK`**: Navigates to the previous page.
+    - **Params:** `{}`
+10. **`END_BROWSER`**: Closes the browser when the task is complete.
+    - **Params:** `{"reason": "<summary>"}`
+
+**== USER INTERACTION COMMANDS ==**
+
+11. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
+    - **Params:** `{"question": "<your_question>"}`
+12. **`SPEAK`**: For simple conversation.
+    - **Params:** `{"text": "<your_response>"}`
+
+--- LANGUAGE & CONTEXT ---
+- Speak the same language as the user.
+- You are "Magic Agent", built by Pyxel (pyxelworld.com). For tasks outside browsing (generating images, writing text), direct users to the main "Magic" AI at https://wa.me/551127375623 or https://askmagic.com.br.
+
+REMEMBER: ONLY THE "speak" FIELD IS SENT TO THE USER!
+"""
+
+def send_whatsapp_message(to, text):
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    data = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "text": {"body": message},
-    }
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to, "text": {"body": text}}
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        print(f"Sent text message to {to}: {text[:80]}...")
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending WhatsApp text message: {e} - {response.text}")
+
+def send_whatsapp_image(to, image_path, caption=""):
+    upload_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/media"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+    files = {'file': (image_path.name, open(image_path, 'rb'), 'image/png'), 'messaging_product': (None, 'whatsapp'), 'type': (None, 'image/png')}
+    media_id = None
+    try:
+        response = requests.post(upload_url, headers=headers, files=files)
+        response.raise_for_status()
+        media_id = response.json().get('id')
+    except requests.exceptions.RequestException as e:
+        print(f"Error uploading WhatsApp media: {e} - {response.text}")
+        return
+    if not media_id:
+        print("Failed to get media ID from WhatsApp upload.")
+        return
+    send_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to, "type": "image", "image": {"id": media_id, "caption": caption}}
+    try:
+        requests.post(send_url, headers=headers, json=data).raise_for_status()
+        print(f"Sent image message to {to} with caption: {caption}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending WhatsApp image message: {e} - {response.text}")
+
+def get_or_create_session(phone_number):
+    if phone_number not in user_sessions:
+        print(f"Creating new session for {phone_number}")
+        user_dir = USER_DATA_DIR / phone_number
+        session = {
+            "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
+            "user_dir": user_dir, "tab_handles": {}, "is_processing": False,
+            "stop_requested": False, "interrupt_requested": False,
+            "cursor_pos": (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2)
+        }
+        user_dir.mkdir(parents=True, exist_ok=True)
+        user_sessions[phone_number] = session
+    return user_sessions[phone_number]
+
+def start_browser(session):
+    if session.get("driver"): return session["driver"]
+    print("Starting new browser instance...")
+    options = Options()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument(f"--window-size={VIEWPORT_WIDTH},{VIEWPORT_HEIGHT}")
+    options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
+    try:
+        driver = webdriver.Chrome(options=options)
+        session["driver"] = driver; session["mode"] = "BROWSER"
+        return driver
+    except Exception as e:
+        print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc()
+        return None
+
+def close_browser(session):
+    if session.get("driver"):
+        print(f"Closing browser for session {session['user_dir'].name}")
+        try: session["driver"].quit()
+        except: pass
+        session["driver"] = None
+    session["mode"] = "CHAT"; session["original_prompt"] = ""; session["tab_handles"] = {}
+    session["cursor_pos"] = (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2)
+
+def get_page_state(driver, session):
+    screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
+    try:
+        # ... (código de abas permanece o mesmo) ...
+        window_handles = driver.window_handles; current_handle = driver.current_window_handle; tabs = []
+        session["tab_handles"] = {}
+        for i, handle in enumerate(window_handles):
+            tab_id = i + 1; session["tab_handles"][tab_id] = handle; driver.switch_to.window(handle)
+            tabs.append({"id": tab_id, "title": driver.title, "is_active": handle == current_handle})
+        driver.switch_to.window(current_handle)
+        tab_info_text = "Open Tabs:\n" + "".join([f"  Tab {t['id']}: {t['title'][:70]}{' (Current)' if t['is_active'] else ''}\n" for t in tabs])
+    except Exception as e: print(f"Could not get tab info: {e}"); return None, ""
     
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code == 200:
-        print(f"Mensagem enviada para {to_number} com sucesso.")
+    try:
+        png_data = driver.get_screenshot_as_png()
+        image = Image.open(io.BytesIO(png_data))
+        draw = ImageDraw.Draw(image)
+        cursor_x, cursor_y = session['cursor_pos']
+        
+        # Cursor maior e mais visível
+        radius = 12
+        outline_width = 3
+        draw.ellipse([(cursor_x - radius, cursor_y - radius), 
+                      (cursor_x + radius, cursor_y + radius)], 
+                     fill='white', outline='white')
+        draw.ellipse([(cursor_x - (radius - outline_width), cursor_y - (radius - outline_width)), 
+                      (cursor_x + (radius - outline_width), cursor_y + (radius - outline_width))], 
+                     fill='red', outline='red')
+        
+        image.save(screenshot_path)
+        print(f"State captured with cursor at {session['cursor_pos']}.")
+        return screenshot_path, tab_info_text
+    except Exception as e:
+        print(f"Error getting page state or drawing cursor: {e}"); traceback.print_exc()
+        return None, tab_info_text
+
+def call_ai(chat_history, context_text="", image_path=None):
+    prompt_parts = [context_text]
+    if image_path:
+        try:
+            prompt_parts.append({"mime_type": "image/png", "data": image_path.read_bytes()})
+        except Exception as e:
+            return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error: {e}"}, "thought": "Image read failed.", "speak": "Erro com a visualização da tela."})
+    
+    last_error = None
+    for i, key in enumerate(GEMINI_API_KEYS):
+        try:
+            print(f"Attempting to call AI with API key #{i+1}...")
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(AI_MODEL_NAME, system_instruction=SYSTEM_PROMPT, generation_config={"response_mime_type": "application/json"})
+            chat = model.start_chat(history=chat_history)
+            response = chat.send_message(prompt_parts)
+            print("AI call successful.")
+            return response.text
+        except Exception as e:
+            print(f"API key #{i+1} failed. Error: {e}"); last_error = e; continue
+    print("All API keys failed.")
+    return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {last_error}"}, "thought": "AI API failed.", "speak": "Erro ao conectar com meu cérebro."})
+
+def process_next_browser_step(from_number, session, caption):
+    screenshot_path, tab_info_text = get_page_state(session["driver"], session)
+    if screenshot_path:
+        context_text = f"User's Goal: {session['original_prompt']}\n\nCurrent Screen State:\n{tab_info_text}\n{caption}"
+        send_whatsapp_image(from_number, screenshot_path, caption=caption)
+        ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
+        process_ai_command(from_number, ai_response)
     else:
-        print(f"Falha ao enviar mensagem: {response.status_code} - {response.text}")
+        send_whatsapp_message(from_number, "[Sistema] Não foi possível ver o navegador, fechando..."); close_browser(session)
+
+def process_ai_command(from_number, ai_response_text):
+    session = get_or_create_session(from_number)
+    
+    # ... (verificações de stop/interrupt permanecem as mesmas) ...
+    if session.get("stop_requested"): print("Stop was requested, ignoring AI command."); session["stop_requested"] = False; session["chat_history"] = []; return {}
+    if session.get("interrupt_requested"): print("Interrupt was requested, ignoring AI command."); session["interrupt_requested"] = False; return {}
+
+    try:
+        command_data = json.loads(ai_response_text)
+    except json.JSONDecodeError:
+        send_whatsapp_message(from_number, f"[Sistema] A IA respondeu em um formato inválido. Resposta completa:\n\n{ai_response_text}")
+        if session["mode"] == "BROWSER":
+            session["is_processing"] = False 
+            send_whatsapp_message(from_number, "[Sistema] A IA está confusa. Por favor, me diga o que fazer a seguir.")
+        return {}
+        
+    command = command_data.get("command")
+    params = command_data.get("params", {})
+    thought = command_data.get("thought", "")
+    speak = command_data.get("speak", "")
+    
+    print(f"Executing: {command} | Params: {params} | Thought: {thought}")
+    session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
+    if speak:
+        send_whatsapp_message(from_number, speak)
+    
+    driver = session.get("driver")
+    
+    if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER", "PAUSE_AND_ASK"]:
+        # ... (lógica de iniciar navegador permanece a mesma) ...
+        send_whatsapp_message(from_number, "[Sistema] O navegador não está aberto. Abrindo e tentando o comando novamente...")
+        driver = start_browser(session)
+        if not driver:
+            send_whatsapp_message(from_number, "[Sistema] Falha crítica ao iniciar o navegador. A tarefa foi encerrada."); close_browser(session); return {}
+        time.sleep(1)
+        return process_ai_command(from_number, ai_response_text)
+
+    try:
+        action_in_browser = True 
+        if command == "MOVE_CURSOR":
+            session['cursor_pos'] = (params.get("x", 0), params.get("y", 0))
+            action_in_browser = False 
+        elif command == "CLICK":
+            x, y = session['cursor_pos']
+            action = ActionChains(driver)
+            body = driver.find_element(By.TAG_NAME, 'body')
+            action.move_to_element_with_offset(body, x, y).click().perform()
+        elif command == "TYPE":
+            ActionChains(driver).send_keys(params.get("text", "")).perform()
+            if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
+        elif command == "CLEAR":
+            x, y = session['cursor_pos']
+            action = ActionChains(driver); body = driver.find_element(By.TAG_NAME, 'body')
+            action.move_to_element_with_offset(body, x, y).click().send_keys(Keys.CONTROL + "a").send_keys(Keys.DELETE).perform()
+        elif command == "START_BROWSER":
+            driver = start_browser(session)
+            if not driver: send_whatsapp_message(from_number, "[Sistema] Houve um erro ao abrir o navegador."); close_browser(session); return {}
+            time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE)
+        elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
+        elif command == "CUSTOM_SEARCH": driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
+        elif command == "GO_BACK": driver.back()
+        elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {VIEWPORT_HEIGHT * 0.8 if params.get('direction', 'down') == 'down' else -VIEWPORT_HEIGHT * 0.8});")
+        elif command == "END_BROWSER":
+            send_whatsapp_message(from_number, f"*Tarefa Concluída.*\n*Sumário:* {params.get('reason', 'Nenhum sumário fornecido.')}"); close_browser(session); return command_data
+        elif command == "PAUSE_AND_ASK" or command == "SPEAK":
+            session["is_processing"] = False
+            return command_data
+        else:
+            send_whatsapp_message(from_number, f"[Sistema] A IA tentou usar um comando desconhecido: {command}"); action_in_browser = False
+        
+        if action_in_browser: time.sleep(2)
+        
+        process_next_browser_step(from_number, session, f"[Sistema] O Agent executou: {command}")
+    except Exception as e:
+        error_summary = f"Error during command '{command}': {e}"
+        print(f"CRITICAL: {error_summary}"); traceback.print_exc()
+        send_whatsapp_message(from_number, "[Sistema] Ocorreu um erro. Tentando novamente com a ajuda da IA...")
+        time.sleep(1)
+        process_next_browser_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
+    
+    return command_data
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
-        mode = request.args.get('hub.mode')
-        token = request.args.get('hub.verify_token')
-        challenge = request.args.get('hub.challenge')
-        
-        if mode == 'subscribe' and token == VERIFY_TOKEN:
-            return Response(challenge, status=200)
-        else:
-            return Response(status=403)
-
+        if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
+            return Response(request.args.get('hub.challenge'), status=200)
+        return Response('Verification token mismatch', status=403)
+    
     if request.method == 'POST':
         body = request.get_json()
-        print(json.dumps(body, indent=2))
-
         try:
-            if (body.get("entry") and
-                body["entry"][0].get("changes") and
-                body["entry"][0]["changes"][0].get("value") and
-                body["entry"][0]["changes"][0]["value"].get("messages")):
-                
-                message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
-                message_type = message_info.get("type")
-                from_number = message_info.get("from")
-                
-                if message_type == "text":
-                    user_message_text = message_info["text"]["body"]
-                    print(f"Mensagem de texto recebida de {from_number}: {user_message_text}")
-                    
-                    # Chama a função Gemini corrigida
-                    gemini_response = call_gemini(user_message_text)
-                    
-                    # Envia a resposta de volta
-                    send_whatsapp_message(from_number, gemini_response)
-                
-                else:
-                    non_text_message = "Desculpe, só entendo mensagens de texto por enquanto."
-                    print(f"Mensagem não-texto ({message_type}) recebida de {from_number}.")
-                    send_whatsapp_message(from_number, non_text_message)
+            message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
+            message_id = message_info.get("id")
 
-        except (KeyError, IndexError, TypeError) as e:
-            print(f"Erro no processamento do webhook: {e}")
-            pass
+            if message_id in processed_message_ids:
+                print(f"Duplicate message ID {message_id} received. Ignoring."); return Response(status=200)
+            processed_message_ids.add(message_id)
+            
+            if message_info.get("type") != "text":
+                send_whatsapp_message(message_info.get("from"), "[Sistema] O Agent apenas suporta mensagens de texto no momento."); return Response(status=200)
 
+            from_number, user_message_text = message_info["from"], message_info["text"]["body"]
+            print(f"Received from {from_number}: '{user_message_text}'")
+            session = get_or_create_session(from_number)
+            
+            # ... (comandos /stop, /interrupt, /clear permanecem os mesmos) ...
+            command_text = user_message_text.strip().lower()
+            if command_text == "/stop":
+                print(f"User {from_number} issued /stop command.")
+                session["stop_requested"] = True; close_browser(session); session["is_processing"] = False
+                send_whatsapp_message(from_number, "[Sistema] Ação cancelada e sessão encerrada."); return Response(status=200)
+            if command_text == "/interrupt":
+                print(f"User {from_number} issued /interrupt command.")
+                if session["mode"] != "BROWSER": send_whatsapp_message(from_number, "[Sistema] Nenhuma ação em andamento para interromper.")
+                else: session["interrupt_requested"] = True; session["is_processing"] = False; send_whatsapp_message(from_number, "[Sistema] Ação interrompida. Sua próxima mensagem será enviada à IA para que ela saiba como continuar.")
+                return Response(status=200)
+            if command_text == "/clear":
+                print(f"User {from_number} issued /clear command."); close_browser(session)
+                if from_number in user_sessions: del user_sessions[from_number]
+                send_whatsapp_message(from_number, "[Sistema] Memória do Agent e sessão do navegador foram limpas."); return Response(status=200)
+
+            if session.get("is_processing"):
+                send_whatsapp_message(from_number, "[Sistema] O Agent ainda está trabalhando. Envie /interrupt para dar novas instruções, ou /stop para encerrar."); return Response(status=200)
+            
+            # CORREÇÃO DO ERRO: Inicializa command_data aqui
+            command_data = {}
+            try:
+                session["is_processing"] = True
+                session["chat_history"].append({"role": "user", "parts": [user_message_text]})
+
+                if session["mode"] == "CHAT":
+                    session["original_prompt"] = user_message_text
+                    ai_response = call_ai(session["chat_history"], context_text=f"A new task has started. The user wants me to: {user_message_text}")
+                    # CORREÇÃO DO ERRO: Captura o resultado
+                    command_data = process_ai_command(from_number, ai_response)
+                elif session["mode"] == "BROWSER":
+                    # Este é um caso especial, pois a chamada para process_ai_command está aninhada.
+                    # A lógica dentro de process_ai_command já lida com o estado.
+                    process_next_browser_step(from_number, session, f"[User Guidance]: {user_message_text}")
+            finally:
+                # CORREÇÃO DO ERRO: Agora 'command_data' existe e esta verificação funciona.
+                # Não libera o processamento se a IA pausou intencionalmente para o usuário.
+                if not session.get("interrupt_requested") and command_data.get("command") not in ["PAUSE_AND_ASK", "SPEAK"]:
+                    session["is_processing"] = False
+
+        except (KeyError, IndexError, TypeError): pass
+        except Exception as e: print(f"Error processing webhook: {e}"); traceback.print_exc()
         return Response(status=200)
 
 if __name__ == '__main__':
-    print("Servidor do Bot WhatsApp iniciado em http://localhost:5000")
-    print("Aguardando mensagens via webhook...")
-    app.run(port=5000, debug=False)
+    print("--- Magic Agent WhatsApp Bot Server (Cursor Mode v2) ---")
+    app.run(host='0.0.0.0', port=5000, debug=False)
