@@ -110,9 +110,6 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 
 **== BROWSER START/STOP COMMANDS ==**
 
-3.  **`START_BROWSER`**: Initiates a new browser session. Starts in LABEL mode.
-    - **Params:** `{}`
-
 4.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
     - **Params:** `{"reason": "<summary>"}`
 
