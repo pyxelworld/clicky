@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
 
 # --- CONFIGURATION ---
-# Rotating API keys
+# Rotating API keys!
 GEMINI_API_KEYS = [
     "AIzaSyCnnkNB4qPXE9bgTwRH_Jj5lxUOq_xivJo",
     "AIzaSyDuAT3AP1wNd-FNb0QmvwQcSTD2dM3ZStc",
