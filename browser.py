@@ -13,7 +13,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.actions.pointer_input import PointerInput
-from selenium.webdriver.common.actions.action_builder import ActionBuilder # Import for clarity
+from selenium.webdriver.common.actions.action_builder import ActionBuilder
 from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
 
@@ -43,7 +43,6 @@ user_sessions = {}
 processed_message_ids = set()
 
 # --- CONSTANTS ---
-# MODIFIED: Changed default search to Bing
 CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
 CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
 GRID_CELL_SIZE = 40 # The size of each grid cell in pixels for grid mode
@@ -80,8 +79,7 @@ JS_GET_INTERACTIVE_ELEMENTS = """
     return interactiveElements;
 """
 
-# --- NEW, MORE DETAILED SYSTEM PROMPT ---
-# MODIFIED: Changed search engine reference to Bing
+# --- SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
 You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
 
@@ -219,7 +217,7 @@ def get_or_create_session(phone_number):
             "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
             "user_dir": user_dir, "labeled_elements": {}, "tab_handles": {},
             "is_processing": False, "interaction_mode": "LABEL",
-            "stop_requested": False, "interrupt_requested": False # Flags for user control
+            "stop_requested": False, "interrupt_requested": False
         }
         user_dir.mkdir(parents=True, exist_ok=True)
         user_sessions[phone_number] = session
@@ -229,9 +227,8 @@ def start_browser(session):
     if session.get("driver"): return session["driver"]
     print("Starting new browser instance...")
     options = Options()
-    # MODIFIED: Removed the "--headless=new" argument to run a visible Chrome instance.
-    # IMPORTANT: This will crash on a server without a display.
-    # You MUST run this script using `xvfb-run -a python your_script.py` on a headless server.
+    # Note: We are running with a full UI, but Selenium screenshots only capture the webpage content (viewport).
+    # This is standard behavior. To run on a server, you MUST use `xvfb-run`.
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1280,800")
@@ -268,6 +265,7 @@ def get_page_state(driver, session):
     except Exception as e: print(f"Could not get tab info: {e}"); return None, "", ""
     
     try:
+        # Note: driver.get_screenshot_as_png() captures the viewport, not the entire browser UI. This is by design.
         png_data = driver.get_screenshot_as_png()
         image = Image.open(io.BytesIO(png_data))
         draw = ImageDraw.Draw(image)
@@ -387,17 +385,13 @@ def process_ai_command(from_number, ai_response_text):
                     y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     print(f"Grid clicking at viewport coordinates ({x}, {y}) for cell {cell}")
                     
-                    actions = ActionChains(driver)
-                    actions.w3c_actions.pointer_action.create_pointer_move(
-                        duration=0, x=int(x), y=int(y), origin="viewport"
-                    )
-                    actions.w3c_actions.pointer_action.create_pointer_down(
-                        button=PointerInput.LEFT_BUTTON
-                    )
-                    actions.w3c_actions.pointer_action.create_pointer_up(
-                        button=PointerInput.LEFT_BUTTON
-                    )
-                    actions.perform()
+                    # --- FIX START ---
+                    # The ActionChains API can be inconsistent. The most reliable way to click at
+                    # specific viewport coordinates is to execute a small piece of JavaScript.
+                    # This finds the element at the x,y coordinates and triggers a click on it.
+                    click_script = f"document.elementFromPoint({x}, {y}).click();"
+                    driver.execute_script(click_script)
+                    # --- FIX END ---
         elif command == "START_BROWSER":
             driver = start_browser(session)
             if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
