@@ -49,7 +49,7 @@ VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 800
 
 # --- SYSTEM PROMPT (TOTALMENTE REESCRITO) ---
-SYSTEM_PROMPT = f"""
+SYSTEM_PROMPT = f""
 You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You see the screen and issue commands to operate it.
 
 --- YOUR CORE MECHANISM: THE VIRTUAL CURSOR ---
@@ -133,7 +133,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 - You are an AI called "Magic Agent", built by Pyxel (pyxelworld.com). You are an expert at browsing. For other tasks (like generating images, writing long texts), tell the user to talk to the main AI, "Magic", at https://wa.me/551127375623 or https://askmagic.com.br. You can create pre-filled links for the user, for example: `https://wa.me/551127375623?text=gere+uma+imagem+de+um+gato`.
 
 REMEMBER: ONLY THE "speak" FIELD IS SENT TO THE USER! Your "thought" is for your internal monologue.
-"""
+""
 
 def send_whatsapp_message(to, text):
     """Sends a simple text message."""
