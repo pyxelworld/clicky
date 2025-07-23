@@ -45,7 +45,7 @@ processed_message_ids = set()
 # --- CONSTANTS ---
 CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
 CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
-GRID_CELL_SIZE = 80 # The size of each grid cell in pixels for grid mode
+GRID_CELL_SIZE = 40 # The size of each grid cell in pixels for grid mode
 
 # --- JAVASCRIPT FOR ELEMENT LABELING (ADDS A DATA ATTRIBUTE) ---
 JS_GET_INTERACTIVE_ELEMENTS = """
@@ -54,8 +54,6 @@ JS_GET_INTERACTIVE_ELEMENTS = """
     ));
     const interactiveElements = [];
     let labelCounter = 1;
-    // Clear previous labels to avoid confusion on re-renders
-    document.querySelectorAll('[data-magic-agent-label]').forEach(el => el.removeAttribute('data-magic-agent-label'));
     for (let i = 0; i < elements.length; i++) {
         const elem = elements[i];
         const rect = elem.getBoundingClientRect();
@@ -81,42 +79,6 @@ JS_GET_INTERACTIVE_ELEMENTS = """
     return interactiveElements;
 """
 
-JS_FIND_ELEMENTS_IN_RECT = """
-// arguments: [x1, y1, x2, y2]
-const [x1, y1, x2, y2] = arguments;
-const elements = Array.from(document.querySelectorAll('a, button, input:not([type="hidden"]), textarea, [role="button"], [role="link"], [onclick]'));
-const foundElements = [];
-// Clear previous temporary markers
-document.querySelectorAll('[data-magic-agent-found]').forEach(el => el.removeAttribute('data-magic-agent-found'));
-for (let i = 0; i < elements.length; i++) {
-    const elem = elements[i];
-    const rect = elem.getBoundingClientRect();
-    // Check if the center of the element is within the rectangle
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    if (rect.width > 0 && rect.height > 0 && // Element must be visible
-        centerX >= x1 && centerX <= x2 &&
-        centerY >= y1 && centerY <= y2 &&
-        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-        rect.right <= (window.innerWidth || document.documentElement.clientWidth) &&
-        rect.top >= 0 && rect.left >= 0)
-    {
-        const uniqueId = `magic-agent-found-${i}`;
-        elem.setAttribute('data-magic-agent-found', uniqueId);
-        foundElements.push({
-            id: uniqueId,
-            x: rect.left,
-            y: rect.top,
-            width: rect.width,
-            height: rect.height,
-            tag: elem.tagName.toLowerCase(),
-            text: (elem.innerText || elem.value || elem.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ').substring(0, 50)
-        });
-    }
-}
-return foundElements;
-"""
-
 # --- SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
 You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
@@ -126,17 +88,14 @@ If you are told that a command failed, the page may have changed unexpectedly or
 
 --- INTERACTION MODES ---
 
-You operate in one of two modes: GRID mode or LABEL mode. You must manage switching between them.
+You operate in one of two modes: LABEL mode or GRID mode. You must manage switching between them.
 
-1.  **GRID Mode (Default & Precision Clicks):** This is your primary mode. The screenshot is overlaid with a coordinate grid (A1, B2, etc.). Use the `GRID_CLICK` command.
-    - If there's **one** interactive element in the cell you choose, it will be clicked.
-    - If there are **multiple** elements, the view will **automatically zoom in** on that cell, showing a new, finer grid. You must then issue a new `GRID_CLICK` command with a cell from this "zoomed grid" to select the specific item.
-    - If there are **no** elements, it will click the center of the cell.
-2.  **LABEL Mode:** If you find the grid too distracting for a simple task like filling a form, you can switch to this mode. The screenshot will have red numbers on interactive elements. Use the `CLICK` command with the element's number.
+1.  **LABEL Mode (Default):** The screenshot will have red numbers on all detected interactive elements (links, buttons, inputs). Use the `CLICK` command with the element's number. This is your primary mode of operation.
+2.  **GRID Mode (Precision Clicks):** If you see something you need to click that is NOT labeled (like a tricky dropdown menu item, a specific point on a map, or an un-labeled part of a CAPTCHA), you must switch to this mode. The screenshot will be overlaid with a coordinate grid (A1, B2, C3, etc.). Use the `GRID_CLICK` command with the cell coordinate.
 
 --- GUIDING PRINCIPLES ---
 
-1.  **MODE SWITCHING STRATEGY:** Your default is GRID mode. If you need to see element labels for clarity (e.g., complex forms), issue `SWITCH_TO_LABEL_MODE`. Once done, immediately issue `SWITCH_TO_GRID_MODE` to return to the default.
+1.  **MODE SWITCHING STRATEGY:** If you need to click something that isn't labeled, issue the `SWITCH_TO_GRID_MODE` command. On the next turn, you will see a grid. Then, use `GRID_CLICK` with the correct cell. Once you are done with precision clicks, immediately issue `SWITCH_TO_LABEL_MODE` to return to normal operation.
 
 2.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action. The initial view is only the top of the page. You must scroll to understand the full context.
 
@@ -146,7 +105,7 @@ You operate in one of two modes: GRID mode or LABEL mode. You must manage switch
 
 5.  **SHOPPING STRATEGY:** When asked to shop, first use `PAUSE_AND_ASK` to clarify the exact product and price range. Then, on shopping sites, use sorting/filtering features to meet the user's criteria.
 
-6.  **HANDLING OBSTACLES (CAPTCHA):** If you land on a page with a standard CAPTCHA, use `GRID_CLICK` on the checkbox. If it's a more complex "select all images" CAPTCHA, you cannot solve it. Use the `GO_BACK` command and choose a different search result.
+6.  **HANDLING OBSTACLES (CAPTCHA):** If you land on a page with a standard CAPTCHA, first try to solve it by switching to GRID mode and using `GRID_CLICK` on the checkbox. If it's a more complex "select all images" CAPTCHA, you cannot solve it. Use the `GO_BACK` command and choose a different search result.
 
 --- YOUR RESPONSE FORMAT ---
 
@@ -155,46 +114,60 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 --- COMMAND REFERENCE ---
 
 **== MODE SWITCHING COMMANDS ==**
-1.  **`SWITCH_TO_GRID_MODE`**: Switches to the default grid-based clicking. The next screenshot will have a grid.
+
+1.  **`SWITCH_TO_GRID_MODE`**: Switches to precision grid-based clicking. The next screenshot you see will have a grid. You will probably need to switch to grid mode to try and do a captcha. If it works, awesome! If it does not, ask user on how to go on. Also maybe the button is broken, also ask user.
     - **Params:** `{}`
-2.  **`SWITCH_TO_LABEL_MODE`**: Switches to label-based clicking for tasks like filling out forms.
+    - **Example:** `{"command": "SWITCH_TO_GRID_MODE", "params": {}, "thought": "I see a 'Continue' button that is not labeled. I need to switch to grid mode to click it.", "speak": "Switching to precision mode to click a specific spot."}`
+
+2.  **`SWITCH_TO_LABEL_MODE`**: Switches back to the default label-based clicking.
     - **Params:** `{}`
 
 **== BROWSER START/STOP COMMANDS ==**
-3.  **`START_BROWSER`**: Initiates a new browser session. Starts in GRID mode.
+
+3.  **`START_BROWSER`**: Initiates a new browser session. Starts in LABEL mode.
     - **Params:** `{}`
+
 4.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
     - **Params:** `{"reason": "<summary>"}`
 
 **== NAVIGATION COMMANDS ==**
+
 5.  **`NAVIGATE`**: Goes directly to a URL.
     - **Params:** `{"url": "<full_url>"}`
+
 6.  **`CUSTOM_SEARCH`**: Performs a search using "Bing".
     - **Params:** `{"query": "<search_term>"}`
+
 7.  **`GO_BACK`**: Navigates to the previous page in history.
     - **Params:** `{}`
 
 **== PAGE INTERACTION COMMANDS ==**
+
 8.  **`CLICK`**: (LABEL MODE ONLY) Clicks an element identified by its label number.
     - **Params:** `{"label": <int>}`
-9.  **`GRID_CLICK`**: (GRID or ZOOMED_GRID MODE)
-    - In **GRID mode**, this attempts to click an element within the specified cell.
-    - If there are **multiple** elements, the view will auto-zoom, presenting a new, finer "zoomed grid". You must then issue a new `GRID_CLICK` command with a cell from this new grid.
+
+9.  **`GRID_CLICK`**: (GRID MODE ONLY) Clicks the center of a specified grid cell.
     - **Params:** `{"cell": "<e.g., 'C5', 'G12'>"}`
     - **Example:** `{"command": "GRID_CLICK", "params": {"cell": "D10"}, "thought": "The 'Continue' button is in cell D10. I will now click it.", "speak": "Clicking D10."}`
-10. **`TYPE`**: Types text. You MUST `CLICK` or `GRID_CLICK` an input field first.
+
+10. **`TYPE`**: Types text. You MUST `CLICK` an input field first.
     - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
+
 11. **`CLEAR`**: (LABEL MODE ONLY) Clears text from an input field.
     - **Params:** `{"label": <int>}`
+
 12. **`SCROLL`**: Scrolls the page.
     - **Params:** `{"direction": "<up|down>"}`
 
 **== TAB MANAGEMENT COMMANDS ==**
+
 13. **`NEW_TAB`**, **`SWITCH_TO_TAB`**, **`CLOSE_TAB`**
 
 **== USER INTERACTION COMMANDS ==**
+
 14. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
     - **Params:** `{"question": "<your_question>"}`
+
 15. **`SPEAK`**: For simple conversation.
     - **Params:** `{"text": "<your_response>"}`
 """
@@ -243,7 +216,7 @@ def get_or_create_session(phone_number):
         session = {
             "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
             "user_dir": user_dir, "labeled_elements": {}, "tab_handles": {},
-            "is_processing": False, "interaction_mode": "GRID",
+            "is_processing": False, "interaction_mode": "LABEL",
             "stop_requested": False, "interrupt_requested": False
         }
         user_dir.mkdir(parents=True, exist_ok=True)
@@ -254,13 +227,15 @@ def start_browser(session):
     if session.get("driver"): return session["driver"]
     print("Starting new browser instance...")
     options = Options()
+    # Note: We are running with a full UI, but Selenium screenshots only capture the webpage content (viewport).
+    # This is standard behavior. To run on a server, you MUST use `xvfb-run`.
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1280,800")
     options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
     try:
         driver = webdriver.Chrome(options=options)
-        session["driver"] = driver; session["mode"] = "BROWSER"; session["interaction_mode"] = "GRID"
+        session["driver"] = driver; session["mode"] = "BROWSER"; session["interaction_mode"] = "LABEL"
         return driver
     except Exception as e:
         print(f"CRITICAL: Error starting Selenium browser: {e}")
@@ -275,7 +250,7 @@ def close_browser(session):
         except: pass
         session["driver"] = None
     session["mode"] = "CHAT"; session["original_prompt"] = ""; session["labeled_elements"] = {}
-    session["tab_handles"] = {}; session["interaction_mode"] = "GRID"
+    session["tab_handles"] = {}; session["interaction_mode"] = "LABEL"
 
 def get_page_state(driver, session):
     screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
@@ -290,76 +265,37 @@ def get_page_state(driver, session):
     except Exception as e: print(f"Could not get tab info: {e}"); return None, "", ""
     
     try:
+        # Note: driver.get_screenshot_as_png() captures the viewport, not the entire browser UI. This is by design.
         png_data = driver.get_screenshot_as_png()
         image = Image.open(io.BytesIO(png_data))
         draw = ImageDraw.Draw(image)
-        font_size = 22
-        try: font = ImageFont.truetype("DejaVuSans.ttf", size=font_size)
-        except IOError: font = ImageFont.load_default(size=font_size)
+        try: font = ImageFont.truetype("DejaVuSans.ttf", size=12)
+        except IOError: font = ImageFont.load_default()
 
         labels_text = ""
-        interaction_mode = session.get("interaction_mode", "GRID")
-
-        if interaction_mode == "GRID":
+        if session["interaction_mode"] == "GRID":
             print("Capturing state in GRID mode.")
             labels_text = "GRID MODE: Use GRID_CLICK with a cell coordinate (e.g., 'C5')."
-            cols = min(image.width // GRID_CELL_SIZE, 16) # Cap columns at P
+            cols = image.width // GRID_CELL_SIZE
             rows = image.height // GRID_CELL_SIZE
             for i in range(rows):
                 for j in range(cols):
                     x1, y1 = j * GRID_CELL_SIZE, i * GRID_CELL_SIZE
                     draw.rectangle([x1, y1, x1 + GRID_CELL_SIZE, y1 + GRID_CELL_SIZE], outline="rgba(255,0,0,100)")
                     label = f"{chr(ord('A')+j)}{i+1}"
-                    draw.text((x1 + 4, y1 + 4), label, fill="red", font=font)
-        
-        elif interaction_mode == "ZOOMED_GRID":
-            print("Capturing state in ZOOMED_GRID mode.")
-            zoom_box = session['zoom_box']
-            zoomed_elements = session['zoomed_elements']
-            sub_cols, sub_rows = 4, 4
-            zoom_width = zoom_box['x2'] - zoom_box['x1']
-            zoom_height = zoom_box['y2'] - zoom_box['y1']
-            sub_cell_width = zoom_width / sub_cols
-            sub_cell_height = zoom_height / sub_rows
-            labels_text = "ZOOMED GRID: Multiple items found. Select a cell to click the item inside.\n"
-            draw.rectangle([zoom_box['x1'], zoom_box['y1'], zoom_box['x2'], zoom_box['y2']], outline="yellow", width=4)
-            
-            sub_grid_map = {}
-            for i in range(sub_rows):
-                for j in range(sub_cols):
-                    sx1 = zoom_box['x1'] + j * sub_cell_width; sy1 = zoom_box['y1'] + i * sub_cell_height
-                    sx2 = sx1 + sub_cell_width; sy2 = sy1 + sub_cell_height
-                    draw.rectangle([sx1, sy1, sx2, sy2], outline="rgba(255,255,0,128)")
-                    label = f"{chr(ord('A')+j)}{i+1}"
-                    
-                    for el in zoomed_elements:
-                        el_center_x = el['x'] + el['width'] / 2; el_center_y = el['y'] + el['height'] / 2
-                        if sx1 <= el_center_x < sx2 and sy1 <= el_center_y < sy2:
-                            if label not in sub_grid_map: # Map first element found in cell
-                                sub_grid_map[label] = el
-                                draw.text((sx1 + 2, sy1 + 2), label, fill="yellow", font=font)
-                                labels_text += f"  {label}: {el['tag']} '{el['text']}'\n"
-                                break
-            session['sub_grid_map'] = sub_grid_map
-
-        else: # LABEL mode
+                    draw.text((x1 + 2, y1 + 2), label, fill="red", font=font)
+        else: # Default LABEL mode
             print("Capturing state in LABEL mode.")
             elements = driver.execute_script(JS_GET_INTERACTIVE_ELEMENTS)
             session["labeled_elements"] = {el['label']: el for el in elements}
             labels_text = "Interactive Elements:\n" + "\n".join([f"  {l}: {e['tag']} '{e['text']}'" for l, e in session["labeled_elements"].items()])
             for label, el in session["labeled_elements"].items():
                 x, y, w, h = el['x'], el['y'], el['width'], el['height']
-                label_str = str(label)
-                text_bbox = draw.textbbox((0,0), label_str, font=font)
-                text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
-                padding = 4
-                
                 draw.rectangle([x, y, x + w, y + h], outline="red", width=2)
-                draw.rectangle([x, y, x + text_w + padding*2, y + text_h + padding*2], fill="red")
-                draw.text((x + padding, y + padding), label_str, fill="white", font=font)
+                draw.text((x, y - 15 if y > 15 else y), str(label), fill="red", font=font)
         
         image.save(screenshot_path)
-        print(f"State captured in {interaction_mode} mode.")
+        print(f"State captured in {session['interaction_mode']} mode.")
         return screenshot_path, labels_text, tab_info_text
     except Exception as e:
         print(f"Error getting page state: {e}"); traceback.print_exc()
@@ -396,9 +332,14 @@ def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
     
     if session.get("stop_requested"):
-        print("Stop was requested, ignoring AI command."); session["stop_requested"] = False; session["chat_history"] = []; return
+        print("Stop was requested, ignoring AI command.")
+        session["stop_requested"] = False
+        session["chat_history"] = []
+        return
     if session.get("interrupt_requested"):
-        print("Interrupt was requested, ignoring AI command."); session["interrupt_requested"] = False; return
+        print("Interrupt was requested, ignoring AI command.")
+        session["interrupt_requested"] = False
+        return
 
     try: command_data = json.loads(ai_response_text)
     except json.JSONDecodeError:
@@ -416,8 +357,11 @@ def process_ai_command(from_number, ai_response_text):
     if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER"]:
         send_whatsapp_message(from_number, "The browser was closed. I'm starting it up to continue your task...")
         driver = start_browser(session)
-        if not driver: send_whatsapp_message(from_number, "I failed to restart the browser."); close_browser(session); return
-        time.sleep(1); process_ai_command(from_number, ai_response_text); return
+        if not driver:
+            send_whatsapp_message(from_number, "I failed to restart the browser. Please start a new task.")
+            close_browser(session); return
+        time.sleep(1)
+        process_ai_command(from_number, ai_response_text); return
 
     try:
         action_was_performed = True
@@ -426,42 +370,28 @@ def process_ai_command(from_number, ai_response_text):
         elif command == "SWITCH_TO_LABEL_MODE":
             session["interaction_mode"] = "LABEL"
         elif command == "GRID_CLICK":
-            cell = params.get("cell", "").upper()
-            if not cell or not cell[0].isalpha() or not cell[1:].isdigit():
-                send_whatsapp_message(from_number, f"Invalid cell format: {cell}."); action_was_performed = False
-            
-            elif session["interaction_mode"] == "ZOOMED_GRID":
-                element_to_click = session.get('sub_grid_map', {}).get(cell)
-                if not element_to_click:
-                    send_whatsapp_message(from_number, f"Cell {cell} is empty or invalid in the zoomed grid. Please try again.")
+            if session["interaction_mode"] != "GRID":
+                send_whatsapp_message(from_number, "Error: Cannot use GRID_CLICK in LABEL mode.")
+                action_was_performed = False
+            else:
+                cell = params.get("cell", "").upper()
+                if not cell or not cell[0].isalpha() or not cell[1:].isdigit():
+                    send_whatsapp_message(from_number, f"Invalid cell format: {cell}.")
                     action_was_performed = False
                 else:
-                    driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-found="{element_to_click["id"]}"]').click()
-                    session["interaction_mode"] = "GRID" # Reset to default
-                    for key in ["zoom_box", "zoomed_elements", "sub_grid_map"]: session.pop(key, None)
-            
-            elif session["interaction_mode"] == "GRID":
-                col_index = ord(cell[0]) - ord('A'); row_index = int(cell[1:]) - 1
-                x1, y1 = col_index * GRID_CELL_SIZE, row_index * GRID_CELL_SIZE
-                x2, y2 = x1 + GRID_CELL_SIZE, y1 + GRID_CELL_SIZE
-                
-                found_elements = driver.execute_script(JS_FIND_ELEMENTS_IN_RECT, x1, y1, x2, y2)
-                
-                if len(found_elements) == 0:
-                    send_whatsapp_message(from_number, f"No item in {cell}. Clicking its center.")
-                    driver.execute_script(f"document.elementFromPoint({x1 + GRID_CELL_SIZE/2}, {y1 + GRID_CELL_SIZE/2}).click();")
-                elif len(found_elements) == 1:
-                    send_whatsapp_message(from_number, f"One item in {cell}. Clicking it.")
-                    driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-found="{found_elements[0]["id"]}"]').click()
-                else:
-                    send_whatsapp_message(from_number, f"{len(found_elements)} items in {cell}. Zooming in.")
-                    session["interaction_mode"] = "ZOOMED_GRID"
-                    session["zoom_box"] = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
-                    session["zoomed_elements"] = found_elements
-            else:
-                send_whatsapp_message(from_number, "Error: GRID_CLICK can't be used in LABEL mode.")
-                action_was_performed = False
-
+                    col_index = ord(cell[0]) - ord('A')
+                    row_index = int(cell[1:]) - 1
+                    x = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
+                    y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
+                    print(f"Grid clicking at viewport coordinates ({x}, {y}) for cell {cell}")
+                    
+                    # --- FIX START ---
+                    # The ActionChains API can be inconsistent. The most reliable way to click at
+                    # specific viewport coordinates is to execute a small piece of JavaScript.
+                    # This finds the element at the x,y coordinates and triggers a click on it.
+                    click_script = f"document.elementFromPoint({x}, {y}).click();"
+                    driver.execute_script(click_script)
+                    # --- FIX END ---
         elif command == "START_BROWSER":
             driver = start_browser(session)
             if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
@@ -469,7 +399,8 @@ def process_ai_command(from_number, ai_response_text):
             process_next_browser_step(from_number, session, "Browser started. What's next?")
             return
         elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
-        elif command == "CUSTOM_SEARCH": driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
+        elif command == "CUSTOM_SEARCH":
+            driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
         elif command == "GO_BACK": driver.back()
         elif command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
         elif command == "CLOSE_TAB":
@@ -509,8 +440,6 @@ def process_ai_command(from_number, ai_response_text):
         error_summary = f"Error during command '{command}': {e}"
         print(f"CRITICAL: {error_summary}"); traceback.print_exc()
         send_whatsapp_message(from_number, f"An action failed. I will show the AI what happened so it can try to recover.")
-        session["interaction_mode"] = "GRID" # Reset to default grid on error
-        for key in ["zoom_box", "zoomed_elements", "sub_grid_map"]: session.pop(key, None)
         time.sleep(1)
         process_next_browser_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
 
@@ -553,7 +482,7 @@ def webhook():
                     send_whatsapp_message(from_number, "There is no browser task to interrupt.")
                 else:
                     session["interrupt_requested"] = True
-                    session["is_processing"] = False
+                    session["is_processing"] = False # Allow new user input
                     send_whatsapp_message(from_number, "Interrupted. The current action will be ignored. What would you like to do instead?")
                 return Response(status=200)
 
