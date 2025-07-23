@@ -162,6 +162,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 **== TAB MANAGEMENT COMMANDS ==**
 
 13. **`NEW_TAB`**, **`SWITCH_TO_TAB`**, **`CLOSE_TAB`**
+You are the one that needs to create new tabs for them to be created. If you didnt create them, dont try switching to a tab that is non existing. For that use go back, or maybe your click didnt work.
 
 **== USER INTERACTION COMMANDS ==**
 
@@ -170,6 +171,20 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 
 15. **`SPEAK`**: For simple conversation.
     - **Params:** `{"text": "<your_response>"}`
+
+--- LANGUAGE ---
+
+You may always speak the same language the user did to you. If he spoke english, speak english. If he spoke portuguese, speak portuguese and so it goes.
+
+--- MAGIC AND YOU ---
+
+You are built by a team called Pyxel, with their website available on https://pyxelworld.com
+Pyxel built another AI called Magic, which is available to do other stuff that is unrelated to actually using a browser. Magic can also search the internet, but only extracts text from websites and cannot interact with them, which is better or worse depending on the usecase. Magic can recieve all types of attachments as you only recieve text.
+Both Magic and you run inside WhatsApp.
+When the user asks you to do something you can't do (because you are built only for interacting with the browser), tell them to start talking to Magic at https://wa.me/551127375623 or learn more about it on https://askmagic.com.br.
+You can also build a custom link that sends the user directly to Magic with a message already typed in. Lets say a user asked you to generate an image. Tell them to talk to Magic and send the link https://wa.me/551127375623?text=generate+an+image
+
+
 """
 
 def send_whatsapp_message(to, text):
@@ -326,7 +341,7 @@ def process_next_browser_step(from_number, session, caption):
         send_whatsapp_image(from_number, screenshot_path, caption=caption)
         ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
         process_ai_command(from_number, ai_response)
-    else: send_whatsapp_message(from_number, "Could not get a view of the page. I will close the browser."); close_browser(session)
+    else: send_whatsapp_message(from_number, "[Sistema] Não foi possível ver o navegador, fechando..."); close_browser(session)
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
@@ -355,10 +370,10 @@ def process_ai_command(from_number, ai_response_text):
     driver = session.get("driver")
     
     if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER"]:
-        send_whatsapp_message(from_number, "The browser was closed. I'm starting it up to continue your task...")
+        send_whatsapp_message(from_number, "[Sistema] Abrindo navegador e tantando novamente...")
         driver = start_browser(session)
         if not driver:
-            send_whatsapp_message(from_number, "I failed to restart the browser. Please start a new task.")
+            send_whatsapp_message(from_number, "[Sistema] Houve um erro ao abrir o navegador. Tente novamente ou fale conosco enviando /help no Magic.\n\nhttps://wa.me/551127375623")
             close_browser(session); return
         time.sleep(1)
         process_ai_command(from_number, ai_response_text); return
@@ -371,12 +386,12 @@ def process_ai_command(from_number, ai_response_text):
             session["interaction_mode"] = "LABEL"
         elif command == "GRID_CLICK":
             if session["interaction_mode"] != "GRID":
-                send_whatsapp_message(from_number, "Error: Cannot use GRID_CLICK in LABEL mode.")
+                send_whatsapp_message(from_number, "[Sistema] Agent tentou clicar na grade com ela desativada.")
                 action_was_performed = False
             else:
                 cell = params.get("cell", "").upper()
                 if not cell or not cell[0].isalpha() or not cell[1:].isdigit():
-                    send_whatsapp_message(from_number, f"Invalid cell format: {cell}.")
+                    send_whatsapp_message(from_number, "[Sistema] Agent tentou usar um formato de célula inválido.")
                     action_was_performed = False
                 else:
                     col_index = ord(cell[0]) - ord('A')
@@ -394,9 +409,9 @@ def process_ai_command(from_number, ai_response_text):
                     # --- FIX END ---
         elif command == "START_BROWSER":
             driver = start_browser(session)
-            if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
+            if not driver: send_whatsapp_message(from_number, "[Sistema] Houve um ero ao abrir o navegador."); close_browser(session); return
             time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); time.sleep(1)
-            process_next_browser_step(from_number, session, "Browser started. What's next?")
+            process_next_browser_step(from_number, session, "[Sistema] Navegador aberto.")
             return
         elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
         elif command == "CUSTOM_SEARCH":
@@ -405,41 +420,41 @@ def process_ai_command(from_number, ai_response_text):
         elif command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
         elif command == "CLOSE_TAB":
             if len(driver.window_handles) > 1: driver.close(); driver.switch_to.window(driver.window_handles[0])
-            else: send_whatsapp_message(from_number, "I can't close the last tab."); action_was_performed = False
+            else: send_whatsapp_message(from_number, "[Sistema] O Magic Agent não pode fechar a última aba."); action_was_performed = False
         elif command == "SWITCH_TO_TAB":
             handle = session["tab_handles"].get(params.get("tab_id"))
             if handle: driver.switch_to.window(handle)
-            else: send_whatsapp_message(from_number, "I couldn't find that tab ID."); action_was_performed = False
+            else: send_whatsapp_message(from_number, "[Sistema] O Magic Agent tentou abrir uma aba que não existe."); action_was_performed = False
         elif command == "CLICK":
             if session["interaction_mode"] != "LABEL":
-                send_whatsapp_message(from_number, "Error: Cannot use CLICK in GRID mode."); action_was_performed = False
+                send_whatsapp_message(from_number, "[Sistema] Agent tentou clicar em um local específico no modo grade."); action_was_performed = False
             else:
                 label = params.get("label")
-                if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} not valid."); action_was_performed = False
+                if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, "[Sistema] Agent tentou clicar em um lugar não válido."); action_was_performed = False
                 else:
                     try: driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
-                    except Exception as e: print(f"Click failed: {e}"); send_whatsapp_message(from_number, "Click failed.")
+                    except Exception as e: print(f"Click failed: {e}"); send_whatsapp_message(from_number, "[Sistema] O click do Agent falhou.")
         elif command == "TYPE":
             ActionChains(driver).send_keys(params.get("text", "")).perform()
             if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
         elif command == "CLEAR":
             if session["interaction_mode"] != "LABEL":
-                send_whatsapp_message(from_number, "Error: Cannot use CLEAR in GRID mode."); action_was_performed = False
+                send_whatsapp_message(from_number, "[Sistema] Agent usou ferramenta indisponível no modo grade."); action_was_performed = False
             else:
                 label = params.get("label")
                 element_to_clear = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
                 element_to_clear.send_keys(Keys.CONTROL + "a"); element_to_clear.send_keys(Keys.DELETE)
         elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {800 if params.get('direction', 'down') == 'down' else -800});")
-        elif command == "END_BROWSER": send_whatsapp_message(from_number, f"*Summary:*\n{params.get('reason', 'Task done.')}"); close_browser(session); return
+        elif command == "END_BROWSER": send_whatsapp_message(from_number, f"*Sumário:*\n{params.get('reason', 'Task done.')}"); close_browser(session); return
         elif command == "PAUSE_AND_ASK": return
         elif command == "SPEAK": return
-        else: print(f"Unknown command: {command}"); send_whatsapp_message(from_number, f"Unknown command '{command}'."); action_was_performed = True
+        else: print(f"Unknown command: {command}"); send_whatsapp_message(from_number, "[Sistema] Agent tentou fazer uma ação desconhecida."); action_was_performed = True
         
-        if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done: {speak}")
+        if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"[Sistema] O Agent terminou a seguinte ação no computador: {speak}")
     except Exception as e:
         error_summary = f"Error during command '{command}': {e}"
         print(f"CRITICAL: {error_summary}"); traceback.print_exc()
-        send_whatsapp_message(from_number, f"An action failed. I will show the AI what happened so it can try to recover.")
+        send_whatsapp_message(from_number, "[Sistema] Houve um erro. Tentando novamente com asisstência do Agent...")
         time.sleep(1)
         process_next_browser_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
 
@@ -461,7 +476,7 @@ def webhook():
             processed_message_ids.add(message_id)
             
             if message_info.get("type") != "text":
-                send_whatsapp_message(message_info.get("from"), "I only process text messages."); return Response(status=200)
+                send_whatsapp_message(message_info.get("from"), "[Sistema] O Agent apenas suporta mensagens de texto no momento."); return Response(status=200)
 
             from_number, user_message_text = message_info["from"], message_info["text"]["body"]
             print(f"Received from {from_number}: '{user_message_text}'")
@@ -473,17 +488,17 @@ def webhook():
                 session["stop_requested"] = True
                 close_browser(session)
                 session["is_processing"] = False
-                send_whatsapp_message(from_number, "Request stopped. Your current task has been cancelled. Any pending actions will be ignored.")
+                send_whatsapp_message(from_number, "[Sistema] Ação cancelada.")
                 return Response(status=200)
 
             if command_text == "/interrupt":
                 print(f"User {from_number} issued /interrupt command.")
                 if session["mode"] != "BROWSER":
-                    send_whatsapp_message(from_number, "There is no browser task to interrupt.")
+                    send_whatsapp_message(from_number, "[Sistema] Não tem nenhuma ação ocorrendo para ser interrompida.")
                 else:
                     session["interrupt_requested"] = True
                     session["is_processing"] = False # Allow new user input
-                    send_whatsapp_message(from_number, "Interrupted. The current action will be ignored. What would you like to do instead?")
+                    send_whatsapp_message(from_number, "[Sistema] Ação interrompida. Sua próxima mensagem será enviada para IA como assistência de como ela deve continuar.")
                 return Response(status=200)
 
             if command_text == "/clear":
@@ -491,12 +506,12 @@ def webhook():
                 close_browser(session)
                 if from_number in user_sessions:
                     del user_sessions[from_number]
-                send_whatsapp_message(from_number, "Your session and chat history have been cleared.")
+                send_whatsapp_message(from_number, "[Sistema] Memória do Agent limpada.")
                 print(f"Session for {from_number} cleared.")
                 return Response(status=200)
 
             if session.get("is_processing"):
-                send_whatsapp_message(from_number, "Please wait, I'm still working on your previous request. You can use /interrupt to stop the current action or /stop to end the task completely."); return Response(status=200)
+                send_whatsapp_message(from_number, "[Sistema] O Agent ainda está trabalhando. Envie /interrupt para interrompê-lo e dá-lo assistência ou /stop para encerrar."); return Response(status=200)
             
             try:
                 session["is_processing"] = True
@@ -507,7 +522,7 @@ def webhook():
                     ai_response = call_ai(session["chat_history"], context_text=user_message_text)
                     process_ai_command(from_number, ai_response)
                 elif session["mode"] == "BROWSER":
-                    process_next_browser_step(from_number, session, f"Continuing with new instructions from user: {user_message_text}")
+                    process_next_browser_step(from_number, session, f"[Sistema] Continuando e enviando sua mensagem para o Agent...")
             finally:
                 if not session.get("interrupt_requested"):
                     session["is_processing"] = False
