@@ -42,12 +42,11 @@ user_sessions = {}
 processed_message_ids = set()
 
 # --- CONSTANTS ---
-# NEW: Switched to Bing Search
 CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
 CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
 GRID_CELL_SIZE = 40 # The size of each grid cell in pixels for grid mode
 
-# --- JAVASCRIPT FOR ELEMENT LABELING (ADDS A DATA ATTRIBUTE) ---
+# --- JAVASCRIPT SNIPPETS ---
 JS_GET_INTERACTIVE_ELEMENTS = """
     const elements = Array.from(document.querySelectorAll(
         'a, button, input:not([type="hidden"]), textarea, [role="button"], [role="link"], [onclick]'
@@ -79,7 +78,25 @@ JS_GET_INTERACTIVE_ELEMENTS = """
     return interactiveElements;
 """
 
-# --- NEW, MORE DETAILED SYSTEM PROMPT ---
+# --- NEW: JAVASCRIPT FOR PRECISION CLICKING ---
+JS_CLICK_AT_COORDINATE = """
+    const x = {x};
+    const y = {y};
+    const element = document.elementFromPoint(x, y);
+    if (element) {
+        const mousedownEvent = new MouseEvent('mousedown', {{ bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }});
+        const mouseupEvent = new MouseEvent('mouseup', {{ bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }});
+        const clickEvent = new MouseEvent('click', {{ bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }});
+        
+        element.dispatchEvent(mousedownEvent);
+        element.dispatchEvent(mouseupEvent);
+        element.dispatchEvent(clickEvent);
+    } else {
+        console.error('Magic Agent: No element found at ' + x + ',' + y);
+    }
+"""
+
+# --- SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
 You are "Magic Agent," a highly autonomous AI expert at controlling a web browser. You operate by receiving a state (a screenshot and tab info) and issuing a single command in JSON format.
 
@@ -114,62 +131,31 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 --- COMMAND REFERENCE ---
 
 **== MODE SWITCHING COMMANDS ==**
-
-1.  **`SWITCH_TO_GRID_MODE`**: Switches to precision grid-based clicking. The next screenshot you see will have a grid. You will probably need to switch to grid mode to try and do a captcha. If it works, awesome! If it does not, ask user on how to go on. Also maybe the button is broken, also ask user.
-    - **Params:** `{}`
-    - **Example:** `{"command": "SWITCH_TO_GRID_MODE", "params": {}, "thought": "I see a 'Continue' button that is not labeled. I need to switch to grid mode to click it.", "speak": "Switching to precision mode to click a specific spot."}`
-
-2.  **`SWITCH_TO_LABEL_MODE`**: Switches back to the default label-based clicking.
-    - **Params:** `{}`
+1.  **`SWITCH_TO_GRID_MODE`**
+2.  **`SWITCH_TO_LABEL_MODE`**
 
 **== BROWSER START/STOP COMMANDS ==**
-
-3.  **`START_BROWSER`**: Initiates a new browser session. Starts in LABEL mode.
-    - **Params:** `{}`
-
-4.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
-    - **Params:** `{"reason": "<summary>"}`
+3.  **`START_BROWSER`**
+4.  **`END_BROWSER`**: `{"reason": "<summary>"}`
 
 **== NAVIGATION COMMANDS ==**
-
-5.  **`NAVIGATE`**: Goes directly to a URL.
-    - **Params:** `{"url": "<full_url>"}`
-
-6.  **`CUSTOM_SEARCH`**: Performs a search using Bing.
-    - **Params:** `{"query": "<search_term>"}`
-
-7.  **`GO_BACK`**: Navigates to the previous page in history.
-    - **Params:** `{}`
+5.  **`NAVIGATE`**: `{"url": "<full_url>"}`
+6.  **`CUSTOM_SEARCH`**: `{"query": "<search_term>"}` (Uses Bing)
+7.  **`GO_BACK`**
 
 **== PAGE INTERACTION COMMANDS ==**
-
-8.  **`CLICK`**: (LABEL MODE ONLY) Clicks an element identified by its label number.
-    - **Params:** `{"label": <int>}`
-
-9.  **`GRID_CLICK`**: (GRID MODE ONLY) Clicks the center of a specified grid cell.
-    - **Params:** `{"cell": "<e.g., 'C5', 'G12'>"}`
-    - **Example:** `{"command": "GRID_CLICK", "params": {"cell": "D10"}, "thought": "The 'Continue' button is in cell D10. I will now click it.", "speak": "Clicking D10."}`
-
-10. **`TYPE`**: Types text. You MUST `CLICK` an input field first.
-    - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
-
-11. **`CLEAR`**: (LABEL MODE ONLY) Clears text from an input field.
-    - **Params:** `{"label": <int>}`
-
-12. **`SCROLL`**: Scrolls the page.
-    - **Params:** `{"direction": "<up|down>"}`
+8.  **`CLICK`**: (LABEL MODE) `{"label": <int>}`
+9.  **`GRID_CLICK`**: (GRID MODE) `{"cell": "<e.g., 'C5'>"}`
+10. **`TYPE`**: `{"text": "<text>", "enter": <true/false>}`
+11. **`CLEAR`**: (LABEL MODE) `{"label": <int>}`
+12. **`SCROLL`**: `{"direction": "<up|down>"}`
 
 **== TAB MANAGEMENT COMMANDS ==**
-
 13. **`NEW_TAB`**, **`SWITCH_TO_TAB`**, **`CLOSE_TAB`**
 
 **== USER INTERACTION COMMANDS ==**
-
-14. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
-    - **Params:** `{"question": "<your_question>"}`
-
-15. **`SPEAK`**: For simple conversation.
-    - **Params:** `{"text": "<your_response>"}`
+14. **`PAUSE_AND_ASK`**: `{"question": "<your_question>"}`
+15. **`SPEAK`**: `{"text": "<your_response>"}`
 """
 
 def send_whatsapp_message(to, text):
@@ -217,7 +203,7 @@ def get_or_create_session(phone_number):
             "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
             "user_dir": user_dir, "labeled_elements": {}, "tab_handles": {},
             "is_processing": False, "interaction_mode": "LABEL",
-            "stop_requested": False, "interrupt_requested": False # Flags for user control
+            "stop_requested": False, "interrupt_requested": False
         }
         user_dir.mkdir(parents=True, exist_ok=True)
         user_sessions[phone_number] = session
@@ -276,7 +262,7 @@ def get_page_state(driver, session):
                     draw.rectangle([x1, y1, x1 + GRID_CELL_SIZE, y1 + GRID_CELL_SIZE], outline="rgba(255,0,0,100)")
                     label = f"{chr(ord('A')+j)}{i+1}"
                     draw.text((x1 + 2, y1 + 2), label, fill="red", font=font)
-        else: # Default LABEL mode
+        else:
             print("Capturing state in LABEL mode.")
             elements = driver.execute_script(JS_GET_INTERACTIVE_ELEMENTS)
             session["labeled_elements"] = {el['label']: el for el in elements}
@@ -324,20 +310,13 @@ def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
     
     if session.get("stop_requested"):
-        print("Stop was requested, ignoring AI command.")
-        session["stop_requested"] = False 
-        session["chat_history"] = []
-        return
+        print("Stop was requested, ignoring AI command."); session["stop_requested"] = False; session["chat_history"] = []; return
     if session.get("interrupt_requested"):
-        print("Interrupt was requested, ignoring AI command.")
-        session["interrupt_requested"] = False
-        return
+        print("Interrupt was requested, ignoring AI command."); session["interrupt_requested"] = False; return
 
     try: command_data = json.loads(ai_response_text)
     except json.JSONDecodeError:
-        send_whatsapp_message(from_number, ai_response_text)
-        if session["mode"] == "BROWSER": close_browser(session)
-        return
+        send_whatsapp_message(from_number, ai_response_text); close_browser(session); return
         
     command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
     print(f"Executing: {command} | Params: {params} | Thought: {thought} | Mode: {session['interaction_mode']}")
@@ -345,15 +324,11 @@ def process_ai_command(from_number, ai_response_text):
     if speak: send_whatsapp_message(from_number, speak)
     
     driver = session.get("driver")
-    
     if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER"]:
         send_whatsapp_message(from_number, "The browser was closed. I'm starting it up to continue your task...")
         driver = start_browser(session)
-        if not driver:
-            send_whatsapp_message(from_number, "I failed to restart the browser. Please start a new task.")
-            close_browser(session); return
-        time.sleep(1)
-        process_ai_command(from_number, ai_response_text); return
+        if not driver: send_whatsapp_message(from_number, "I failed to restart the browser."); close_browser(session); return
+        time.sleep(1); process_ai_command(from_number, ai_response_text); return
 
     try:
         action_was_performed = True
@@ -373,21 +348,17 @@ def process_ai_command(from_number, ai_response_text):
                     row_index = int(cell[1:]) - 1
                     x = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
-                    print(f"Grid clicking at viewport coordinates ({x}, {y}) for cell {cell}")
-                    # --- FIX: Use a simple, robust ActionChain to click at an absolute coordinate ---
-                    html_element = driver.find_element(By.TAG_NAME, 'html')
-                    ActionChains(driver).move_to_element_with_offset(html_element, int(x), int(y)).click().perform()
+                    print(f"Grid clicking via JavaScript at viewport ({x}, {y}) for cell {cell}")
+                    # --- FIX: Use JavaScript to click at the precise viewport coordinate ---
+                    driver.execute_script(JS_CLICK_AT_COORDINATE.format(x=int(x), y=int(y)))
         elif command == "START_BROWSER":
             driver = start_browser(session)
             if not driver: send_whatsapp_message(from_number, "Could not open browser."); close_browser(session); return
-            # NEW: Navigate to Bing on start
             time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); time.sleep(1)
             process_next_browser_step(from_number, session, "Browser started on Bing. What's next?")
             return
         elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
-        elif command == "CUSTOM_SEARCH":
-            # NEW: Uses Bing template
-            driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
+        elif command == "CUSTOM_SEARCH": driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
         elif command == "GO_BACK": driver.back()
         elif command == "NEW_TAB": driver.switch_to.new_window('tab'); driver.get(params["url"]) if "url" in params and params["url"] else None
         elif command == "CLOSE_TAB":
@@ -398,23 +369,18 @@ def process_ai_command(from_number, ai_response_text):
             if handle: driver.switch_to.window(handle)
             else: send_whatsapp_message(from_number, "I couldn't find that tab ID."); action_was_performed = False
         elif command == "CLICK":
-            if session["interaction_mode"] != "LABEL":
-                send_whatsapp_message(from_number, "Error: Cannot use CLICK in GRID mode."); action_was_performed = False
+            if session["interaction_mode"] != "LABEL": send_whatsapp_message(from_number, "Error: Cannot use CLICK in GRID mode."); action_was_performed = False
             else:
                 label = params.get("label")
                 if not session["labeled_elements"].get(label): send_whatsapp_message(from_number, f"Label {label} not valid."); action_was_performed = False
-                else:
-                    try: driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
-                    except Exception as e: print(f"Click failed: {e}"); send_whatsapp_message(from_number, "Click failed.")
+                else: driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]').click()
         elif command == "TYPE":
             ActionChains(driver).send_keys(params.get("text", "")).perform()
             if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
         elif command == "CLEAR":
-            if session["interaction_mode"] != "LABEL":
-                send_whatsapp_message(from_number, "Error: Cannot use CLEAR in GRID mode."); action_was_performed = False
+            if session["interaction_mode"] != "LABEL": send_whatsapp_message(from_number, "Error: Cannot use CLEAR in GRID mode."); action_was_performed = False
             else:
-                label = params.get("label")
-                element_to_clear = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
+                label = params.get("label"); element_to_clear = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-label="{label}"]')
                 element_to_clear.send_keys(Keys.CONTROL + "a"); element_to_clear.send_keys(Keys.DELETE)
         elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {800 if params.get('direction', 'down') == 'down' else -800});")
         elif command == "END_BROWSER": send_whatsapp_message(from_number, f"*Summary:*\n{params.get('reason', 'Task done.')}"); close_browser(session); return
@@ -424,8 +390,8 @@ def process_ai_command(from_number, ai_response_text):
         
         if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, f"Action done: {speak}")
     except Exception as e:
-        error_summary = f"Error during command '{command}': {e}"
-        print(f"CRITICAL: {error_summary}"); traceback.print_exc()
+        error_summary = f"Error during command '{command}': {traceback.format_exc().splitlines()[-1]}"
+        print(f"CRITICAL: {error_summary}\n{traceback.format_exc()}");
         send_whatsapp_message(from_number, f"An action failed. I will show the AI what happened so it can try to recover.")
         time.sleep(1)
         process_next_browser_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
@@ -457,27 +423,22 @@ def webhook():
             command_text = user_message_text.strip().lower()
             if command_text == "/stop":
                 print(f"User {from_number} issued /stop command.")
-                session["stop_requested"] = True
-                close_browser(session)
-                session["is_processing"] = False
+                session["stop_requested"] = True; close_browser(session); session["is_processing"] = False
                 send_whatsapp_message(from_number, "Request stopped. Your current task has been cancelled. Any pending actions will be ignored.")
                 return Response(status=200)
 
             if command_text == "/interrupt":
                 print(f"User {from_number} issued /interrupt command.")
-                if session["mode"] != "BROWSER":
-                    send_whatsapp_message(from_number, "There is no browser task to interrupt.")
+                if session["mode"] != "BROWSER": send_whatsapp_message(from_number, "There is no browser task to interrupt.")
                 else:
-                    session["interrupt_requested"] = True
-                    session["is_processing"] = False
+                    session["interrupt_requested"] = True; session["is_processing"] = False
                     send_whatsapp_message(from_number, "Interrupted. The current action will be ignored. What would you like to do instead?")
                 return Response(status=200)
 
             if command_text == "/clear":
                 print(f"User {from_number} issued /clear command.")
                 close_browser(session)
-                if from_number in user_sessions:
-                    del user_sessions[from_number]
+                if from_number in user_sessions: del user_sessions[from_number]
                 send_whatsapp_message(from_number, "Your session and chat history have been cleared.")
                 print(f"Session for {from_number} cleared.")
                 return Response(status=200)
