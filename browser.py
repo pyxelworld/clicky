@@ -174,7 +174,7 @@ def get_or_create_session(phone_number):
         session = {
             "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
             "user_dir": user_dir, "page_elements": {}, "tab_handles": {},
-            "is_processing": False, "interaction_mode": "TEXT", # Default mode
+            "is_processing": False, "interaction_mode": "TEXT",
             "stop_requested": False, "interrupt_requested": False
         }
         user_dir.mkdir(parents=True, exist_ok=True)
@@ -201,35 +201,29 @@ def close_browser(session):
 def get_page_state(driver, session):
     screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
     try:
-        # Get Tab Info
         window_handles = driver.window_handles; current_handle = driver.current_window_handle
         session["tab_handles"] = {i + 1: handle for i, handle in enumerate(window_handles)}
-        tab_info_text = "Open Tabs:\n" + "".join([f"  Tab {i+1}: {driver.title if handle == current_handle else '(Other Tab)'} {'(Current)' if handle == current_handle else ''}\n" for i, handle in session["tab_handles"].items()])
+        # Switch to current tab to get title, then switch back if needed (though it should be current)
+        driver.switch_to.window(current_handle)
+        tab_info_text = "Open Tabs:\n" + "".join([f"  Tab {i+1}: {driver.title if handle == current_handle else '(Background Tab)'} {'(Current)' if handle == current_handle else ''}\n" for i, handle in session["tab_handles"].items()])
     except Exception as e: print(f"Could not get tab info: {e}"); tab_info_text = "Could not get tab info."
 
     try:
         png_data = driver.get_screenshot_as_png()
         image = Image.open(io.BytesIO(png_data))
         draw = ImageDraw.Draw(image)
-        try:
-            main_font = ImageFont.truetype("DejaVuSans.ttf", size=LABEL_FONT_SIZE)
-        except IOError:
-            main_font = ImageFont.load_default()
+        try: main_font = ImageFont.truetype("DejaVuSans.ttf", size=LABEL_FONT_SIZE)
+        except IOError: main_font = ImageFont.load_default()
 
         mode_specific_text = ""
         mode = session["interaction_mode"]
-
-        # Regardless of mode, we get all elements first
         elements = driver.execute_script(JS_GET_ELEMENTS_FOR_MODES)
         session["page_elements"] = {el['index']: el for el in elements}
 
         if mode == "TEXT":
             print("Capturing state in TEXT mode.")
-            # Create the numbered list for the AI
             text_list = [f"{el['index']}. {el['tag']}: \"{el['text']}\"" for el in elements]
             mode_specific_text = "Clickable Elements List:\n" + "\n".join(text_list)
-            # No drawing on the image in TEXT mode
-
         elif mode == "GRID":
             print("Capturing state in GRID mode.")
             mode_specific_text = "GRID MODE: Use GRID_CLICK with a cell coordinate (e.g., 'C5')."
@@ -241,7 +235,6 @@ def get_page_state(driver, session):
                     bbox = draw.textbbox((x1 + 3, y1 + 3), label, font=main_font)
                     draw.rectangle((bbox[0]-2, bbox[1]-2, bbox[2]+2, bbox[3]+2), fill="red")
                     draw.text((x1 + 3, y1 + 3), label, fill="white", font=main_font)
-
         elif mode == "LABEL":
             print("Capturing state in LABEL mode.")
             mode_specific_text = "LABEL MODE: Use CLICK with a label number."
@@ -256,33 +249,52 @@ def get_page_state(driver, session):
 
         image.save(screenshot_path)
         print(f"State captured in {mode} mode.")
-        # Combine tab info with mode-specific text
         full_context_text = f"{tab_info_text}\n{mode_specific_text}"
         return screenshot_path, full_context_text
     except Exception as e:
         print(f"Error getting page state: {e}"); traceback.print_exc()
         return None, ""
 
-def call_ai(chat_history, context_text, image_path):
-    prompt_parts = [context_text, {"mime_type": "image/png", "data": image_path.read_bytes()}]
+# --- FIX START ---
+def call_ai(chat_history, context_text, image_path=None):
+    # Initialize prompt parts with text, which is always present
+    prompt_parts = [context_text]
+
+    # Conditionally add the image part ONLY if an image_path is provided
+    if image_path:
+        try:
+            prompt_parts.append({"mime_type": "image/png", "data": image_path.read_bytes()})
+        except Exception as e:
+            print(f"CRITICAL: Could not read image file at {image_path}. Error: {e}")
+            return json.dumps({"command": "END_BROWSER", "params": {"reason": "System error: Failed to read the screenshot."}, "thought": "I failed to read the image file, I must stop.", "speak": "I'm having trouble seeing the screen right now. I have to stop."})
+
+    # Combine history with the current prompt parts for a complete context
+    full_content_for_api = chat_history + prompt_parts
+
     last_error = "No API keys were available or all failed."
     for i, key in enumerate(GEMINI_API_KEYS):
         try:
             print(f"Attempting to call AI with API key #{i+1}...")
             genai.configure(api_key=key)
             model = genai.GenerativeModel(AI_MODEL_NAME, system_instruction=SYSTEM_PROMPT, generation_config={"response_mime_type": "application/json"})
-            response = model.generate_content(prompt_parts, generation_config={"temperature": 0.0}) # Low temp for deterministic actions
-            print("AI call successful."); return response.text
+            # Use the combined history and current prompt
+            response = model.generate_content(full_content_for_api, generation_config={"temperature": 0.0})
+            print("AI call successful.")
+            return response.text
         except Exception as e:
-            print(f"API key #{i+1} failed. Error: {e}"); last_error = e
+            print(f"API key #{i+1} failed. Error: {e}")
+            last_error = e
+
+    print("All API keys failed.")
     return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {last_error}"}, "thought": "AI API failed.", "speak": "Error connecting to my brain."})
+# --- FIX END ---
 
 def process_next_browser_step(from_number, session, caption):
     screenshot_path, context_text = get_page_state(session["driver"], session)
     if screenshot_path:
-        # Prepend user goal and the last action's status to the context
         full_context = f"User's Goal: {session['original_prompt']}\nStatus: {caption}\n\n{context_text}"
         send_whatsapp_image(from_number, screenshot_path, caption=caption)
+        # Pass the session's chat history to the AI
         ai_response = call_ai(session["chat_history"], full_context, screenshot_path)
         process_ai_command(from_number, ai_response)
     else:
@@ -304,7 +316,7 @@ def process_ai_command(from_number, ai_response_text):
     if speak: send_whatsapp_message(from_number, speak)
 
     driver = session.get("driver")
-    if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER"]:
+    if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER", "PAUSE_AND_ASK"]:
         send_whatsapp_message(from_number, "Browser isn't running. Restarting it to continue...")
         if not start_browser(session): send_whatsapp_message(from_number, "Failed to restart browser."); close_browser(session); return
         time.sleep(1); process_ai_command(from_number, ai_response_text); return
@@ -313,58 +325,40 @@ def process_ai_command(from_number, ai_response_text):
         action_was_performed = True
         next_caption = f"Action: '{command}' success. {speak}"
         
-        # Mode Switching
-        if command.startswith("SWITCH_TO_"):
-            session["interaction_mode"] = command.replace("SWITCH_TO_", "").replace("_MODE", "")
-        
-        # Page Interaction
+        if command.startswith("SWITCH_TO_"): session["interaction_mode"] = command.replace("SWITCH_TO_", "").replace("_MODE", "")
         elif command == "CLICK_TEXT":
-            if session["interaction_mode"] != "TEXT":
-                raise ValueError("Cannot use CLICK_TEXT outside of TEXT mode.")
-            index = params.get("index")
-            element_id = session["page_elements"].get(index, {}).get('id')
+            if session["interaction_mode"] != "TEXT": raise ValueError("Cannot use CLICK_TEXT outside of TEXT mode.")
+            index = params.get("index"); element_id = session["page_elements"].get(index, {}).get('id')
             if not element_id: raise ValueError(f"Invalid index {index} provided.")
             driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-id="{element_id}"]').click()
-        
         elif command == "CLICK":
-            if session["interaction_mode"] != "LABEL":
-                raise ValueError("Cannot use CLICK outside of LABEL mode.")
-            label = params.get("label")
-            element_id = session["page_elements"].get(label, {}).get('id')
+            if session["interaction_mode"] != "LABEL": raise ValueError("Cannot use CLICK outside of LABEL mode.")
+            label = params.get("label"); element_id = session["page_elements"].get(label, {}).get('id')
             if not element_id: raise ValueError(f"Invalid label {label} provided.")
             driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-id="{element_id}"]').click()
-        
         elif command == "GRID_CLICK":
-            if session["interaction_mode"] != "GRID":
-                raise ValueError("Cannot use GRID_CLICK outside of GRID mode.")
+            if session["interaction_mode"] != "GRID": raise ValueError("Cannot use GRID_CLICK outside of GRID mode.")
             cell = params.get("cell", "").upper()
             if not cell or not cell[0].isalpha() or not cell[1:].isdigit(): raise ValueError(f"Invalid cell format: {cell}.")
             col_index, row_index = ord(cell[0]) - ord('A'), int(cell[1:]) - 1
             x, y = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2), row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
-            print(f"Grid clicking at ({x}, {y}) for cell {cell}")
-            driver.execute_script(f"document.elementFromPoint({x}, {y}).click();")
-
+            print(f"Grid clicking at ({x}, {y}) for cell {cell}"); driver.execute_script(f"document.elementFromPoint({x}, {y}).click();")
         elif command == "TYPE":
             ActionChains(driver).send_keys(params.get("text", "")).perform()
             if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
-
         elif command == "CLEAR":
-            if session["interaction_mode"] != "LABEL":
-                raise ValueError("Cannot use CLEAR outside of LABEL mode.")
-            label = params.get("label")
-            element_id = session["page_elements"].get(label, {}).get('id')
+            if session["interaction_mode"] != "LABEL": raise ValueError("Cannot use CLEAR outside of LABEL mode.")
+            label = params.get("label"); element_id = session["page_elements"].get(label, {}).get('id')
             if not element_id: raise ValueError(f"Invalid label {label} for CLEAR.")
             element_to_clear = driver.find_element(By.CSS_SELECTOR, f'[data-magic-agent-id="{element_id}"]')
             element_to_clear.send_keys(Keys.CONTROL + "a"); element_to_clear.send_keys(Keys.DELETE)
-
         elif command == "SCROLL":
             direction = 1 if params.get('direction', 'down') == 'down' else -1
             driver.execute_script(f"window.scrollBy(0, window.innerHeight * 0.8 * {direction});")
-
-        # Browser Control
         elif command == "START_BROWSER":
-            if not start_browser(session): raise Exception("Failed to start browser.")
-            time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); time.sleep(1)
+            driver = start_browser(session)
+            if not driver: raise Exception("Failed to start browser.")
+            driver.get(CUSTOM_SEARCH_URL_BASE); time.sleep(1)
         elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
         elif command == "CUSTOM_SEARCH": driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
         elif command == "GO_BACK": driver.back()
@@ -376,25 +370,17 @@ def process_ai_command(from_number, ai_response_text):
             handle = session["tab_handles"].get(params.get("tab_id"))
             if handle: driver.switch_to.window(handle)
             else: action_was_performed = False; next_caption = f"Could not find tab ID {params.get('tab_id')}."
-        
-        # End/Pause
         elif command == "END_BROWSER": send_whatsapp_message(from_number, f"*Task Summary:*\n{params.get('reason', 'Task completed.')}"); close_browser(session); return
-        elif command in ["PAUSE_AND_ASK", "SPEAK"]: return # No further action needed
+        elif command in ["PAUSE_AND_ASK", "SPEAK"]: return
         else: action_was_performed = False; next_caption = f"Unknown command: '{command}'."
         
-        if action_was_performed:
-            time.sleep(2) # Wait for page to react
-            process_next_browser_step(from_number, session, next_caption)
-        else:
-            send_whatsapp_message(from_number, f"Action failed: {next_caption}")
-
+        if action_was_performed: time.sleep(2); process_next_browser_step(from_number, session, next_caption)
+        else: send_whatsapp_message(from_number, f"Action failed: {next_caption}")
     except Exception as e:
         error_summary = f"Error on '{command}': {str(e).splitlines()[0]}"
         print(f"CRITICAL: {error_summary}"); traceback.print_exc()
         send_whatsapp_message(from_number, f"An action failed. Recovering...")
-        time.sleep(1)
-        process_next_browser_step(from_number, session, caption=f"ERROR: {error_summary}. Please analyze the screen and proceed differently.")
-
+        time.sleep(1); process_next_browser_step(from_number, session, caption=f"ERROR: {error_summary}. Please analyze the screen and proceed differently.")
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
@@ -406,7 +392,7 @@ def webhook():
     body = request.get_json()
     try:
         entry = body["entry"][0]["changes"][0]["value"]
-        if "messages" not in entry: return Response(status=200) # Not a message
+        if "messages" not in entry: return Response(status=200)
         
         message_info = entry["messages"][0]
         message_id = message_info.get("id")
@@ -430,7 +416,7 @@ def webhook():
             else: session["interrupt_requested"] = True; session["is_processing"] = False; send_whatsapp_message(from_number, "Interrupted. What's next?")
             return Response(status=200)
         if command_text == "/clear":
-            close_browser(session); del user_sessions[from_number]
+            close_browser(session); user_sessions.pop(from_number, None)
             send_whatsapp_message(from_number, "Your session and chat history are cleared."); return Response(status=200)
 
         if session.get("is_processing"):
@@ -441,9 +427,9 @@ def webhook():
             session["chat_history"].append({"role": "user", "parts": [user_message_text]})
             if session["mode"] == "CHAT":
                 session["original_prompt"] = user_message_text
-                # Use a simpler initial prompt to decide if browsing is needed
                 initial_prompt = f"User wants to: '{user_message_text}'. Your first command should be START_BROWSER if this requires a browser, or SPEAK/PAUSE_AND_ASK if it's a simple chat question."
-                ai_response = call_ai([], initial_prompt, None) # No history/image for initial decision
+                # Make a text-only call with no image
+                ai_response = call_ai(session['chat_history'], initial_prompt, image_path=None) 
                 process_ai_command(from_number, ai_response)
             elif session["mode"] == "BROWSER":
                 process_next_browser_step(from_number, session, f"New instructions from user: {user_message_text}")
