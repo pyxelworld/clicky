@@ -102,7 +102,7 @@ If you are told that a command failed, the page may have changed unexpectedly or
 
 4.  **SHOPPING STRATEGY:** When asked to shop, first use `PAUSE_AND_ASK` to clarify the exact product and price range. Then, on shopping sites, use sorting/filtering features to meet the user's criteria.
 
-5.  **HANDLING OBSTACLES (CAPTCHA):** If you land on a page with a standard CAPTCHA, first try to solve it by switching to GRID mode and using `GRID_CLICK` on the checkbox. If it's a more complex "select all images" CAPTCHA, you cannot solve it. Use the `GO_BACK` command and choose a different search result.
+5. **POPUPS AND COOKIES:** When browsing the web, you may see cookie pop-ups and other popups asking you to do something. IF THESE POPUPS DONT STOP YOU FROM USING THE PAGE, DONT INTERACT WITH THEM! JUST DO WHAT YOU NEED TO DO AND THATS IT.
 
 --- YOUR RESPONSE FORMAT ---
 
