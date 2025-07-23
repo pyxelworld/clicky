@@ -12,6 +12,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.actions.pointer_input import PointerInput
 from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
 
@@ -358,9 +359,16 @@ def process_ai_command(from_number, ai_response_text):
                     row_index = int(cell[1:]) - 1
                     x = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
                     y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
-                    print(f"Grid clicking at ({x}, {y}) for cell {cell}")
-                    body = driver.find_element(By.TAG_NAME, 'body')
-                    ActionChains(driver).move_to_element_with_offset(body, int(x), int(y)).click().perform()
+                    print(f"Grid clicking at viewport coordinates ({x}, {y}) for cell {cell}")
+
+                    # Use W3C Actions to click at absolute viewport coordinates. This is more robust
+                    # as it's not relative to an element like 'body' which might have margins/offsets.
+                    pointer = PointerInput(PointerInput.MOUSE, "mouse")
+                    actions = ActionChains(driver)
+                    actions.w3c_actions.add_action(pointer.create_pointer_move(duration=0, x=int(x), y=int(y), origin="viewport"))
+                    actions.w3c_actions.add_action(pointer.create_pointer_down(PointerInput.LEFT_BUTTON))
+                    actions.w3c_actions.add_action(pointer.create_pointer_up(PointerInput.LEFT_BUTTON))
+                    actions.perform()
         # --- REGULAR COMMANDS ---
         elif command == "START_BROWSER":
             driver = start_browser(session)
