@@ -4,15 +4,15 @@ import requests
 import time
 import io
 import traceback
+import subprocess
 from urllib.parse import quote_plus
 from flask import Flask, request, Response
 from pathlib import Path
-import subprocess # To start Chrome
-import pyautogui # To control mouse/keyboard
-import mss # To take fast screenshots
-import pytesseract # To read text from images
 from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
+
+# --- NEW DESKTOP AUTOMATION LIBRARIES ---
+import pyautogui
 
 # --- CONFIGURATION ---
 GEMINI_API_KEYS = [
@@ -39,47 +39,62 @@ user_sessions = {}
 processed_message_ids = set()
 
 # --- CONSTANTS ---
-GRID_WIDTH = 20
-GRID_HEIGHT = 20
+BING_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
+# MODIFIED: Larger grid cells for a cleaner look
+GRID_CELL_SIZE = 80
 
-# --- NEW SYSTEM PROMPT FOR DESKTOP AUTOMATION ---
+# --- COMPLETELY REWRITTEN SYSTEM PROMPT FOR DESKTOP AUTOMATION ---
 SYSTEM_PROMPT = """
-You are "Magic Agent," an AI expert at controlling a computer's desktop. You see the entire screen and can click anywhere or type. You operate by receiving a screenshot and issuing a single command in JSON format.
+You are "Magic Agent," an AI expert controlling a complete computer desktop. You operate by receiving a full-screen screenshot and issuing commands to move the mouse and use the keyboard, just like a human.
+
+--- YOUR WORLDVIEW ---
+1.  **You see the ENTIRE screen.** This includes the web browser's UI (tabs, address bar), the operating system's taskbar, and any open windows.
+2.  **You ONLY operate in GRID MODE.** The screen is overlaid with a coordinate grid (A1, B2, C3, etc.). All of your actions MUST be based on this grid. There is no "Label Mode".
+3.  **Think step-by-step.** Complex actions require multiple simple commands. For example, opening a new website is not one command, but three: CLICK the address bar, TYPE the URL, PRESS the 'enter' key.
 
 --- GUIDING PRINCIPLES ---
-1.  **FULL SCREEN AWARENESS:** The screenshot you receive is the ENTIRE desktop. You can see and interact with the browser's UI (tabs, address bar) and any other application.
-2.  **GRID IS PREFERRED:** Your primary method of clicking should be `GRID_CLICK`. The grid covers the whole screen. Use it to click on tabs, buttons, links, or any other UI element.
-3.  **TEXT-BASED CLICKS:** If you cannot easily use the grid, or for very clear targets, use the `CLICK_TEXT` command. Specify the exact text you see on the screen that you want to click on. For example, `CLICK_TEXT "Sign In"`.
-4.  **TYPING:** To type, you must first click on an input field using `GRID_CLICK` or `CLICK_TEXT`, then use the `TYPE` command.
-5.  **SEARCHING:** To search, you must first click the browser's address bar (using the grid), then `TYPE` your search query, and finally `PRESS_KEY` to hit 'enter'.
+1.  **NAVIGATION:** To go to a website, you must first `GRID_CLICK` the browser's address bar. Then, use the `TYPE` command to enter the URL. Finally, use the `PRESS_KEY` command with "enter".
+2.  **SEARCHING:** To search, you must first `GRID_CLICK` the browser's address bar, then `TYPE` your search query, and then `PRESS_KEY` with "enter". The browser is set to search with Bing by default.
+3.  **TYPING IN FIELDS:** Before you can type in a text box on a webpage, you MUST `GRID_CLICK` it first to select it.
+4.  **SCROLLING:** If you need to see more of a page, use the `SCROLL` command.
+5.  **RECOVERY:** If an action doesn't work as expected (e.g., a click did nothing), analyze the new screenshot. Is there a popup? Did the page change? Formulate a new plan. Do not repeat the exact same failed command.
 
 --- YOUR RESPONSE FORMAT ---
 Your response MUST ALWAYS be a single JSON object with "command", "params", "thought", and "speak" fields.
 
 --- COMMAND REFERENCE ---
 
-1.  **`GRID_CLICK`**: (PRIMARY) Clicks the center of a specified grid cell on the screen.
+1.  **`GRID_CLICK`**: (PRIMARY ACTION) Clicks the center of a specified grid cell. This is used for everything: clicking buttons, links, address bars, tabs, etc.
     - **Params:** `{"cell": "<e.g., 'C5', 'G12'>"}`
-    - **Example:** `{"command": "GRID_CLICK", "params": {"cell": "D2"}, "thought": "The address bar is in cell D2. I will click it to start typing.", "speak": "Clicking the address bar."}`
+    - **Example:** `{"command": "GRID_CLICK", "params": {"cell": "F2"}, "thought": "I need to click the address bar to type a new URL. It is in cell F2.", "speak": "Clicking the address bar."}`
 
-2.  **`CLICK_TEXT`**: Clicks on the first place the specified text is found on the screen.
-    - **Params:** `{"text": "<text_to_find>"}`
-    - **Example:** `{"command": "CLICK_TEXT", "params": {"text": "Images"}, "thought": "I will click on the 'Images' link to switch to image search results.", "speak": "Clicking on 'Images'."}`
-
-3.  **`TYPE`**: Types text at the current cursor location. You MUST click an input field first.
+2.  **`TYPE`**: Types text at the current cursor position. You MUST `GRID_CLICK` a text field or address bar first.
     - **Params:** `{"text": "<text_to_type>"}`
+    - **Example:** `{"command": "TYPE", "params": {"text": "weather in New York"}, "thought": "Now that the address bar is selected, I will type my search query.", "speak": "Searching for the weather in New York."}`
 
-4.  **`PRESS_KEY`**: Presses a special key.
-    - **Params:** `{"key": "<enter|esc|up|down|left|right>"}`
+3.  **`PRESS_KEY`**: Presses a special keyboard key once. Essential for submitting forms and navigating.
+    - **Params:** `{"key": "<key_name>"}`
+    - **Supported Keys:** `enter`, `up`, `down`, `left`, `right`, `tab`, `esc` (escape), `backspace`, `delete`, `pageup`, `pagedown`. For key combinations like Ctrl+A, use the `HOTKEY` command.
+    - **Example:** `{"command": "PRESS_KEY", "params": {"key": "enter"}, "thought": "I have typed the URL, now I will press enter to navigate.", "speak": "Going to the website."}`
 
-5.  **`SCROLL`**: Scrolls the mouse wheel.
+4.  **`HOTKEY`**: Presses a combination of keys.
+    - **Params:** `{"keys": ["<key1>", "<key2>"]}` (e.g., ["ctrl", "a"])
+    - **Example:** `{"command": "HOTKEY", "params": {"keys": ["ctrl", "a"]}, "thought": "I will select all text in the address bar before typing over it.", "speak": "Clearing the address bar."}`
+
+5.  **`SCROLL`**: Scrolls the mouse wheel up or down from the current mouse position.
     - **Params:** `{"direction": "<up|down>"}`
 
-6.  **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
-    - **Params:** `{"question": "<your_question>"}`
-    
-7.  **`FINISH`**: Ends the task when it is fully complete.
+6.  **`START_BROWSER`**: Opens a new Chrome browser window.
+    - **Params:** `{}`
+
+7.  **`END_BROWSER`**: Closes the browser and ends the task.
     - **Params:** `{"reason": "<summary>"}`
+
+8.  **`PAUSE_AND_ASK`**: Pauses to ask the user a clarifying question.
+    - **Params:** `{"question": "<your_question>"}`
+
+9.  **`SPEAK`**: For simple conversation or stating the task is complete without ending the browser.
+    - **Params:** `{"text": "<your_response>"}`
 """
 
 def send_whatsapp_message(to, text):
@@ -97,92 +112,118 @@ def send_whatsapp_image(to, image_path, caption=""):
     upload_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/media"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
     files = {'file': (image_path.name, open(image_path, 'rb'), 'image/png'), 'messaging_product': (None, 'whatsapp'), 'type': (None, 'image/png')}
+    media_id = None
     try:
         response = requests.post(upload_url, headers=headers, files=files)
         response.raise_for_status()
         media_id = response.json().get('id')
-        if not media_id:
-            print("Failed to get media ID from WhatsApp upload.")
-            return
-        send_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
-        data = {"messaging_product": "whatsapp", "to": to, "type": "image", "image": {"id": media_id, "caption": caption}}
+    except requests.exceptions.RequestException as e:
+        print(f"Error uploading WhatsApp media: {e} - {response.text}")
+        return
+    if not media_id:
+        print("Failed to get media ID from WhatsApp upload.")
+        return
+    send_url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to, "type": "image", "image": {"id": media_id, "caption": caption}}
+    try:
         requests.post(send_url, headers=headers, json=data).raise_for_status()
         print(f"Sent image message to {to} with caption: {caption}")
     except requests.exceptions.RequestException as e:
-        print(f"Error sending/uploading WhatsApp image message: {e} - {getattr(e, 'response', '') and e.response.text}")
+        print(f"Error sending WhatsApp image message: {e} - {response.text}")
 
 def get_or_create_session(phone_number):
     if phone_number not in user_sessions:
         print(f"Creating new session for {phone_number}")
         user_dir = USER_DATA_DIR / phone_number
         session = {
-            "browser_process": None, "chat_history": [], "original_prompt": ""
+            "mode": "CHAT", "browser_process": None, "chat_history": [], "original_prompt": "",
+            "user_dir": user_dir, "is_processing": False,
+            "stop_requested": False, "interrupt_requested": False
         }
         user_dir.mkdir(parents=True, exist_ok=True)
         user_sessions[phone_number] = session
     return user_sessions[phone_number]
 
 def start_browser(session):
-    if session.get("browser_process"): return
-    print("Starting new browser instance...")
+    if session.get("browser_process") and session["browser_process"].poll() is None:
+        print("Browser process is already running.")
+        return session["browser_process"]
+    print("Starting new browser instance via subprocess...")
+    # MODIFIED: Launch chrome as a separate process
+    # Note: Assumes 'google-chrome' is in the system's PATH.
+    # The --user-data-dir is kept for session persistence (cookies, etc.)
+    user_profile_path = session['user_dir'] / 'chrome_profile'
+    command = [
+        "google-chrome",
+        "--window-size=1280,800",
+        f"--user-data-dir={user_profile_path}"
+    ]
     try:
-        # MODIFIED: Added --disable-gpu for better stability in virtual environments like Xvfb
-        session["browser_process"] = subprocess.Popen(["google-chrome", "--start-maximized", "--no-first-run", "--disable-gpu"])
-        time.sleep(3) # Increased sleep to give it more time to render
+        process = subprocess.Popen(command)
+        session["browser_process"] = process
+        session["mode"] = "BROWSER"
+        # Give the browser time to open
+        time.sleep(3)
+        return process
+    except FileNotFoundError:
+        print("CRITICAL: 'google-chrome' command not found. Please ensure it is installed and in your PATH.")
+        return None
     except Exception as e:
-        print(f"CRITICAL: Error starting Chrome: {e}")
-        print("Reminder: You MUST run this script using 'xvfb-run -a python your_script.py'")
+        print(f"CRITICAL: Error starting browser process: {e}")
         traceback.print_exc()
+        return None
 
 def close_browser(session):
     if session.get("browser_process"):
-        print(f"Closing browser for session...")
+        print(f"Closing browser process for session {session['user_dir'].name}")
         try:
             session["browser_process"].terminate()
             session["browser_process"].wait(timeout=5)
         except subprocess.TimeoutExpired:
             session["browser_process"].kill()
         except Exception as e:
-            print(f"Error closing browser: {e}")
+            print(f"Error closing browser process: {e}")
         session["browser_process"] = None
+    session["mode"] = "CHAT"; session["original_prompt"] = ""
 
-def get_screen_state(session):
-    screenshot_path = USER_DATA_DIR / f"state_{int(time.time())}.png"
+def get_page_state(session):
+    screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
     try:
-        with mss.mss() as sct:
-            # Grab the primary monitor
-            monitor = sct.monitors[1]
-            img = sct.grab(monitor)
-            image = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
-        
+        # MODIFIED: Take a screenshot of the entire desktop
+        image = pyautogui.screenshot()
         draw = ImageDraw.Draw(image)
-        try: font = ImageFont.truetype("DejaVuSans.ttf", size=16)
-        except IOError: font = ImageFont.load_default(size=16)
+        try:
+            font = ImageFont.truetype("DejaVuSans.ttf", size=16)
+        except IOError:
+            font = ImageFont.load_default()
 
-        screen_width, screen_height = image.size
-        cell_width = screen_width / GRID_WIDTH
-        cell_height = screen_height / GRID_HEIGHT
-
-        for i in range(GRID_HEIGHT):
-            for j in range(GRID_WIDTH):
-                x1, y1 = j * cell_width, i * cell_height
-                draw.rectangle([x1, y1, x1 + cell_width, y1 + cell_height], outline="rgba(255,0,0,100)")
+        # MODIFIED: Grid is now the only mode and covers the whole screen
+        cols = image.width // GRID_CELL_SIZE
+        rows = image.height // GRID_CELL_SIZE
+        for i in range(rows):
+            for j in range(cols):
+                x1, y1 = j * GRID_CELL_SIZE, i * GRID_CELL_SIZE
+                draw.rectangle([x1, y1, x1 + GRID_CELL_SIZE, y1 + GRID_CELL_SIZE], outline="rgba(255,0,0,100)")
                 label = f"{chr(ord('A')+j)}{i+1}"
-                draw.text((x1 + 3, y1 + 3), label, fill="red", font=font)
+                # Draw text with a small black outline for better visibility
+                draw.text((x1 + 3, y1 + 3), label, fill="black", font=font)
+                draw.text((x1 + 2, y1 + 2), label, fill="red", font=font)
         
         image.save(screenshot_path)
-        return screenshot_path
+        print("Full desktop state captured.")
+        # We no longer have browser-specific info like tabs or labels
+        return screenshot_path, "GRID MODE: Full desktop view.", ""
     except Exception as e:
-        print(f"Error getting screen state: {e}")
-        traceback.print_exc()
-        return None
+        print(f"Error getting page state: {e}"); traceback.print_exc()
+        return None, "", ""
 
 def call_ai(chat_history, context_text="", image_path=None):
     prompt_parts = [context_text]
     if image_path:
         try: prompt_parts.append({"mime_type": "image/png", "data": image_path.read_bytes()})
-        except Exception as e: return json.dumps({"command": "FINISH", "params": {"reason": f"Error reading screen: {e}"}, "thought": "Image read failed.", "speak": "I'm having trouble seeing the screen."})
-    
+        except Exception as e: return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error: {e}"}, "thought": "Image read failed.", "speak": "Error with screen view."})
+    last_error = None
     for i, key in enumerate(GEMINI_API_KEYS):
         try:
             print(f"Attempting to call AI with API key #{i+1}...")
@@ -190,32 +231,32 @@ def call_ai(chat_history, context_text="", image_path=None):
             model = genai.GenerativeModel(AI_MODEL_NAME, system_instruction=SYSTEM_PROMPT, generation_config={"response_mime_type": "application/json"})
             chat = model.start_chat(history=chat_history)
             response = chat.send_message(prompt_parts)
-            print("AI call successful.")
-            return response.text
-        except Exception as e:
-            print(f"API key #{i+1} failed. Error: {e}")
-            if i == len(GEMINI_API_KEYS) - 1:
-                return json.dumps({"command": "FINISH", "params": {"reason": f"AI API error: {e}"}, "thought": "All API keys failed.", "speak": "I'm having trouble connecting to my brain."})
+            print("AI call successful."); return response.text
+        except Exception as e: print(f"API key #{i+1} failed. Error: {e}"); last_error = e; continue
+    print("All API keys failed.")
+    return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {last_error}"}, "thought": "AI API failed.", "speak": "Error connecting to my brain."})
 
-def process_next_step(from_number, session, caption=""):
-    screenshot_path = get_screen_state(session)
+def process_next_browser_step(from_number, session, caption):
+    screenshot_path, labels_text, _ = get_page_state(session)
     if screenshot_path:
-        context_text = f"User's Goal: {session['original_prompt']}\n\n{caption}"
+        context_text = f"User's Goal: {session['original_prompt']}\n\n{labels_text}\n\n{caption}"
         send_whatsapp_image(from_number, screenshot_path, caption=caption)
         ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
         process_ai_command(from_number, ai_response)
-    else:
-        send_whatsapp_message(from_number, "I couldn't get a view of the screen. Ending the task.")
-        close_browser(session)
+    else: send_whatsapp_message(from_number, "Could not get a view of the screen. I will close the browser."); close_browser(session)
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
-    try:
-        command_data = json.loads(ai_response_text)
+    
+    if session.get("stop_requested"):
+        print("Stop was requested..."); session["stop_requested"] = False; session["chat_history"] = []; return
+    if session.get("interrupt_requested"):
+        print("Interrupt was requested..."); session["interrupt_requested"] = False; return
+
+    try: command_data = json.loads(ai_response_text)
     except json.JSONDecodeError:
-        send_whatsapp_message(from_number, "I received an invalid response from my brain. Let me try again.")
-        print(f"Invalid JSON from AI: {ai_response_text}")
-        process_next_step(from_number, session, "The last command was invalid. Please try again.")
+        send_whatsapp_message(from_number, ai_response_text)
+        if session["mode"] == "BROWSER": close_browser(session)
         return
         
     command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
@@ -223,72 +264,73 @@ def process_ai_command(from_number, ai_response_text):
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
     if speak: send_whatsapp_message(from_number, speak)
     
+    # Check if browser is running before executing browser commands
+    if session.get("mode") == "BROWSER" and (not session.get("browser_process") or session.get("browser_process").poll() is not None):
+        if command not in ["START_BROWSER", "SPEAK"]:
+             send_whatsapp_message(from_number, "The browser was closed unexpectedly. I will try to restart it.")
+             start_browser(session)
+             time.sleep(2)
+
     try:
+        action_was_performed = True
         if command == "GRID_CLICK":
             cell = params.get("cell", "").upper()
             if not cell or not cell[0].isalpha() or not cell[1:].isdigit():
-                raise ValueError(f"Invalid cell format: {cell}")
-            
-            screen_width, screen_height = pyautogui.size()
-            cell_width = screen_width / GRID_WIDTH
-            cell_height = screen_height / GRID_HEIGHT
-            col_index = ord(cell[0]) - ord('A')
-            row_index = int(cell[1:]) - 1
-            x = col_index * cell_width + (cell_width / 2)
-            y = row_index * cell_height + (cell_height / 2)
-            
-            print(f"Clicking cell {cell} at coordinates ({int(x)}, {int(y)})")
-            pyautogui.click(x, y)
-
-        elif command == "CLICK_TEXT":
-            text_to_find = params.get("text")
-            if not text_to_find: raise ValueError("No text provided for CLICK_TEXT")
-            
-            screenshot = pyautogui.screenshot()
-            ocr_data = pytesseract.image_to_data(screenshot, output_type=pytesseract.Output.DICT)
-            
-            found = False
-            for i, text in enumerate(ocr_data['text']):
-                if text_to_find.lower() in text.lower():
-                    x = ocr_data['left'][i] + ocr_data['width'][i] / 2
-                    y = ocr_data['top'][i] + ocr_data['height'][i] / 2
-                    print(f"Found text '{text_to_find}' at ({int(x)}, {int(y)}). Clicking.")
-                    pyautogui.click(x, y)
-                    found = True
-                    break
-            if not found:
-                raise ValueError(f"Could not find text '{text_to_find}' on the screen.")
-
+                send_whatsapp_message(from_number, f"Invalid cell format: {cell}."); action_was_performed = False
+            else:
+                col_index = ord(cell[0]) - ord('A')
+                row_index = int(cell[1:]) - 1
+                x = col_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
+                y = row_index * GRID_CELL_SIZE + (GRID_CELL_SIZE / 2)
+                print(f"Clicking screen at ({x}, {y}) for cell {cell}")
+                pyautogui.click(x, y)
         elif command == "TYPE":
-            pyautogui.typewrite(params.get("text", ""), interval=0.05)
-
+             text_to_type = params.get("text", "")
+             print(f"Typing text: {text_to_type}")
+             pyautogui.write(text_to_type, interval=0.05)
         elif command == "PRESS_KEY":
-            pyautogui.press(params.get("key", "enter"))
-            
+            key = params.get("key", "").lower()
+            if key in ['enter', 'up', 'down', 'left', 'right', 'tab', 'esc', 'backspace', 'delete', 'pageup', 'pagedown']:
+                print(f"Pressing key: {key}")
+                pyautogui.press(key)
+            else:
+                action_was_performed = False
+                send_whatsapp_message(from_number, f"Unsupported key: {key}")
+        elif command == "HOTKEY":
+            keys = params.get("keys", [])
+            if len(keys) > 1:
+                print(f"Pressing hotkey: {keys}")
+                pyautogui.hotkey(*keys)
+            else:
+                 action_was_performed = False
+                 send_whatsapp_message(from_number, "Hotkey requires at least two keys.")
         elif command == "SCROLL":
-            scroll_amount = -500 if params.get('direction', 'down') == 'down' else 500
-            pyautogui.scroll(scroll_amount)
-
-        elif command == "FINISH":
-            send_whatsapp_message(from_number, f"*Task Finished:*\n{params.get('reason', 'Done.')}")
-            close_browser(session)
+            direction = -100 if params.get('direction', 'down') == 'down' else 100
+            print(f"Scrolling {'down' if direction < 0 else 'up'}")
+            pyautogui.scroll(direction)
+        elif command == "START_BROWSER":
+            if not start_browser(session):
+                send_whatsapp_message(from_number, "Could not open browser."); return
+        elif command == "END_BROWSER":
+            send_whatsapp_message(from_number, f"*Summary:*\n{params.get('reason', 'Task done.')}");
+            close_browser(session); return
+        elif command in ["PAUSE_AND_ASK", "SPEAK"]:
             return
-
-        elif command == "PAUSE_AND_ASK":
-             return
-
         else:
-            raise ValueError(f"Unknown command: {command}")
+            print(f"Unknown command: {command}");
+            send_whatsapp_message(from_number, f"Unknown command '{command}'.");
+            action_was_performed = True
         
-        time.sleep(2)
-        process_next_step(from_number, session, f"Action done: {speak}")
+        if action_was_performed:
+            time.sleep(2)
+            process_next_browser_step(from_number, session, f"Action done: {speak}")
 
     except Exception as e:
         error_summary = f"Error during command '{command}': {e}"
         print(f"CRITICAL: {error_summary}"); traceback.print_exc()
-        send_whatsapp_message(from_number, f"An action failed. I will show the AI what happened so it can try to recover.")
+        send_whatsapp_message(from_number, f"A desktop action failed. I will show the AI what happened so it can try to recover.")
         time.sleep(1)
-        process_next_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
+        process_next_browser_step(from_number, session, caption=f"An error occurred: {error_summary}. What should I do now?")
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -300,50 +342,68 @@ def webhook():
     
     if request.method == 'POST':
         body = request.get_json()
-        print(f"Received webhook: {json.dumps(body, indent=2)}") # Log the full body for debugging
-
         try:
-            # --- FIX START ---
-            # Check if the 'messages' key exists. If not, it's likely a status update (e.g., 'delivered'), not a user message.
-            # In that case, we should ignore it and not crash.
-            if (
-                "entry" in body and body["entry"] and
-                "changes" in body["entry"][0] and body["entry"][0]["changes"] and
-                "value" in body["entry"][0]["changes"][0] and
-                "messages" in body["entry"][0]["changes"][0]["value"] and body["entry"][0]["changes"][0]["value"]["messages"]
-            ):
-                message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
-            else:
-                # This is not a user message payload, so we can ignore it.
-                print("Received a non-message webhook (e.g., status update). Ignoring.")
-                return Response(status=200)
-            # --- FIX END ---
-
+            message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
             message_id = message_info.get("id")
-            if message_id in processed_message_ids: return Response(status=200)
+
+            if message_id in processed_message_ids:
+                print(f"Duplicate message ID {message_id} received. Ignoring."); return Response(status=200)
             processed_message_ids.add(message_id)
             
             if message_info.get("type") != "text":
                 send_whatsapp_message(message_info.get("from"), "I only process text messages."); return Response(status=200)
 
             from_number, user_message_text = message_info["from"], message_info["text"]["body"]
-            print(f"Processing message from {from_number}: '{user_message_text}'")
+            print(f"Received from {from_number}: '{user_message_text}'")
             session = get_or_create_session(from_number)
+            
+            command_text = user_message_text.strip().lower()
+            if command_text == "/stop":
+                print(f"User {from_number} issued /stop command.")
+                session["stop_requested"] = True
+                close_browser(session)
+                session["is_processing"] = False
+                send_whatsapp_message(from_number, "Request stopped. Your current task has been cancelled.")
+                return Response(status=200)
 
-            session["chat_history"].append({"role": "user", "parts": [user_message_text]})
+            if command_text == "/interrupt":
+                print(f"User {from_number} issued /interrupt command.")
+                session["interrupt_requested"] = True
+                session["is_processing"] = False
+                send_whatsapp_message(from_number, "Interrupted. What would you like to do instead?")
+                return Response(status=200)
 
-            if not session.get("browser_process"):
-                session["original_prompt"] = user_message_text
-                start_browser(session)
-                process_next_step(from_number, session, "Browser started. Here is the screen. What should I do first?")
-            else:
-                process_next_step(from_number, session, f"Continuing with new instructions from user: {user_message_text}")
+            if command_text == "/clear":
+                print(f"User {from_number} issued /clear command.")
+                close_browser(session)
+                if from_number in user_sessions:
+                    del user_sessions[from_number]
+                send_whatsapp_message(from_number, "Your session and chat history have been cleared.")
+                return Response(status=200)
 
-        except Exception as e:
-            print(f"Error in webhook processing: {e}"); traceback.print_exc()
+            if session.get("is_processing"):
+                send_whatsapp_message(from_number, "Please wait, I'm working. Use /interrupt to stop the current action or /stop to end the task."); return Response(status=200)
+            
+            try:
+                session["is_processing"] = True
+                session["chat_history"].append({"role": "user", "parts": [user_message_text]})
+
+                if session["mode"] == "CHAT":
+                    session["original_prompt"] = user_message_text
+                    ai_response = call_ai(session["chat_history"], context_text=user_message_text)
+                    process_ai_command(from_number, ai_response)
+                elif session["mode"] == "BROWSER":
+                    process_next_browser_step(from_number, session, f"Continuing with new instructions from user: {user_message_text}")
+            finally:
+                if not session.get("interrupt_requested"):
+                    session["is_processing"] = False
+
+        except (KeyError, IndexError, TypeError): pass
+        except Exception as e: print(f"Error processing webhook: {e}"); traceback.print_exc()
         return Response(status=200)
 
 if __name__ == '__main__':
-    print("--- Magic Agent Desktop Automator ---")
-    pyautogui.FAILSAFE = False
+    print("--- Magic Agent Desktop Automation Server ---")
+    app.name = 'whatsapp'
+    # IMPORTANT: Ensure this is run with xvfb-run on a headless server
     app.run(port=5000, debug=False)
