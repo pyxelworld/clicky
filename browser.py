@@ -111,7 +111,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
     - Params: `{"query": "<search_term>"}`
 10. **GO_BACK**: Navigates to the previous page in history.
     - Params: `{}`
-11. **GET_CURRENT_URL**: Gets the URL of the current page. The URL will be shown to you in the next step to confirm your location.
+11. **GET_CURRENT_URL**: Gets the URL of the current page. The URL will be shown to you in the next step to confirm your location. / When the user asks you to get a link for a product, for example, remember to click the product and be on its page before getting the link.
     - Params: `{}`
 
 == TAB MANAGEMENT COMMANDS ==
