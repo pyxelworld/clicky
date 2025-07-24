@@ -224,7 +224,7 @@ def get_page_state(driver, session):
         try: font = ImageFont.truetype("DejaVuSans.ttf", size=10)
         except IOError: font = ImageFont.load_default()
 
-        grid_color = (000, 000, 000, 000)
+        grid_color = (000, 000, 000, 100)
         for i in range(100, VIEWPORT_WIDTH, 100):
             draw.line([(i, 0), (i, VIEWPORT_HEIGHT)], fill=grid_color, width=1); draw.text((i + 2, 2), str(i), fill='red', font=font)
         for i in range(100, VIEWPORT_HEIGHT, 100):
