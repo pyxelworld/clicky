@@ -61,7 +61,7 @@ VIEWPORT_HEIGHT = 800
 
 # --- SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
-You are "Magic Agent," a powerful AI that controls a web browser with high precision. You see the screen and choose the best command to achieve your goal.
+You are "Magic Clicky," a powerful AI that controls a web browser with high precision. You see the screen and choose the best command to achieve your goal.
 
 --- YOUR CORE MECHANISM: DUAL-MODE CURSOR CONTROL ---
 
@@ -72,7 +72,7 @@ You control a **large red dot** (your virtual cursor). To interact, you MUST fir
 -   **Usage:** `{"command": "MOVE_CURSOR_TEXT", "params": {"text": "Login"}}`
 
 **2. Coordinate Mode (For Visual Elements): `MOVE_CURSOR_COORDS`**
--   **How it works:** The screen has a subtle gray grid with numbered axes. Use this grid to estimate the (x, y) coordinates of your target. This is best for clicking on icons, images, or areas without any text.
+-   **How it works:** The screen has a subtle gray grid with numbered axes. Use this grid to estimate the (x, y) coordinates of your target. This is best for clicking on icons, images, or areas without any text. Coordinates MUST be within 0-1279 for x and 0-799 for y (viewport size: 1280x800).
 -   **Usage:** `{"command": "MOVE_CURSOR_COORDS", "params": {"x": 120, "y": 455}}`
 
 --- THE MANDATORY WORKFLOW: MOVE -> VERIFY -> ACT ---
@@ -304,7 +304,12 @@ def process_ai_command(from_number, ai_response_text):
     try:
         action_in_browser = True; next_step_caption = f"[Sistema] O Agent executou: {command}"
         if command == "MOVE_CURSOR_COORDS":
-            session['cursor_pos'] = (params.get("x", 0), params.get("y", 0)); action_in_browser = False
+            x = max(0, min(params.get("x", 0), VIEWPORT_WIDTH - 1))
+            y = max(0, min(params.get("y", 0), VIEWPORT_HEIGHT - 1))
+            if x != params.get("x") or y != params.get("y"):
+                print(f"Clamped cursor from ({params.get('x')}, {params.get('y')}) to ({x}, {y})")
+                next_step_caption += f" [Aviso: Coordenadas ajustadas para limites da tela ({x}, {y})]"
+            session['cursor_pos'] = (x, y); action_in_browser = False
         elif command == "MOVE_CURSOR_TEXT":
             target_text = params.get("text")
             if not target_text: next_step_caption = "[Sistema] Erro: Tentou usar MOVE_CURSOR_TEXT sem texto."
@@ -314,12 +319,33 @@ def process_ai_command(from_number, ai_response_text):
                 else: next_step_caption = f"[Sistema] ERRO: O texto '{target_text}' não foi encontrado na tela. Tente um texto diferente ou use coordenadas."
             action_in_browser = False
         elif command == "CLICK":
-            x, y = session['cursor_pos']; action = ActionChains(driver); body = driver.find_element(By.TAG_NAME, 'body'); action.move_to_element_with_offset(body, x, y).click().perform()
+            x, y = session['cursor_pos']
+            try:
+                driver.execute_script("""
+                var evt = new MouseEvent('click', {clientX: arguments[0], clientY: arguments[1], bubbles: true});
+                var el = document.elementFromPoint(arguments[0], arguments[1]);
+                if (el) el.dispatchEvent(evt);
+                """, x, y)
+                time.sleep(0.5)  # Small delay for page to react
+            except Exception as e:
+                next_step_caption = f"[Sistema] Erro ao clicar: {e}"
         elif command == "TYPE":
             ActionChains(driver).send_keys(params.get("text", "")).perform();
             if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
         elif command == "CLEAR":
-            x, y = session['cursor_pos']; action = ActionChains(driver); body = driver.find_element(By.TAG_NAME, 'body'); action.move_to_element_with_offset(body, x, y).click().send_keys(Keys.CONTROL + "a").send_keys(Keys.DELETE).perform()
+            x, y = session['cursor_pos']
+            try:
+                driver.execute_script("""
+                var el = document.elementFromPoint(arguments[0], arguments[1]);
+                if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+                    el.focus();
+                    el.select();
+                    el.value = '';
+                }
+                """, x, y)
+                time.sleep(0.5)  # Small delay
+            except Exception as e:
+                next_step_caption = f"[Sistema] Erro ao limpar: {e}"
         elif command == "START_BROWSER":
             driver = start_browser(session); time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE)
         elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
@@ -377,7 +403,7 @@ def webhook():
                     reply_text = "Obrigado por assinar!\nNossos administradores irão verificar o documento e te dar acesso em breve.\n\nPara receber atualizações sobre seu acesso, não esqueça de ter uma conta Magic. É só falar com ele em https://wa.me/551127275623"
                     send_whatsapp_message(from_number, reply_text)
                 else: # For text or any other message type
-                    reply_text = "O Magic Agent é uma IA dos mesmos criadores do Magic que tem acesso a um navegador completo (como o que você usa todos os dias), possibilitando ele de fazer ações na internet por você.\n\nVocê pode acessar o Magic Agent fazendo um Pix Recorrente de 10 Reais todo mês para a chave Pix *magicagent@askmagic.com.br*.\nEnvie o comprovante em PDF aqui para receber acesso.\n\nOu use o Magic sem acesso ao navegador em https://askmagic.com.br"
+                    reply_text = "O Magic Clicky é uma IA dos mesmos criadores do Magic que tem acesso a um navegador completo (como o que você usa todos os dias), possibilitando ele de fazer ações na internet por você.\n\nVocê pode acessar o Magic Clicky fazendo um Pix Recorrente de 10 Reais todo mês para a chave Pix *magicagent@askmagic.com.br*.\nEnvie o comprovante em PDF aqui para receber acesso.\n\nOu use o Magic sem acesso ao navegador em https://askmagic.com.br"
                     send_whatsapp_message(from_number, reply_text)
                 return Response(status=200)
             
@@ -430,5 +456,5 @@ def webhook():
         return Response(status=200)
 
 if __name__ == '__main__':
-    print("--- Magic Agent WhatsApp Bot Server (Subscriber-Only v1.0) ---")
+    print("--- Magic Clicky WhatsApp Bot Server (Subscriber-Only v1.0) ---")
     app.run(host='0.0.0.0', port=5000, debug=False)
