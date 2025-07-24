@@ -13,7 +13,7 @@ from selenium.webdriver.common.by import By
 from PIL import Image, ImageDraw, ImageFont
 import pytesseract
 import google.generativeai as genai
-import pyautogui # <--- NEW: For controlling the system cursor and keyboard
+import pyautogui # For controlling the system cursor and keyboard
 
 # --- CONFIGURATION ---
 GEMINI_API_KEYS = [
@@ -23,7 +23,7 @@ GEMINI_API_KEYS = [
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "645781611962423"
 VERIFY_TOKEN = "121222220611"
-AI_MODEL_NAME = "gemini-2.5-flash" # Note: Changed to 1.5 Flash as it's generally better and more current
+AI_MODEL_NAME = "gemini-1.5-flash"
 ADMIN_NUMBER = "5511990007256" # Administrator number for forwarding
 
 # --- PROJECT SETUP ---
@@ -111,7 +111,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
     - Params: `{"query": "<search_term>"}`
 10. **GO_BACK**: Navigates to the previous page in history.
     - Params: `{}`
-11. **GET_CURRENT_URL**: Gets the URL of the current page. The URL will be shown to you in the next step to confirm your location. / When the user asks you to get a link for a product, for example, remember to click the product and be on its page before getting the link.
+11. **GET_CURRENT_URL**: Gets the URL of the current page. The URL will be shown to you in the next step to confirm your location.
     - Params: `{}`
 
 == TAB MANAGEMENT COMMANDS ==
@@ -195,9 +195,9 @@ def start_browser(session):
     try:
         driver = webdriver.Chrome(options=options)
         # Give the window focus for pyautogui
-        driver.execute_script("alert('Browser is starting. Please do not close this window.')")
-        time.sleep(0.5)
-        driver.switch_to.alert.accept()
+        time.sleep(1) # Wait for window to appear
+        driver.switch_to.window(driver.current_window_handle)
+        pyautogui.click(pyautogui.locateCenterOnScreen(driver.get_screenshot_as_png())) # A trick to focus the window
         time.sleep(0.5)
         session["driver"] = driver; session["mode"] = "BROWSER"; return driver
     except Exception as e: print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc(); return None
@@ -233,7 +233,7 @@ def get_page_state(driver, session):
         try:
             ocr_data = pytesseract.image_to_data(image, lang='por+eng', output_type=pytesseract.Output.DICT)
             session['ocr_results'] = ocr_data
-            print(f"OCR executed. Found {len(ocr_data['text'])} words.")
+            print(f"OCR executed. Found {len(ocr_data.get('text', []))} words.")
         except Exception as e:
             print(f"Tesseract/OCR error: {e}. Is tesseract-ocr installed and in your PATH?")
             session['ocr_results'] = {}
@@ -242,7 +242,7 @@ def get_page_state(driver, session):
         try: font = ImageFont.truetype("DejaVuSans.ttf", size=10)
         except IOError: font = ImageFont.load_default()
 
-        grid_color = (0, 0, 0, 100) # Changed grid to black for better visibility
+        grid_color = (0, 0, 0, 100)
         for i in range(100, VIEWPORT_WIDTH, 100):
             draw.line([(i, 0), (i, VIEWPORT_HEIGHT)], fill=grid_color, width=1)
             draw.text((i + 2, 2), str(i), fill='red', font=font)
@@ -270,8 +270,14 @@ def find_text_in_ocr(ocr_results, target_text):
             k = 0
             for j in range(i, n_boxes):
                 if k < len(target_words) and ocr_results['conf'][j] > 40:
-                    if target_words[k] in ocr_results['text'][j].lower():
+                    word_lower = ocr_results['text'][j].lower()
+                    if target_words[k] in word_lower:
                         match_words.append(ocr_results['text'][j]);(x, y, w, h) = (ocr_results['left'][j], ocr_results['top'][j], ocr_results['width'][j], ocr_results['height'][j]);temp_left = min(temp_left, x); temp_top = min(temp_top, y); temp_right = max(temp_right, x + w); temp_bottom = max(temp_bottom, y + h);k += 1
+                    # Allow skipping over irrelevant words in between
+                elif ocr_results['text'][j].strip() == "":
+                    continue
+                else:
+                    break # Break if the sequence is broken
             if k == len(target_words):
                 print(f"OCR Match found for '{target_text}': '{' '.join(match_words)}'")
                 return {"left": temp_left, "top": temp_top, "width": temp_right - temp_left, "height": temp_bottom - temp_top, "text": ' '.join(match_words)}
@@ -280,7 +286,7 @@ def find_text_in_ocr(ocr_results, target_text):
 def call_ai(chat_history, context_text="", image_path=None):
     prompt_parts = [context_text]
     if image_path:
-        try: prompt_parts.append(Image.open(image_path)) # Updated for gemini-1.5
+        try: prompt_parts.append(Image.open(image_path))
         except Exception as e: return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error: {e}"}, "thought": "Image read failed.", "speak": "Erro com a visualização da tela."})
     last_error = None
     for i, key in enumerate(GEMINI_API_KEYS):
@@ -328,19 +334,29 @@ def process_ai_command(from_number, ai_response_text):
     try:
         action_in_browser = True; next_step_caption = f"[Sistema] O Agent executou: {command}"
         
-        # --- NEW SYSTEM CURSOR LOGIC ---
-        # Get the browser's top-left corner on the screen for pyautogui
+        # --- COORDINATE TRANSLATION LOGIC ---
+        # This is the fix for pyautogui's screen-relative coordinates.
         try:
+            # Get the browser window's top-left corner on the screen.
             browser_pos = driver.get_window_position()
             browser_x, browser_y = browser_pos['x'], browser_pos['y']
-        except Exception:
-            # Fallback if window is minimized or fails to report position
-            browser_x, browser_y = 0, 0
+            
+            # Get the size of the browser's "chrome" (title bar, address bar, etc.)
+            chrome_size_js = "return [window.outerWidth - window.innerWidth, window.outerHeight - window.innerHeight];"
+            chrome_width, chrome_height = driver.execute_script(chrome_size_js)
 
-        # Commands that DON'T move the real cursor but update our virtual one
+            # The content area's top-left corner on the screen
+            # This is our offset for all pyautogui actions.
+            content_area_x = browser_x + (chrome_width / 2) # Assume border is symmetrical
+            content_area_y = browser_y + chrome_height
+        except Exception as e:
+            print(f"Warning: Could not get precise window offsets: {e}. Falling back to 0,0.")
+            content_area_x, content_area_y = 0, 0
+        # --- END OF COORDINATE TRANSLATION LOGIC ---
+
         if command == "MOVE_CURSOR_COORDS":
             session['cursor_pos'] = (params.get("x", 0), params.get("y", 0))
-            action_in_browser = False # No real action, just updating state for next screenshot
+            action_in_browser = False
         elif command == "MOVE_CURSOR_TEXT":
             target_text = params.get("text")
             if not target_text: next_step_caption = "[Sistema] Erro: Tentou usar MOVE_CURSOR_TEXT sem texto."
@@ -351,38 +367,35 @@ def process_ai_command(from_number, ai_response_text):
                     next_step_caption = f"[Sistema] Cursor movido para o texto '{found_box['text']}'."
                 else:
                     next_step_caption = f"[Sistema] ERRO: O texto '{target_text}' não foi encontrado na tela. Tente um texto diferente ou use coordenadas."
-            action_in_browser = False # No real action, just updating state for next screenshot
+            action_in_browser = False
         
-        # Commands that USE the real system cursor
         elif command == "CLICK":
-            # Translate window-relative coords to screen-relative coords
             cursor_x, cursor_y = session['cursor_pos']
-            screen_x = browser_x + cursor_x
-            screen_y = browser_y + cursor_y
-            pyautogui.moveTo(screen_x, screen_y, duration=0.25) # Move cursor smoothly
-            pyautogui.click()
-        elif command == "TYPE":
-            pyautogui.write(params.get("text", ""), interval=0.05)
-            if params.get("enter"):
-                pyautogui.press('enter')
-        elif command == "CLEAR":
-            # First, perform a click at the cursor position to focus the field
-            cursor_x, cursor_y = session['cursor_pos']
-            screen_x = browser_x + cursor_x
-            screen_y = browser_y + cursor_y
+            # Translate window-relative coords to ACCURATE screen-relative coords
+            screen_x = content_area_x + cursor_x
+            screen_y = content_area_y + cursor_y
             pyautogui.moveTo(screen_x, screen_y, duration=0.25)
             pyautogui.click()
-            time.sleep(0.2) # Small delay to ensure focus
-            # Select all and delete
+            next_step_caption = f"[Sistema] Clicou nas coordenadas ({cursor_x}, {cursor_y})."
+        elif command == "TYPE":
+            pyautogui.write(params.get("text", ""), interval=0.05)
+            if params.get("enter", False):
+                pyautogui.press('enter')
+        elif command == "CLEAR":
+            cursor_x, cursor_y = session['cursor_pos']
+            # Translate coords for the click to focus the field
+            screen_x = content_area_x + cursor_x
+            screen_y = content_area_y + cursor_y
+            pyautogui.moveTo(screen_x, screen_y, duration=0.25)
+            pyautogui.click()
+            time.sleep(0.2)
             pyautogui.hotkey('ctrl', 'a')
             time.sleep(0.1)
             pyautogui.press('delete')
         elif command == "SCROLL":
-            # Positive scrolls down, negative scrolls up
             scroll_amount = 500 if params.get('direction', 'down') == 'down' else -500
             pyautogui.scroll(scroll_amount)
             
-        # Browser-level commands (Selenium is still best for these)
         elif command == "START_BROWSER":
             driver = start_browser(session); time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE)
         elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
@@ -399,7 +412,7 @@ def process_ai_command(from_number, ai_response_text):
         else:
             send_whatsapp_message(from_number, f"[Sistema] Comando desconhecido: {command}"); action_in_browser = False
         
-        if action_in_browser: time.sleep(2) # Wait for page to react
+        if action_in_browser: time.sleep(2)
         process_next_browser_step(from_number, session, next_step_caption)
     except Exception as e:
         error_summary = f"Erro no comando '{command}': {e}"; print(f"CRITICAL: {error_summary}"); traceback.print_exc()
@@ -426,7 +439,6 @@ def webhook():
             from_number = message_info["from"]
             message_type = message_info.get("type")
 
-            # --- SUBSCRIBER CHECK ---
             if from_number not in subscribers:
                 print(f"Received message from non-subscriber: {from_number}")
                 if message_type == "document":
@@ -438,12 +450,11 @@ def webhook():
                         send_whatsapp_message(ADMIN_NUMBER, f"Novo comprovante recebido de: {from_number}")
                     reply_text = "Obrigado por assinar!\nNossos administradores irão verificar o documento e te dar acesso em breve.\n\nPara receber atualizações sobre seu acesso, não esqueça de ter uma conta Magic. É só falar com ele em https://wa.me/551127275623"
                     send_whatsapp_message(from_number, reply_text)
-                else: # For text or any other message type
+                else: 
                     reply_text = "O Magic Agent é uma IA dos mesmos criadores do Magic que tem acesso a um navegador completo (como o que você usa todos os dias), possibilitando ele de fazer ações na internet por você.\n\nVocê pode acessar o Magic Agent fazendo um Pix Recorrente de 10 Reais todo mês para a chave Pix *magicagent@askmagic.com.br*.\nEnvie o comprovante em PDF aqui para receber acesso.\n\nOu use o Magic sem acesso ao navegador em https://askmagic.com.br"
                     send_whatsapp_message(from_number, reply_text)
                 return Response(status=200)
             
-            # --- SUBSCRIBER-ONLY LOGIC ---
             if message_type != "text":
                 send_whatsapp_message(from_number, "[Sistema] Suporto apenas mensagens de texto.")
                 return Response(status=200)
@@ -486,11 +497,11 @@ def webhook():
                 if not session.get("interrupt_requested") and command_data.get("command") not in ["PAUSE_AND_ASK", "SPEAK"]:
                     session["is_processing"] = False
         except (KeyError, IndexError, TypeError):
-            pass # Common if webhook receives non-message events
+            pass
         except Exception as e:
             print(f"Error processing webhook: {e}"); traceback.print_exc()
         return Response(status=200)
 
 if __name__ == '__main__':
-    print("--- Magic Agent WhatsApp Bot Server (System Cursor v1.1) ---")
+    print("--- Magic Agent WhatsApp Bot Server (System Cursor v1.2 - Accurate) ---")
     app.run(host='0.0.0.0', port=5000, debug=False)
