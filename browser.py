@@ -224,11 +224,11 @@ def get_page_state(driver, session):
         try: font = ImageFont.truetype("DejaVuSans.ttf", size=10)
         except IOError: font = ImageFont.load_default()
 
-        grid_color = (128, 128, 128, 100)
+        grid_color = (000, 000, 000, 000)
         for i in range(100, VIEWPORT_WIDTH, 100):
-            draw.line([(i, 0), (i, VIEWPORT_HEIGHT)], fill=grid_color, width=1); draw.text((i + 2, 2), str(i), fill='white', font=font)
+            draw.line([(i, 0), (i, VIEWPORT_HEIGHT)], fill=grid_color, width=1); draw.text((i + 2, 2), str(i), fill='red', font=font)
         for i in range(100, VIEWPORT_HEIGHT, 100):
-            draw.line([(0, i), (VIEWPORT_WIDTH, i)], fill=grid_color, width=1); draw.text((2, i + 2), str(i), fill='white', font=font)
+            draw.line([(0, i), (VIEWPORT_WIDTH, i)], fill=grid_color, width=1); draw.text((2, i + 2), str(i), fill='red', font=font)
 
         cursor_x, cursor_y = session['cursor_pos']; radius = 16; outline_width = 4
         draw.ellipse([(cursor_x - radius, cursor_y - radius), (cursor_x + radius, cursor_y + radius)], fill='white')
