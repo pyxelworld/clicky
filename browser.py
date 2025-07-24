@@ -4,27 +4,28 @@ import requests
 import time
 import io
 import traceback
+import subprocess
 from urllib.parse import quote_plus
 from flask import Flask, request, Response
 from pathlib import Path
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
 from PIL import Image, ImageDraw, ImageFont
-import pytesseract # NOVA IMPORTAÇÃO
+import pytesseract
 import google.generativeai as genai
+
+# NEW: System Control Libraries
+import mss
+from pynput.mouse import Button, Controller as MouseController
+from pynput.keyboard import Key, Controller as KeyboardController
 
 # --- CONFIGURATION ---
 GEMINI_API_KEYS = [
-    # Suas chaves de API
+    # Your API Keys
     "AIzaSyCnnkNB4qPXE9bgTwRH_Jj5lxUOq_xivJo", "AIzaSyDuAT3AP1wNd-FNb0QmvwQcSTD2dM3ZStc", "AIzaSyCuKxOa7GoY6id_aG-C3_uhvfJ1iI0SeQ0", "AIzaSyBwASUXeAVJ6xFFZdfjNZO5Hsumr4KAntw", "AIzaSyB4EZanzOFSu589lfBVO3M8dy72fBW2ObY", "AIzaSyASbyRix7Cbae7qCgPQntshA5DVJSVJbo4", "AIzaSyD07UM2S3qdSUyyY0Hp4YtN04J60PcO41w", "AIzaSyA9037TcPXJ2tdSrEe-hzLCn0Xa5zjiUOo",
 ]
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "645781611962423"
 VERIFY_TOKEN = "121222220611"
-AI_MODEL_NAME = "gemini-2.5-flash"
+AI_MODEL_NAME = "gemini-1.5-flash" # Updated for better performance
 ADMIN_NUMBER = "5511990007256" # Administrator number for forwarding
 
 # --- PROJECT SETUP ---
@@ -53,15 +54,29 @@ def load_subscribers():
 
 subscribers = load_subscribers()
 
+# --- SYSTEM CONTROL SETUP ---
+# Detect screen dimensions for screenshotting
+try:
+    with mss.mss() as sct:
+        monitor = sct.monitors[1]  # Use the primary monitor
+        SCREEN_WIDTH = monitor["width"]
+        SCREEN_HEIGHT = monitor["height"]
+except Exception as e:
+    print(f"Could not detect screen size, defaulting to 1280x800. Error: {e}")
+    SCREEN_WIDTH = 1280
+    SCREEN_HEIGHT = 800
+
+# Instantiate hardware controllers
+mouse = MouseController()
+keyboard = KeyboardController()
+
 # --- CONSTANTS ---
 CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
 CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
-VIEWPORT_WIDTH = 1280
-VIEWPORT_HEIGHT = 800
 
-# --- SYSTEM PROMPT ---
+# --- SYSTEM PROMPT (Updated for new control method) ---
 SYSTEM_PROMPT = """
-You are "Magic Agent," a powerful AI that controls a web browser with high precision. You see the screen and choose the best command to achieve your goal.
+You are "Magic Agent," a powerful AI that controls a computer's desktop environment with high precision. You see the entire screen and choose the best command to achieve your goal. You are operating within a GNOME desktop, with a Chrome browser open.
 
 --- YOUR CORE MECHANISM: DUAL-MODE CURSOR CONTROL ---
 
@@ -96,67 +111,48 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
     - **Params:** `{"x": <int>, "y": <int>}`
 3.  **`CLICK`**: Performs a REAL mouse click at the cursor's current location. Must be used after moving the cursor.
     - **Params:** `{}`
-4.  **`TYPE`**: Types text. You MUST `CLICK` an input field first.
+4.  **`TYPE`**: Types text using the keyboard. You MUST `CLICK` an input field first.
     - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
-5.  **`CLEAR`**: Clears the input field under the cursor.
+5.  **`CLEAR`**: Clears the input field under the cursor by selecting all and deleting.
     - **Params:** `{}`
-6.  **`SCROLL`**: Scrolls the page.
+6.  **`SCROLL`**: Scrolls the active window using the mouse wheel.
     - **Params:** `{"direction": "<up|down>"}`
 
-**== BROWSER & NAVIGATION COMMANDS ==**
+**== BROWSER & NAVIGATION COMMANDS (uses keyboard shortcuts) ==**
 7.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
     - **Params:** `{"reason": "<summary>"}`
-8.  **`NAVIGATE`**: Goes directly to a URL. IF YOU KNOW THE URL, GO DIRECTLY.
+8.  **`NAVIGATE`**: Goes directly to a URL by focusing the address bar (Ctrl+L) and typing.
     - **Params:** `{"url": "<full_url>"}`
-9.  **`CUSTOM_SEARCH`**: Performs a search using "Bing".
+9.  **`CUSTOM_SEARCH`**: Performs a search using "Bing" by navigating to a search URL.
     - **Params:** `{"query": "<search_term>"}`
-10. **`GO_BACK`**: Navigates to the previous page in history.
+10. **`GO_BACK`**: Navigates to the previous page in history (Alt+Left Arrow).
     - **Params:** `{}`
-11. **`GET_CURRENT_URL`**: Gets the URL of the current page. The URL will be shown to you in the next step to confirm your location.
+11. **`NEW_TAB`**: Opens a new browser tab (Ctrl+T).
     - **Params:** `{}`
-
-**== TAB MANAGEMENT COMMANDS ==**
-12. **`NEW_TAB`**: Opens a new browser tab.
-13. **`SWITCH_TO_TAB`**: Switches to an existing tab by its ID number.
-14. **`CLOSE_TAB`**: Closes the current tab.
+12. **`CLOSE_TAB`**: Closes the current tab (Ctrl+W).
+    - **Params:** `{}`
 
 **== USER INTERACTION COMMANDS ==**
-15. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
+13. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
     - **Params:** `{"question": "<your_question>"}`
-16. **`SPEAK`**: For simple conversation when no browser action is needed.
+14. **`SPEAK`**: For simple conversation when no browser action is needed.
     - **Params:** `{"text": "<your_response>"}`
 
-
--- ERROR RECOVERY ---
-If a command fails, the page may have changed. Analyze the new screenshot and the error message. Do not repeat the failed command. Issue a new command to recover.
+-- IMPORTANT NOTES ON NEW SYSTEM --
+- **URL & TAB INFO:** You can no longer get the current URL or tab list directly. You must *read the address bar and tab titles from the screenshot*.
+- **RELY ON VISION:** Your primary source of truth is the screenshot. Analyze it carefully.
 
 --- GUIDING PRINCIPLES ---
-
 1.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action to understand the full context.
 2.  **SEARCH STRATEGY:** Use `CUSTOM_SEARCH` with "Bing". Do NOT use `NAVIGATE` to go to other search engines.
 3.  **LOGIN & CREDENTIALS:** If a page requires a login, you MUST NOT attempt it. Stop and ask the user for permission using `PAUSE_AND_ASK`.
-4.  **SHOPPING STRATEGY:** Use `PAUSE_AND_ASK` to clarify product and price. Use sorting/filtering features on sites.
-5.  **POPUPS AND COOKIES:** IGNORE THEM. Do NOT click accept or reject. Just continue with your task.
-6. IF YOU KNOW A WEBSITES URL, USE IT TO DIRECTLY GO TO IT WITHOUT USING SEARCH ENGINES (NAVIGATE TOOL)
-7. ALWAYS TRY TO USE SEARCH BARS AS LESS AS POSSIBLE. IF YOU CAN USE THE NAVIGATE TOOL TO ALREADY GO TO A WEBSITE AND SEARCH ON IT WITH THE QUERY ON THE LINK (example https://lista.mercadolivre.com.br/QUERY) DO IT.
+4.  **POPUPS AND COOKIES:** IGNORE THEM. Do NOT click accept or reject. Just continue with your task.
+5.  **URL STRATEGY:** If you know a website's URL, use `NAVIGATE`. To search on a site, use its search bar or construct a search URL and `NAVIGATE` to it (e.g., `https://lista.mercadolivre.com.br/QUERY`).
 
---- LANGUAGE ---
-
-Always speak the same language the user used.
-
---- MAGIC AND YOU ---
-
-You are built by Pyxel (pyxelworld.com). Another AI, Magic, can handle tasks you can't (like non-browser tasks or handling files).
-If you cannot do something, direct the user to Magic at https://wa.me/551127375623 or https://askmagic.com.br.
-You can create direct links for the user, for example: `https://wa.me/551127375623?text=gere+uma+imagem+de+um+gato`.
+--- LANGUAGE & CREATOR ---
+Always speak the same language the user used. You are built by Pyxel (pyxelworld.com). Another AI, Magic, can handle tasks you can't. Direct users to Magic at https://wa.me/551127375623 or https://askmagic.com.br.
 
 REMEMBER THAT ONLY WHAT YOU "SPEAK" IS SENT TO THE USER!
-
---- FOLLOW 100% OF THE TIME ---
-1. NEVER ACCEPT/INTERECT WITH COOKIE OR COOKIE BANNERS/POPUPS
-2. IF YOU SEE A POPUP ASKING YOU SOMETHING, IGNORE IT. IF ITS TO ADD LOCATION, CEP, ANYTHING, DO NOT INTERACT WITH IT. FOCUS ON YOUR GOAL. AND YOUR GOAL IS NOT ADDING AN ADDRRESS OR ACCEPTING COOKIES.
-3. NEVER USE SEARCH BOXES. ALREADY INPUT THE SEARCH YOU WANT IN THE URL TO SPEED UP THE PROCESS.
-
 """
 
 def send_whatsapp_message(to, text):
@@ -185,10 +181,10 @@ def get_or_create_session(phone_number):
         print(f"Creating new session for {phone_number}")
         user_dir = USER_DATA_DIR / phone_number
         session = {
-            "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
-            "user_dir": user_dir, "tab_handles": {}, "is_processing": False,
+            "mode": "CHAT", "browser_process": None, "chat_history": [], "original_prompt": "",
+            "user_dir": user_dir, "is_processing": False,
             "stop_requested": False, "interrupt_requested": False,
-            "cursor_pos": (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2),
+            "cursor_pos": (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2),
             "ocr_results": []
         }
         user_dir.mkdir(parents=True, exist_ok=True)
@@ -196,45 +192,80 @@ def get_or_create_session(phone_number):
     return user_sessions[phone_number]
 
 def start_browser(session):
-    if session.get("driver"): return session["driver"]
-    print("Starting new browser instance..."); options = Options(); options.add_argument("--no-sandbox"); options.add_argument("--disable-dev-shm-usage"); options.add_argument(f"--window-size={VIEWPORT_WIDTH},{VIEWPORT_HEIGHT}"); options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
-    try: driver = webdriver.Chrome(options=options); session["driver"] = driver; session["mode"] = "BROWSER"; return driver
-    except Exception as e: print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc(); return None
+    if session.get("browser_process"): return session["browser_process"]
+    print("Starting new browser instance in GNOME desktop...")
+    # NOTE: You might need to change "chromium-browser" to "google-chrome" or your specific command
+    # Using a specific profile directory within our user data dir
+    profile_path = session['user_dir'] / 'chrome_profile'
+    profile_path.mkdir(exist_ok=True)
+    command = [
+        "chromium-browser",
+        "--start-fullscreen",
+        f"--user-data-dir={profile_path}"
+    ]
+    try:
+        process = subprocess.Popen(command)
+        session["browser_process"] = process
+        session["mode"] = "BROWSER"
+        time.sleep(3) # Give browser time to open
+        return process
+    except FileNotFoundError:
+        print("CRITICAL: 'chromium-browser' command not found. Please install it or change the command in start_browser().")
+        return None
+    except Exception as e:
+        print(f"CRITICAL: Error starting browser process: {e}"); traceback.print_exc()
+        return None
 
 def close_browser(session):
-    if session.get("driver"): print(f"Closing browser for session {session['user_dir'].name}"); (lambda: (session["driver"].quit(), None))(); session["driver"] = None
-    session["mode"] = "CHAT"; session["original_prompt"] = ""; session["tab_handles"] = {}; session["cursor_pos"] = (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2); session["ocr_results"] = []
+    if session.get("browser_process"):
+        print(f"Closing browser for session {session['user_dir'].name}")
+        session["browser_process"].terminate()
+        try:
+            session["browser_process"].wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            session["browser_process"].kill()
+        session["browser_process"] = None
+    session["mode"] = "CHAT"; session["original_prompt"] = ""
+    session["cursor_pos"] = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2); session["ocr_results"] = []
 
-def get_page_state(driver, session):
+def get_page_state(session):
     screenshot_path = session["user_dir"] / f"state_{int(time.time())}.png"
-    try:
-        window_handles = driver.window_handles; current_handle = driver.current_window_handle; tabs = []; session["tab_handles"] = {}
-        for i, handle in enumerate(window_handles): tab_id = i + 1; session["tab_handles"][tab_id] = handle; driver.switch_to.window(handle); tabs.append({"id": tab_id, "title": driver.title, "is_active": handle == current_handle})
-        driver.switch_to.window(current_handle); tab_info_text = "Open Tabs:\n" + "".join([f"  Tab {t['id']}: {t['title'][:70]}{' (Current)' if t['is_active'] else ''}\n" for t in tabs])
-    except Exception as e: print(f"Could not get tab info: {e}"); tab_info_text = "Could not get tab info."
+    # This info is no longer available, AI must read it from the screen
+    tab_info_text = "Tab/URL info must be read from the screenshot. It cannot be retrieved directly."
     
     try:
-        png_data = driver.get_screenshot_as_png()
-        image = Image.open(io.BytesIO(png_data))
+        with mss.mss() as sct:
+            # Grab the entire screen
+            monitor = sct.monitors[1]
+            sct_img = sct.grab(monitor)
+            # Convert to a PIL Image
+            image = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
         
-        try: ocr_data = pytesseract.image_to_data(image, lang='por+eng', output_type=pytesseract.Output.DICT); session['ocr_results'] = ocr_data; print(f"OCR executed. Found {len(ocr_data['text'])} words.")
-        except Exception as e: print(f"Tesseract/OCR error: {e}. Is tesseract-ocr installed and in your PATH?"); session['ocr_results'] = {}
+        try:
+            ocr_data = pytesseract.image_to_data(image, lang='por+eng', output_type=pytesseract.Output.DICT)
+            session['ocr_results'] = ocr_data
+            print(f"OCR executed. Found {len(ocr_data['text'])} words.")
+        except Exception as e:
+            print(f"Tesseract/OCR error: {e}. Is tesseract-ocr installed and in your PATH?"); session['ocr_results'] = {}
 
         draw = ImageDraw.Draw(image, 'RGBA')
         try: font = ImageFont.truetype("DejaVuSans.ttf", size=10)
         except IOError: font = ImageFont.load_default()
 
-        grid_color = (000, 000, 000, 100)
-        for i in range(100, VIEWPORT_WIDTH, 100):
-            draw.line([(i, 0), (i, VIEWPORT_HEIGHT)], fill=grid_color, width=1); draw.text((i + 2, 2), str(i), fill='red', font=font)
-        for i in range(100, VIEWPORT_HEIGHT, 100):
-            draw.line([(0, i), (VIEWPORT_WIDTH, i)], fill=grid_color, width=1); draw.text((2, i + 2), str(i), fill='red', font=font)
-
+        # Draw Grid
+        grid_color = (0, 0, 0, 100)
+        for i in range(100, SCREEN_WIDTH, 100):
+            draw.line([(i, 0), (i, SCREEN_HEIGHT)], fill=grid_color, width=1); draw.text((i + 2, 2), str(i), fill='red', font=font)
+        for i in range(100, SCREEN_HEIGHT, 100):
+            draw.line([(0, i), (SCREEN_WIDTH, i)], fill=grid_color, width=1); draw.text((2, i + 2), str(i), fill='red', font=font)
+        
+        # Draw Cursor
         cursor_x, cursor_y = session['cursor_pos']; radius = 16; outline_width = 4
         draw.ellipse([(cursor_x - radius, cursor_y - radius), (cursor_x + radius, cursor_y + radius)], fill='white')
         draw.ellipse([(cursor_x - (radius-outline_width), cursor_y-(radius-outline_width)), (cursor_x+(radius-outline_width), cursor_y+(radius-outline_width))], fill='red')
         
-        image.save(screenshot_path); print(f"State captured with grid and cursor at {session['cursor_pos']}.")
+        image.save(screenshot_path)
+        print(f"State captured with grid and cursor at {session['cursor_pos']}.")
         return screenshot_path, tab_info_text
     except Exception as e:
         print(f"Error getting page state: {e}"); traceback.print_exc()
@@ -271,14 +302,14 @@ def call_ai(chat_history, context_text="", image_path=None):
     return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {last_error}"}, "thought": "AI API failed.", "speak": "Erro ao conectar com meu cérebro."})
 
 def process_next_browser_step(from_number, session, caption):
-    screenshot_path, tab_info_text = get_page_state(session["driver"], session)
+    screenshot_path, tab_info_text = get_page_state(session)
     if screenshot_path:
         context_text = f"User's Goal: {session['original_prompt']}\n\nCurrent Screen State:\n{tab_info_text}\n{caption}"
         send_whatsapp_image(from_number, screenshot_path, caption=caption)
         ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
         process_ai_command(from_number, ai_response)
     else:
-        send_whatsapp_message(from_number, "[Sistema] Não foi possível ver o navegador, fechando..."); close_browser(session)
+        send_whatsapp_message(from_number, "[Sistema] Não foi possível ver a tela, fechando..."); close_browser(session)
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
@@ -295,14 +326,19 @@ def process_ai_command(from_number, ai_response_text):
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
     if speak: send_whatsapp_message(from_number, speak)
     
-    driver = session.get("driver")
-    if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER", "PAUSE_AND_ASK"]:
-        send_whatsapp_message(from_number, "[Sistema] Navegador não aberto. Abrindo e tentando de novo..."); driver = start_browser(session);
-        if not driver: send_whatsapp_message(from_number, "[Sistema] Falha crítica ao iniciar navegador."); close_browser(session); return {}
-        time.sleep(1); return process_ai_command(from_number, ai_response_text)
+    browser_process = session.get("browser_process")
+    if not browser_process and command not in ["SPEAK", "END_BROWSER", "PAUSE_AND_ASK"]:
+        # START_BROWSER is implicit if not open
+        send_whatsapp_message(from_number, "[Sistema] Navegador não aberto. Abrindo e tentando de novo...");
+        browser_process = start_browser(session);
+        if not browser_process: send_whatsapp_message(from_number, "[Sistema] Falha crítica ao iniciar navegador."); close_browser(session); return {}
+        # Re-run the same command now that browser is open
+        return process_ai_command(from_number, ai_response_text)
 
     try:
         action_in_browser = True; next_step_caption = f"[Sistema] O Agent executou: {command}"
+        
+        # --- COMMAND IMPLEMENTATION WITH pynput and mss ---
         if command == "MOVE_CURSOR_COORDS":
             session['cursor_pos'] = (params.get("x", 0), params.get("y", 0)); action_in_browser = False
         elif command == "MOVE_CURSOR_TEXT":
@@ -314,29 +350,37 @@ def process_ai_command(from_number, ai_response_text):
                 else: next_step_caption = f"[Sistema] ERRO: O texto '{target_text}' não foi encontrado na tela. Tente um texto diferente ou use coordenadas."
             action_in_browser = False
         elif command == "CLICK":
-            x, y = session['cursor_pos']; action = ActionChains(driver); body = driver.find_element(By.TAG_NAME, 'body'); action.move_to_element_with_offset(body, x, y).click().perform()
+            x, y = session['cursor_pos']; mouse.position = (x, y); time.sleep(0.1); mouse.click(Button.left, 1)
         elif command == "TYPE":
-            ActionChains(driver).send_keys(params.get("text", "")).perform();
-            if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
+            text_to_type = params.get("text", ""); keyboard.type(text_to_type)
+            if params.get("enter"): time.sleep(0.1); keyboard.press(Key.enter); keyboard.release(Key.enter)
         elif command == "CLEAR":
-            x, y = session['cursor_pos']; action = ActionChains(driver); body = driver.find_element(By.TAG_NAME, 'body'); action.move_to_element_with_offset(body, x, y).click().send_keys(Keys.CONTROL + "a").send_keys(Keys.DELETE).perform()
-        elif command == "START_BROWSER":
-            driver = start_browser(session); time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE)
-        elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
-        elif command == "CUSTOM_SEARCH": driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
-        elif command == "GO_BACK": driver.back()
-        elif command == "GET_CURRENT_URL":
-            try: current_url = driver.current_url; next_step_caption = f"[Sistema] URL atual: {current_url}"
-            except Exception as e: next_step_caption = f"[Sistema] Erro ao obter URL: {e}"
-            action_in_browser = False
-        elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {VIEWPORT_HEIGHT * 0.8 if params.get('direction', 'down') == 'down' else -VIEWPORT_HEIGHT * 0.8});")
+            x, y = session['cursor_pos']; mouse.position = (x, y); time.sleep(0.1); mouse.click(Button.left, 1); time.sleep(0.2)
+            with keyboard.pressed(Key.ctrl): keyboard.press('a'); keyboard.release('a')
+            time.sleep(0.1); keyboard.press(Key.delete); keyboard.release(Key.delete)
+        elif command == "NAVIGATE" or command == "CUSTOM_SEARCH":
+            if command == "NAVIGATE": url = params.get("url", CUSTOM_SEARCH_URL_BASE)
+            else: url = CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', ''))
+            with keyboard.pressed(Key.ctrl): keyboard.press('l'); keyboard.release('l') # Focus address bar
+            time.sleep(0.5); keyboard.type(url); time.sleep(0.2)
+            keyboard.press(Key.enter); keyboard.release(Key.enter)
+        elif command == "GO_BACK":
+            with keyboard.pressed(Key.alt): keyboard.press(Key.left); keyboard.release(Key.left)
+        elif command == "SCROLL":
+            scroll_amount = 10 # Adjust for desired scroll speed
+            if params.get('direction', 'down') == 'down': mouse.scroll(0, -scroll_amount)
+            else: mouse.scroll(0, scroll_amount)
+        elif command == "NEW_TAB":
+            with keyboard.pressed(Key.ctrl): keyboard.press('t'); keyboard.release('t')
+        elif command == "CLOSE_TAB":
+            with keyboard.pressed(Key.ctrl): keyboard.press('w'); keyboard.release('w')
         elif command == "END_BROWSER":
             send_whatsapp_message(from_number, f"*Tarefa Concluída.*\n*Sumário:* {params.get('reason', 'N/A')}"); close_browser(session); return command_data
         elif command == "PAUSE_AND_ASK" or command == "SPEAK":
             session["is_processing"] = False; return command_data
         else: send_whatsapp_message(from_number, f"[Sistema] Comando desconhecido: {command}"); action_in_browser = False
         
-        if action_in_browser: time.sleep(2)
+        if action_in_browser: time.sleep(2.5) # Wait for page to react
         process_next_browser_step(from_number, session, next_step_caption)
     except Exception as e:
         error_summary = f"Erro no comando '{command}': {e}"; print(f"CRITICAL: {error_summary}"); traceback.print_exc()
@@ -416,7 +460,8 @@ def webhook():
                 session["is_processing"] = True; session["chat_history"].append({"role": "user", "parts": [user_message_text]})
                 if session["mode"] == "CHAT":
                     session["original_prompt"] = user_message_text
-                    ai_response = call_ai(session["chat_history"], context_text=f"New task: {user_message_text}")
+                    # The first step is always to start the browser
+                    ai_response = '{"command": "NAVIGATE", "params": {"url": "https://www.bing.com"}, "thought": "The user gave me a new task. I need to start by opening the browser and going to a known page before I can decide the next step.", "speak": "Ok, entendi. Vou começar a trabalhar nisso agora."}'
                     command_data = process_ai_command(from_number, ai_response)
                 elif session["mode"] == "BROWSER":
                     process_next_browser_step(from_number, session, f"[User Guidance]: {user_message_text}")
@@ -430,5 +475,5 @@ def webhook():
         return Response(status=200)
 
 if __name__ == '__main__':
-    print("--- Magic Agent WhatsApp Bot Server (Subscriber-Only v1.0) ---")
+    print("--- Magic Agent WhatsApp Bot Server (GNOME Control v2.0) ---")
     app.run(host='0.0.0.0', port=5000, debug=False)
