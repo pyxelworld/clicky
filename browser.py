@@ -1,4 +1,4 @@
-# FIX 1: Eventlet monkey patching must happen first.
+# FIX 1: Eventlet monkey patching must be the very first thing to run.
 import eventlet
 eventlet.monkey_patch()
 
@@ -27,7 +27,10 @@ import google.generativeai as genai
 
 # --- CONFIGURATION ---
 # (Fill these with your actual credentials)
-GEMINI_API_KEYS = []
+GEMINI_API_KEYS = [
+    # "YOUR_GEMINI_API_KEY_1",
+    # "YOUR_GEMINI_API_KEY_2",
+]
 WHATSAPP_TOKEN = ""
 WHATSAPP_PHONE_NUMBER_ID = ""
 VERIFY_TOKEN = ""
@@ -55,9 +58,205 @@ CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
 CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
 VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 800
-SYSTEM_PROMPT = """You are "Magic Clicky,"... (Full prompt as before)"""
-HOME_PAGE_TEMPLATE = """... (Full HTML as before)"""
-LIVE_VIEW_TEMPLATE = """... (Full HTML as before)"""
+
+SYSTEM_PROMPT = """
+You are "Magic Clicky," a powerful AI that controls a web browser with high precision. You see the screen and choose the best command to achieve your goal.
+
+--- YOUR CORE MECHANISM: DUAL-MODE CURSOR CONTROL ---
+
+You control a **large red dot** (your virtual cursor). To interact, you MUST first move the cursor to the target, then act. You have two ways to move the cursor. Choose the best one for the job.
+
+**1. Text Mode (Primary Choice for Text): `MOVE_CURSOR_TEXT`**
+-   **How it works:** You provide a string of text that you see on the screen. The system uses OCR to find this text and instantly moves the cursor to its center. This is the FASTEST and MOST ACCURATE method for clicking buttons, links, or anything with a clear text label.
+-   **Usage:** `{"command": "MOVE_CURSOR_TEXT", "params": {"text": "Login"}}`
+
+**2. Coordinate Mode (For Visual Elements): `MOVE_CURSOR_COORDS`**
+-   **How it works:** The screen has a subtle gray grid with numbered axes. Use this grid to estimate the (x, y) coordinates of your target. This is best for clicking on icons, images, or areas without any text. Coordinates MUST be within 0-1279 for x and 0-799 for y (viewport size: 1280x800).
+-   **Usage:** `{"command": "MOVE_CURSOR_COORDS", "params": {"x": 120, "y": 455}}`
+
+--- THE MANDATORY WORKFLOW: MOVE -> VERIFY -> ACT ---
+
+This 3-step process is ESSENTIAL.
+1.  **MOVE:** Issue either a `MOVE_CURSOR_TEXT` or `MOVE_CURSOR_COORDS` command.
+2.  **VERIFY:** You will receive a new screenshot. **CRITICALLY, EXAMINE IT.** Is the red dot EXACTLY on your target?
+3.  **ACT:**
+    -   If the dot is correct, issue your action command (`CLICK`, `CLEAR`, etc.).
+    -   If the dot is slightly off, DO NOT CLICK. Issue another `MOVE_CURSOR` command to correct its position. For text, maybe try a shorter or different part of the text. For coordinates, adjust the numbers.
+
+--- YOUR RESPONSE FORMAT ---
+Your response MUST ALWAYS be a single JSON object with "command", "params", "thought", and "speak" fields.
+
+--- COMMAND REFERENCE ---
+
+**== CURSOR MOVEMENT & ACTION COMMANDS ==**
+1.  **`MOVE_CURSOR_TEXT`**: Moves the cursor to the center of the specified text found by OCR.
+    - **Params:** `{"text": "<text_on_screen>"}`
+2.  **`MOVE_CURSOR_COORDS`**: Moves the cursor to a specific (x, y) coordinate. Use the visual grid for reference.
+    - **Params:** `{"x": <int>, "y": <int>}`
+3.  **`CLICK`**: Performs a REAL mouse click at the cursor's current location. Must be used after moving the cursor.
+    - **Params:** `{}`
+4.  **`TYPE`**: Types text. You MUST `CLICK` an input field first.
+    - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
+5.  **`CLEAR`**: Clears the input field under the cursor.
+    - **Params:** `{}`
+6.  **`SCROLL`**: Scrolls the page from the cursor's position.
+    - **Params:** `{"direction": "<up|down>"}`
+
+**== BROWSER & NAVIGATION COMMANDS ==**
+7.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
+    - **Params:** `{"reason": "<summary>"}`
+8.  **`NAVIGATE`**: Goes directly to a URL. IF YOU KNOW THE URL, GO DIRECTLY.
+    - **Params:** `{"url": "<full_url>"}`
+9.  **`CUSTOM_SEARCH`**: Performs a search using "Bing".
+    - **Params:** `{"query": "<search_term>"}`
+10. **`GO_BACK`**: Navigates to the previous page in history.
+    - **Params:** `{}`
+11. **`GET_CURRENT_URL`**: Gets the URL of the current page. The URL will be shown to you in the next step to confirm your location.
+    - **Params:** `{}`
+
+**== TAB MANAGEMENT COMMANDS ==**
+12. **`NEW_TAB`**: Opens a new browser tab.
+13. **`SWITCH_TO_TAB`**: Switches to an existing tab by its ID number.
+14. **`CLOSE_TAB`**: Closes the current tab.
+
+**== STATE & TIMING COMMANDS ==**
+15. **`WAIT`**: Pauses for a few seconds (for loading content) then views the screen again.
+    - **Params:** `{"seconds": <int>}` (Optional, defaults to 3)
+16. **`REFRESH_SCREEN`**: Does no action, just gets a new view of the screen.
+    - **Params:** `{}`
+
+**== USER INTERACTION COMMANDS ==**
+17. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
+    - **Params:** `{"question": "<your_question>"}`
+18. **`SPEAK`**: For simple conversation when no browser action is needed.
+    - **Params:** `{"text": "<your_response>"}`
+
+
+-- ERROR RECOVERY ---
+If a command fails, the page may have changed. Analyze the new screenshot and the error message. Do not repeat the failed command. Issue a new command to recover.
+
+--- GUIDING PRINCIPLES ---
+1.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action to understand the full context.
+2.  **SEARCH STRATEGY:** Use `CUSTOM_SEARCH` with "Bing". Do NOT use `NAVIGATE` to go to other search engines.
+3.  **LOGIN & CREDENTIALS:** If a page requires a login, you MUST NOT attempt it. Stop and ask the user for permission using `PAUSE_AND_ASK`.
+4.  **SHOPPING STRATEGY:** Use `PAUSE_AND_ASK` to clarify product and price. Use sorting/filtering features on sites.
+5.  **POPUPS AND COOKIES:** IGNORE THEM. Do NOT click accept or reject. Just continue with your task.
+6.  IF YOU KNOW A WEBSITES URL, USE IT TO DIRECTLY GO TO IT WITHOUT USING SEARCH ENGINES (NAVIGATE TOOL)
+7.  ALWAYS TRY TO USE SEARCH BARS AS LESS AS POSSIBLE. IF YOU CAN USE THE NAVIGATE TOOL TO ALREADY GO TO A WEBSITE AND SEARCH ON IT WITH THE QUERY ON THE LINK (example https://lista.mercadolivre.com.br/QUERY) DO IT.
+"""
+
+# --- HTML TEMPLATES ---
+HOME_PAGE_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Clicky - Your AI Web Agent</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        :root { --bg-dark: #0d1117; --primary: #0c2d48; --secondary: #145da0; --accent: #2e8bc0; --text-light: #e6f1ff; --text-dark: #b1d4e0; --border-color: #30363d; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-dark); color: var(--text-light); margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { max-width: 800px; text-align: center; padding: 2rem; background: rgba(255, 255, 255, 0.05); border-radius: 16px; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); border: 1px solid var(--border-color); }
+        h1 { font-size: 3rem; color: #fff; margin-bottom: 0.5rem; }
+        p.subtitle { font-size: 1.2rem; color: var(--text-dark); margin-bottom: 2.5rem; }
+        .tab-container { display: flex; justify-content: center; margin-bottom: 2rem; }
+        .tab { padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.3s ease; color: var(--text-dark); }
+        .tab.active { color: var(--text-light); border-bottom-color: var(--accent); }
+        .content { display: none; } .content.active { display: block; }
+        textarea, input { width: 95%; background-color: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-light); border-radius: 8px; padding: 12px; font-family: 'Inter', sans-serif; font-size: 1rem; margin-bottom: 1rem; resize: vertical; }
+        button { width: 100%; padding: 14px; border: none; border-radius: 8px; background-color: var(--secondary); color: #fff; font-size: 1.1rem; font-weight: 500; cursor: pointer; transition: background-color 0.3s ease; }
+        button:hover { background-color: var(--accent); }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Magic Clicky</h1>
+    <p class="subtitle">Give me a task, and I'll control a browser to get it done.</p>
+    <div class="tab-container">
+        <div class="tab active" onclick="showTab('web')">Use on Web</div>
+        <div class="tab" onclick="showTab('whatsapp')">Use on WhatsApp</div>
+    </div>
+    <div id="web" class="content active">
+        <form action="/start-web-session" method="post">
+            <textarea name="prompt" rows="4" placeholder="e.g., 'Find the top 3 rated sci-fi books on Goodreads and tell me their authors.'" required></textarea>
+            <button type="submit">Start Web Session</button>
+        </form>
+    </div>
+    <div id="whatsapp" class="content">
+        <form id="whatsapp-form">
+            <textarea id="whatsapp-prompt" rows="4" placeholder="Type your task here to send to WhatsApp..."></textarea>
+            <button type="button" onclick="sendToWhatsApp()">Go to WhatsApp</button>
+        </form>
+    </div>
+</div>
+<script>
+    function showTab(tabName) { document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.querySelectorAll('.content').forEach(c => c.classList.remove('active')); document.querySelector(`.tab[onclick="showTab('${tabName}')"]`).classList.add('active'); document.getElementById(tabName).classList.add('active'); }
+    function sendToWhatsApp() { const prompt = document.getElementById('whatsapp-prompt').value; const encodedPrompt = encodeURIComponent(prompt); window.location.href = `https://wa.me/{{ whatsapp_number }}?text=${encodedPrompt}`; }
+</script>
+</body>
+</html>
+"""
+
+LIVE_VIEW_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Clicky - Live Session</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        :root { --bg-dark: #0d1117; --primary: #0c2d48; --secondary: #145da0; --accent: #2e8bc0; --text-light: #e6f1ff; --text-dark: #b1d4e0; --border-color: #30363d; --danger: #b00020; --danger-hover: #d32f2f; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-dark); color: var(--text-light); margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        .main-content { flex: 3; display: flex; flex-direction: column; padding: 1rem; }
+        .sidebar { flex: 1; background-color: #010409; border-left: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 1rem; height: 100vh; }
+        .screenshot-container { background-color: #010409; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; flex-grow: 1; display: flex; justify-content: center; align-items: center; }
+        #screenshot { max-width: 100%; max-height: 100%; object-fit: contain; }
+        #status-bar { background-color: var(--primary); padding: 0.75rem 1rem; border-radius: 8px; margin-top: 1rem; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+        .sidebar h2 { margin-top: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; }
+        .chat-log { flex-grow: 1; overflow-y: auto; margin-bottom: 1rem; }
+        .chat-log div { padding: 8px; border-radius: 5px; margin-bottom: 8px; max-width: 95%; word-wrap: break-word; line-height: 1.4; }
+        .chat-log .user { background-color: var(--secondary); margin-left: auto; }
+        .chat-log .ai { background-color: #21262d; }
+        .controls textarea { width: 95%; background-color: #21262d; border: 1px solid var(--border-color); color: var(--text-light); border-radius: 8px; padding: 10px; font-family: 'Inter', sans-serif; font-size: 0.9rem; margin-bottom: 0.5rem; resize: vertical; }
+        .controls button { width: 100%; padding: 10px; border: none; border-radius: 8px; background-color: var(--secondary); color: #fff; font-size: 1rem; cursor: pointer; transition: background-color 0.3s ease; margin-top: 5px; }
+        .controls button:hover { background-color: var(--accent); } .controls .interrupt-btn { background-color: var(--accent); } .controls .interrupt-btn:hover { background-color: var(--secondary); } .controls .stop-btn { background-color: var(--danger); } .controls .stop-btn:hover { background-color: var(--danger-hover); }
+    </style>
+</head>
+<body>
+<div class="main-content">
+    <div class="screenshot-container"><img id="screenshot" src="" alt="Waiting for session to start..."></div>
+    <div id="status-bar">Initializing...</div>
+</div>
+<div class="sidebar">
+    <h2>Session Log</h2>
+    <div class="chat-log" id="chat-log"></div>
+    <div class="controls">
+        <textarea id="user-input" rows="3" placeholder="Provide additional instructions..."></textarea>
+        <button onclick="sendMessage()">Send Message</button>
+        <button class="interrupt-btn" onclick="sendControl('interrupt')">Interrupt</button>
+        <button class="stop-btn" onclick="sendControl('stop')">Stop Session</button>
+    </div>
+</div>
+<script>
+    const sessionId = "{{ session_id }}";
+    const socket = io();
+    socket.on('connect', () => { console.log('Connected!'); socket.emit('join', { session_id: sessionId }); });
+    socket.on('session_update', (data) => {
+        if (data.image_path) { document.getElementById('screenshot').src = data.image_path + '?' + new Date().getTime(); }
+        if (data.status) { document.getElementById('status-bar').innerText = "Status: " + data.status; }
+        if (data.log_message) { addLogMessage(data.log_message.sender, data.log_message.text); }
+    });
+    socket.on('session_ended', (data) => { document.getElementById('status-bar').innerText = "SESSION ENDED: " + data.reason; document.querySelectorAll('.controls button, .controls textarea').forEach(el => el.disabled = true); addLogMessage('ai', "The session has ended. " + data.reason); });
+    function addLogMessage(sender, text) { const chatLog = document.getElementById('chat-log'); const msgDiv = document.createElement('div'); msgDiv.classList.add(sender); msgDiv.innerText = text; chatLog.appendChild(msgDiv); chatLog.scrollTop = chatLog.scrollHeight; }
+    function sendMessage() { const input = document.getElementById('user-input'); const message = input.value; if (message.trim() === '') return; socket.emit('user_command', { session_id: sessionId, command: 'message', value: message }); addLogMessage('user', message); input.value = ''; }
+    function sendControl(commandType) { socket.emit('user_command', { session_id: sessionId, command: commandType, value: '' }); addLogMessage('user', `Sent /${commandType} command.`); }
+</script>
+</body>
+</html>
+"""
 
 # --- HELPER FUNCTIONS ---
 
@@ -88,6 +287,7 @@ def call_ai(chat_history, context_text="", image_path=None):
     if image_path:
         try: prompt_parts.append({"mime_type": "image/png", "data": image_path.read_bytes()})
         except Exception as e: return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error reading image: {e}"}})
+    if not GEMINI_API_KEYS: return json.dumps({"command": "END_BROWSER", "params": {"reason": "No API keys provided."}})
     last_error = "No API keys provided."
     for i, key in enumerate(GEMINI_API_KEYS):
         try:
@@ -101,7 +301,17 @@ def call_ai(chat_history, context_text="", image_path=None):
 
 def find_text_in_ocr(ocr_results, target_text):
     if not ocr_results or not target_text: return None
-    # ... (Actual OCR logic would go here)
+    n_boxes = len(ocr_results.get('text', [])); target_words = target_text.lower().split()
+    if not target_words: return None
+    for i in range(n_boxes):
+        match_words = []; temp_left, temp_top, temp_right, temp_bottom = float('inf'), float('inf'), 0, 0
+        if target_words[0] in ocr_results['text'][i].lower():
+            k = 0
+            for j in range(i, n_boxes):
+                if k < len(target_words) and ocr_results['conf'][j] > 40:
+                    if target_words[k] in ocr_results['text'][j].lower():
+                        match_words.append(ocr_results['text'][j]);(x, y, w, h) = (ocr_results['left'][j], ocr_results['top'][j], ocr_results['width'][j], ocr_results['height'][j]);temp_left = min(temp_left, x); temp_top = min(temp_top, y); temp_right = max(temp_right, x + w); temp_bottom = max(temp_bottom, y + h);k += 1
+                        if k == len(target_words): return {"left": temp_left, "top": temp_top, "width": temp_right - temp_left, "height": temp_bottom - temp_top, "text": ' '.join(match_words)}
     return None
 
 # --- CORE APPLICATION LOGIC ---
@@ -116,7 +326,7 @@ def create_new_session(identifier, prompt, session_type="whatsapp"):
         "tab_handles": {}, "is_processing": False, "stop_requested": False, "interrupt_requested": False,
         "cursor_pos": (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2), "ocr_results": [],
         "last_status": "Session initialized. Waiting for prompt.", "last_screenshot_path": None,
-        "view_link_sent": False, "live_view_updates_on": True, "sid": None # FIX 2: Add sid field
+        "view_link_sent": False, "live_view_updates_on": True, "sid": None
     }
     user_sessions[identifier] = session
     return session
@@ -149,10 +359,18 @@ def get_page_state(driver, session, status_message):
         png_data = driver.get_screenshot_as_png()
         image = Image.open(io.BytesIO(png_data))
         draw = ImageDraw.Draw(image, 'RGBA')
-        # ... (drawing logic here)
+        try: font = ImageFont.truetype("DejaVuSans.ttf", size=20)
+        except IOError: font = ImageFont.load_default()
+        grid_color = (0, 0, 0, 100)
+        for i in range(100, VIEWPORT_WIDTH, 100): draw.line([(i, 0), (i, VIEWPORT_HEIGHT)], fill=grid_color, width=1); draw.text((i + 2, 2), str(i), fill='red', font=font)
+        for i in range(100, VIEWPORT_HEIGHT, 100): draw.line([(0, i), (VIEWPORT_WIDTH, i)], fill=grid_color, width=1); draw.text((2, i + 2), str(i), fill='red', font=font)
+        cursor_x, cursor_y = session['cursor_pos']; radius = 16; outline_width = 4
+        draw.ellipse([(cursor_x - radius, cursor_y - radius), (cursor_x + radius, cursor_y + radius)], fill='white')
+        draw.ellipse([(cursor_x - (radius-outline_width), cursor_y-(radius-outline_width)), (cursor_x+(radius-outline_width), cursor_y+(radius-outline_width))], fill='red')
         image.save(screenshot_path)
         update_data = {'status': status_message, 'image_path': f"/images/{session['id']}/{screenshot_filename}"}
         socketio.emit('session_update', update_data, room=session['id'])
+        # Simplified tab info gathering for brevity
         return screenshot_path, "Tab info gathered"
     except Exception as e: print(f"Error getting page state: {e}"); return None, "Error getting page state."
 
@@ -191,14 +409,26 @@ def process_ai_command(session, ai_response_text):
     action_in_browser = True
     next_step_caption = f"Action: {command}"
     try:
-        # (This is where the full if/elif block for all commands would go)
-        if command == "END_BROWSER": close_browser(session, f"Task Completed. Summary: {params.get('reason', 'N/A')}"); return
-        else: action_in_browser = False # Simplified for brevity
+        if command == "END_BROWSER":
+            close_browser(session, f"Task Completed. Summary: {params.get('reason', 'N/A')}")
+            if session['session_type'] == 'whatsapp': send_whatsapp_message(session['identifier'], f"*Task Completed.*\n*Summary:* {params.get('reason', 'N/A')}")
+            return command_data
+        elif command == "MOVE_CURSOR_COORDS" or command == "MOVE_CURSOR_TEXT" or command == "REFRESH_SCREEN" or command == "GET_CURRENT_URL":
+            action_in_browser = False # These actions don't require a page load wait
+            # (Actual logic for these commands would be here)
+            pass
+        elif command == "WAIT":
+            time.sleep(params.get("seconds", 3))
+            action_in_browser = False
+        else:
+            # (Actual logic for CLICK, TYPE, SCROLL, NAVIGATE etc. would be here)
+            pass
         if action_in_browser: time.sleep(2)
         socketio.start_background_task(process_next_browser_step, session, next_step_caption)
     except Exception as e:
         error_summary = f"Error running '{command}': {e}"
         socketio.start_background_task(process_next_browser_step, session, error_summary)
+    return command_data
 
 # --- FLASK ROUTES AND WEBSOCKETS ---
 
@@ -236,7 +466,6 @@ def on_join(data):
     session_id = data['session_id']
     session = find_session_by_id(session_id)
     if session:
-        # FIX 2: Store the client's unique connection ID (sid)
         session['sid'] = request.sid
         join_room(session_id)
         print(f"Client {request.sid} joined room: {session_id}")
@@ -260,11 +489,49 @@ def handle_user_command(data):
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
-    # (Webhook logic unchanged, but simplified here)
     if request.method == 'GET':
-        if request.args.get('hub.verify_token') == VERIFY_TOKEN: return request.args.get('hub.challenge')
+        if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
+            return request.args.get('hub.challenge')
         return "Verification token mismatch", 403
-    return "OK", 200
+    
+    if request.method == 'POST':
+        body = request.get_json()
+        try:
+            message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
+            message_id = message_info.get("id")
+            if message_id in processed_message_ids: return Response(status=200)
+            processed_message_ids.add(message_id)
+
+            from_number = message_info["from"]
+            if from_number not in subscribers: return Response(status=200) # Or handle non-subscribers
+            
+            message_type = message_info.get("type")
+            if message_type != "text": return Response(status=200)
+
+            user_message_text = message_info["text"]["body"]
+            command_text = user_message_text.strip().lower()
+            session = user_sessions.get(from_number)
+
+            if command_text == '/view':
+                if session:
+                    session['live_view_updates_on'] = not session.get('live_view_updates_on', True)
+                    status = "ON" if session['live_view_updates_on'] else "OFF"
+                    send_whatsapp_message(from_number, f"Step-by-step WhatsApp updates are now {status}.")
+                else: send_whatsapp_message(from_number, "No active session. Start a task first.")
+                return Response(status=200)
+
+            if session and session.get('is_processing'):
+                send_whatsapp_message(from_number, "I'm currently working. Please use the live view link to interact, or send /stop to cancel.")
+                return Response(status=200)
+
+            # Start a new session
+            new_session = create_new_session(identifier=from_number, prompt=user_message_text, session_type="whatsapp")
+            new_session['is_processing'] = True
+            socketio.start_background_task(target=run_initial_ai, session=new_session, user_message=user_message_text)
+
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"Webhook parsing error: {e}")
+        return Response(status=200)
 
 if __name__ == '__main__':
     print("--- Magic Clicky Server with Web UI & Live Control ---")
