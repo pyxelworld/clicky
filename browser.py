@@ -221,7 +221,7 @@ def get_page_state(driver, session):
         except Exception as e: print(f"Tesseract/OCR error: {e}. Is tesseract-ocr installed and in your PATH?"); session['ocr_results'] = {}
 
         draw = ImageDraw.Draw(image, 'RGBA')
-        try: font = ImageFont.truetype("DejaVuSans.ttf", size=10)
+        try: font = ImageFont.truetype("DejaVuSans.ttf", size=20)
         except IOError: font = ImageFont.load_default()
 
         grid_color = (000, 000, 000, 100)
