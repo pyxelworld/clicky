@@ -158,7 +158,7 @@ def get_page_state(driver, session):
 
         # 2. Desenha a grade e o cursor na imagem
         draw = ImageDraw.Draw(image, 'RGBA')
-        try: font = ImageFont.truetype("DejaVuSans.ttf", size=100)
+        try: font = ImageFont.truetype("DejaVuSans.ttf", size=10)
         except IOError: font = ImageFont.load_default()
 
         # Desenhar Grade Visual
