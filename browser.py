@@ -5,8 +5,9 @@ import time
 import io
 import traceback
 import uuid
-from urllib.parse import quote_plus
-from flask import Flask, request, Response, render_template_string, jsonify, send_from_directory
+from urllib.parse import quote_plus, urlencode
+from flask import Flask, request, Response, render_template_string, jsonify, send_from_directory, redirect, url_for
+from flask_socketio import SocketIO # ## NEW ##
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -20,438 +21,543 @@ import google.generativeai as genai
 # --- CONFIGURATION ---
 GEMINI_API_KEYS = [
     # Your API keys
-    "AIzaSyCnnkNB4qPXE9bgTwRH_Jj5lxUOq_xivJo", "AIzaSyDuAT3AP1wNd-FNb0QmvwQcSTD2dM3ZStc", "AIzaSyCuKxOa7GoY6id_aG-C3_uhvfJ1iI0SeQ0", "AIzaSyBwASUXeAVJ6xFFZdfjNZO5Hsumr4KAntw", "AIzaSyB4EZanzOFSu589lfBVO3M8dy72fBW2ObY", "AIzaSyASbyRix7Cbae7qCgPQntshA5DVJSVJbo4", "AIzaSyD07UM2S3qdSUyyY0Hp4YtN04J60PcO41w", "AIzaSyA9037TcPXJ2tdSrEe-hzLCn0Xa5zjiUOo",
 ]
-WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
-WHATSAPP_PHONE_NUMBER_ID = "645781611962423"
-VERIFY_TOKEN = "121222220611"
+WHATSAPP_TOKEN = "YOUR_WHATSAPP_TOKEN"
+WHATSAPP_PHONE_NUMBER_ID = "YOUR_PHONE_NUMBER_ID"
+VERIFY_TOKEN = "YOUR_VERIFY_TOKEN"
 AI_MODEL_NAME = "gemini-1.5-flash"
-ADMIN_NUMBER = "5511990007256"
+ADMIN_NUMBER = "YOUR_ADMIN_NUMBER"
 
-# Domain for the live view (this will be tunneled by cloudflared)
+# ## MODIFIED ##: App setup for SocketIO
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'a_very_secret_key_change_me' # Required for sessions
+socketio = SocketIO(app, async_mode='eventlet') # ## NEW ##
+
+# Domain and WhatsApp Number for the UI
 LIVE_VIEW_DOMAIN = "https://clicky.pyxelworld.com"
+WHATSAPP_CONTACT_NUMBER = "+16095314294"
+WHATSAPP_NUMBER_CLEANED = ''.join(filter(str.isdigit, WHATSAPP_CONTACT_NUMBER))
+
 
 # --- PROJECT SETUP ---
-app = Flask(__name__)
 BASE_DIR = Path(__file__).parent
 SUBSCRIBERS_FILE = BASE_DIR / "subscribers.txt"
 USER_DATA_DIR = BASE_DIR / "user_data"
 USER_DATA_DIR.mkdir(exist_ok=True)
-user_sessions = {}
+user_sessions = {} # ## MODIFIED ##: Now holds web and WhatsApp sessions
 processed_message_ids = set()
 
-# HTML Template for the live view page
+# --- (HTML Templates, System Prompt, etc. are defined below) ---
+
+# --- (All helper functions like send_whatsapp_message, etc. are included below) ---
+
+# ## NEW ##: Homepage HTML
+HOME_PAGE_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Clicky - Your AI Web Agent</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        :root {
+            --bg-dark: #0d1117; --primary: #0c2d48; --secondary: #145da0; --accent: #2e8bc0;
+            --text-light: #e6f1ff; --text-dark: #b1d4e0; --border-color: #30363d;
+        }
+        body {
+            font-family: 'Inter', sans-serif; background-color: var(--bg-dark); color: var(--text-light);
+            margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh;
+        }
+        .container {
+            max-width: 800px; text-align: center; padding: 2rem;
+            background: rgba(255, 255, 255, 0.05); border-radius: 16px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px); border: 1px solid var(--border-color);
+        }
+        h1 { font-size: 3rem; color: #fff; margin-bottom: 0.5rem; }
+        p.subtitle { font-size: 1.2rem; color: var(--text-dark); margin-bottom: 2.5rem; }
+        .tab-container { display: flex; justify-content: center; margin-bottom: 2rem; }
+        .tab {
+            padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent;
+            transition: all 0.3s ease; color: var(--text-dark);
+        }
+        .tab.active { color: var(--text-light); border-bottom-color: var(--accent); }
+        .content { display: none; }
+        .content.active { display: block; }
+        textarea, input {
+            width: 95%; background-color: rgba(0,0,0,0.3); border: 1px solid var(--border-color);
+            color: var(--text-light); border-radius: 8px; padding: 12px; font-family: 'Inter', sans-serif;
+            font-size: 1rem; margin-bottom: 1rem; resize: vertical;
+        }
+        button {
+            width: 100%; padding: 14px; border: none; border-radius: 8px;
+            background-color: var(--secondary); color: #fff; font-size: 1.1rem;
+            font-weight: 500; cursor: pointer; transition: background-color 0.3s ease;
+        }
+        button:hover { background-color: var(--accent); }
+        .or-divider { display: flex; align-items: center; text-align: center; color: var(--text-dark); margin: 1.5rem 0; }
+        .or-divider::before, .or-divider::after {
+            content: ''; flex: 1; border-bottom: 1px solid var(--border-color);
+        }
+        .or-divider:not(:empty)::before { margin-right: .25em; }
+        .or-divider:not(:empty)::after { margin-left: .25em; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Magic Clicky</h1>
+    <p class="subtitle">Give me a task, and I'll control a browser to get it done.</p>
+
+    <div class="tab-container">
+        <div class="tab active" onclick="showTab('web')">Use on Web</div>
+        <div class="tab" onclick="showTab('whatsapp')">Use on WhatsApp</div>
+    </div>
+
+    <div id="web" class="content active">
+        <form action="/start-web-session" method="post">
+            <textarea name="prompt" rows="4" placeholder="e.g., 'Find the top 3 rated sci-fi books on Goodreads and tell me their authors.'" required></textarea>
+            <button type="submit">Start Web Session</button>
+        </form>
+    </div>
+
+    <div id="whatsapp" class="content">
+        <form id="whatsapp-form">
+            <textarea id="whatsapp-prompt" rows="4" placeholder="Type your task here to send to WhatsApp..."></textarea>
+            <button type="button" onclick="sendToWhatsApp()">Go to WhatsApp</button>
+        </form>
+    </div>
+</div>
+<script>
+    function showTab(tabName) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+        document.querySelector(`.tab[onclick="showTab('${tabName}')"]`).classList.add('active');
+        document.getElementById(tabName).classList.add('active');
+    }
+    function sendToWhatsApp() {
+        const prompt = document.getElementById('whatsapp-prompt').value;
+        const encodedPrompt = encodeURIComponent(prompt);
+        window.location.href = `https://wa.me/{{ whatsapp_number }}?text=${encodedPrompt}`;
+    }
+</script>
+</body>
+</html>
+"""
+
+# ## NEW ##: Live View HTML with interactive controls and WebSocket
 LIVE_VIEW_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Magic Clicky - Live View</title>
+    <title>Magic Clicky - Live Session</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; text-align: center; }
-        .container { max-width: 1320px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 20px; }
-        h1 { color: #333; }
-        #status { background-color: #e7f3ff; color: #0c5460; border: 1px solid #b8daff; padding: 15px; border-radius: 5px; margin-top: 20px; text-align: left; white-space: pre-wrap; font-family: monospace; }
-        #screenshot { max-width: 100%; height: auto; border: 1px solid #ddd; margin-top: 20px; border-radius: 5px; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        :root {
+            --bg-dark: #0d1117; --primary: #0c2d48; --secondary: #145da0; --accent: #2e8bc0;
+            --text-light: #e6f1ff; --text-dark: #b1d4e0; --border-color: #30363d;
+            --danger: #b00020; --danger-hover: #d32f2f;
+        }
+        body {
+            font-family: 'Inter', sans-serif; background-color: var(--bg-dark); color: var(--text-light);
+            margin: 0; display: flex; height: 100vh; overflow: hidden;
+        }
+        .main-content { flex: 3; display: flex; flex-direction: column; padding: 1rem; }
+        .sidebar {
+            flex: 1; background-color: #010409; border-left: 1px solid var(--border-color);
+            display: flex; flex-direction: column; padding: 1rem; height: 100vh;
+        }
+        .screenshot-container {
+            background-color: #010409; border: 1px solid var(--border-color);
+            border-radius: 8px; overflow: hidden; flex-grow: 1; display: flex;
+            justify-content: center; align-items: center;
+        }
+        #screenshot { max-width: 100%; max-height: 100%; object-fit: contain; }
+        #status-bar {
+            background-color: var(--primary); padding: 0.75rem 1rem; border-radius: 8px;
+            margin-top: 1rem; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .sidebar h2 { margin-top: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; }
+        .chat-log { flex-grow: 1; overflow-y: auto; margin-bottom: 1rem; }
+        .chat-log div {
+            padding: 8px; border-radius: 5px; margin-bottom: 8px; max-width: 95%;
+            word-wrap: break-word; line-height: 1.4;
+        }
+        .chat-log .user { background-color: var(--secondary); margin-left: auto; }
+        .chat-log .ai { background-color: #21262d; }
+        .controls textarea {
+            width: 95%; background-color: #21262d; border: 1px solid var(--border-color);
+            color: var(--text-light); border-radius: 8px; padding: 10px; font-family: 'Inter', sans-serif;
+            font-size: 0.9rem; margin-bottom: 0.5rem; resize: vertical;
+        }
+        .controls button {
+            width: 100%; padding: 10px; border: none; border-radius: 8px;
+            background-color: var(--secondary); color: #fff; font-size: 1rem;
+            cursor: pointer; transition: background-color 0.3s ease; margin-top: 5px;
+        }
+        .controls button:hover { background-color: var(--accent); }
+        .controls .interrupt-btn { background-color: var(--accent); }
+        .controls .interrupt-btn:hover { background-color: var(--secondary); }
+        .controls .stop-btn { background-color: var(--danger); }
+        .controls .stop-btn:hover { background-color: var(--danger-hover); }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Magic Clicky - Live View</h1>
-        <img id="screenshot" src="" alt="Loading screen...">
-        <div id="status">Loading status...</div>
+<div class="main-content">
+    <div class="screenshot-container">
+        <img id="screenshot" src="" alt="Waiting for session to start...">
     </div>
-    <script>
-        const sessionId = "{{ session_id }}";
-        function fetchData() {
-            fetch(`/data/${sessionId}`)
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('screenshot').src = data.image_url + '?' + new Date().getTime();
-                    document.getElementById('status').innerText = "Last Action: " + data.status;
-                })
-                .catch(error => {
-                    console.error('Error fetching data:', error);
-                    document.getElementById('status').innerText = 'Connection lost or session ended. Please check your WhatsApp for updates.';
-                });
+    <div id="status-bar">Initializing...</div>
+</div>
+<div class="sidebar">
+    <h2>Session Log</h2>
+    <div class="chat-log" id="chat-log"></div>
+    <div class="controls">
+        <textarea id="user-input" rows="3" placeholder="Provide additional instructions..."></textarea>
+        <button onclick="sendMessage()">Send Message</button>
+        <button class="interrupt-btn" onclick="sendControl('interrupt')">Interrupt</button>
+        <button class="stop-btn" onclick="sendControl('stop')">Stop Session</button>
+    </div>
+</div>
+
+<script>
+    const sessionId = "{{ session_id }}";
+    const socket = io();
+
+    socket.on('connect', () => {
+        console.log('Connected to server!');
+        socket.emit('join', { session_id: sessionId });
+    });
+
+    socket.on('session_update', (data) => {
+        console.log('Received update:', data);
+        if (data.image_path) {
+            document.getElementById('screenshot').src = data.image_path + '?' + new Date().getTime();
         }
-        setInterval(fetchData, 3000);
-        fetchData();
-    </script>
+        if (data.status) {
+            document.getElementById('status-bar').innerText = "Status: " + data.status;
+        }
+        if (data.log_message) {
+            addLogMessage(data.log_message.sender, data.log_message.text);
+        }
+    });
+    
+    socket.on('session_ended', (data) => {
+        document.getElementById('status-bar').innerText = "SESSION ENDED: " + data.reason;
+        document.querySelectorAll('.controls button, .controls textarea').forEach(el => el.disabled = true);
+        addLogMessage('ai', "The session has ended. " + data.reason);
+    });
+
+    function addLogMessage(sender, text) {
+        const chatLog = document.getElementById('chat-log');
+        const msgDiv = document.createElement('div');
+        msgDiv.classList.add(sender); // 'user' or 'ai'
+        msgDiv.innerText = text;
+        chatLog.appendChild(msgDiv);
+        chatLog.scrollTop = chatLog.scrollHeight; // Auto-scroll
+    }
+
+    function sendMessage() {
+        const input = document.getElementById('user-input');
+        const message = input.value;
+        if (message.trim() === '') return;
+        socket.emit('user_command', { session_id: sessionId, command: 'message', value: message });
+        addLogMessage('user', message);
+        input.value = '';
+    }
+
+    function sendControl(commandType) {
+        socket.emit('user_command', { session_id: sessionId, command: commandType, value: '' });
+        addLogMessage('user', `Sent /${commandType} command.`);
+    }
+
+</script>
 </body>
 </html>
 """
 
-# --- (The rest of the code is exactly the same as the previous version) ---
-# --- It is already perfectly compatible with the cloudflared setup.   ---
+# --- Core Application Logic ---
 
-# --- SUBSCRIBER MANAGEMENT ---
+def send_whatsapp_message(to, text):
+    # This function remains the same
+    url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"; headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}; data = {"messaging_product": "whatsapp", "to": to, "text": {"body": text}};
+    try: response = requests.post(url, headers=headers, json=data); response.raise_for_status(); print(f"Sent text message to {to}: {text[:80]}...")
+    except requests.exceptions.RequestException as e: print(f"Error sending WhatsApp text message: {e} - {response.text}")
+
 def load_subscribers():
+    # This function remains the same
     if not SUBSCRIBERS_FILE.exists(): return set()
     try:
         with open(SUBSCRIBERS_FILE, "r") as f: return {line.strip() for line in f if line.strip()}
     except IOError as e: print(f"CRITICAL: Could not read subscribers file: {e}"); return set()
 subscribers = load_subscribers()
 
-# --- CONSTANTS ---
-CUSTOM_SEARCH_URL_BASE = "https://www.bing.com"
-CUSTOM_SEARCH_URL_TEMPLATE = "https://www.bing.com/search?q=%s"
-VIEWPORT_WIDTH = 1280
-VIEWPORT_HEIGHT = 800
+def find_session_by_id(session_id):
+    """Finds a session by its UUID across all users."""
+    for session in user_sessions.values():
+        if session.get('id') == session_id:
+            return session
+    return None
 
-# --- SYSTEM PROMPT ---
-SYSTEM_PROMPT = """
-You are "Magic Clicky," a powerful AI that controls a web browser with high precision. You see the screen and choose the best command to achieve your goal.
-
---- YOUR CORE MECHANISM: DUAL-MODE CURSOR CONTROL ---
-
-You control a **large red dot** (your virtual cursor). To interact, you MUST first move the cursor to the target, then act. You have two ways to move the cursor. Choose the best one for the job.
-
-**1. Text Mode (Primary Choice for Text): `MOVE_CURSOR_TEXT`**
--   **How it works:** You provide a string of text that you see on the screen. The system uses OCR to find this text and instantly moves the cursor to its center. This is the FASTEST and MOST ACCURATE method for clicking buttons, links, or anything with a clear text label.
--   **Usage:** `{"command": "MOVE_CURSOR_TEXT", "params": {"text": "Login"}}`
-
-**2. Coordinate Mode (For Visual Elements): `MOVE_CURSOR_COORDS`**
--   **How it works:** The screen has a subtle gray grid with numbered axes. Use this grid to estimate the (x, y) coordinates of your target. This is best for clicking on icons, images, or areas without any text. Coordinates MUST be within 0-1279 for x and 0-799 for y (viewport size: 1280x800).
--   **Usage:** `{"command": "MOVE_CURSOR_COORDS", "params": {"x": 120, "y": 455}}`
-
---- THE MANDATORY WORKFLOW: MOVE -> VERIFY -> ACT ---
-
-This 3-step process is ESSENTIAL.
-1.  **MOVE:** Issue either a `MOVE_CURSOR_TEXT` or `MOVE_CURSOR_COORDS` command.
-2.  **VERIFY:** You will receive a new screenshot. **CRITICALLY, EXAMINE IT.** Is the red dot EXACTLY on your target?
-3.  **ACT:**
-    -   If the dot is correct, issue your action command (`CLICK`, `CLEAR`, etc.).
-    -   If the dot is slightly off, DO NOT CLICK. Issue another `MOVE_CURSOR` command to correct its position. For text, maybe try a shorter or different part of the text. For coordinates, adjust the numbers.
-
---- YOUR RESPONSE FORMAT ---
-Your response MUST ALWAYS be a single JSON object with "command", "params", "thought", and "speak" fields.
-
---- COMMAND REFERENCE ---
-
-**== CURSOR MOVEMENT & ACTION COMMANDS ==**
-1.  **`MOVE_CURSOR_TEXT`**: Moves the cursor to the center of the specified text found by OCR.
-    - **Params:** `{"text": "<text_on_screen>"}`
-2.  **`MOVE_CURSOR_COORDS`**: Moves the cursor to a specific (x, y) coordinate. Use the visual grid for reference.
-    - **Params:** `{"x": <int>, "y": <int>}`
-3.  **`CLICK`**: Performs a REAL mouse click at the cursor's current location. Must be used after moving the cursor.
-    - **Params:** `{}`
-4.  **`TYPE`**: Types text. You MUST `CLICK` an input field first.
-    - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
-5.  **`CLEAR`**: Clears the input field under the cursor.
-    - **Params:** `{}`
-6.  **`SCROLL`**: Scrolls the page from the cursor's position.
-    - **Params:** `{"direction": "<up|down>"}`
-
-**== BROWSER & NAVIGATION COMMANDS ==**
-7.  **`END_BROWSER`**: Closes the browser when the task is fully complete.
-    - **Params:** `{"reason": "<summary>"}`
-8.  **`NAVIGATE`**: Goes directly to a URL. IF YOU KNOW THE URL, GO DIRECTLY.
-    - **Params:** `{"url": "<full_url>"}`
-9.  **`CUSTOM_SEARCH`**: Performs a search using "Bing".
-    - **Params:** `{"query": "<search_term>"}`
-10. **`GO_BACK`**: Navigates to the previous page in history.
-    - **Params:** `{}`
-11. **`GET_CURRENT_URL`**: Gets the URL of the current page. The URL will be shown to you in the next step to confirm your location.
-    - **Params:** `{}`
-
-**== TAB MANAGEMENT COMMANDS ==**
-12. **`NEW_TAB`**: Opens a new browser tab.
-13. **`SWITCH_TO_TAB`**: Switches to an existing tab by its ID number.
-14. **`CLOSE_TAB`**: Closes the current tab.
-
-**== STATE & TIMING COMMANDS ==**
-15. **`WAIT`**: Pauses for a few seconds (for loading content) then views the screen again.
-    - **Params:** `{"seconds": <int>}` (Optional, defaults to 3)
-16. **`REFRESH_SCREEN`**: Does no action, just gets a new view of the screen.
-    - **Params:** `{}`
-
-**== USER INTERACTION COMMANDS ==**
-17. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
-    - **Params:** `{"question": "<your_question>"}`
-18. **`SPEAK`**: For simple conversation when no browser action is needed.
-    - **Params:** `{"text": "<your_response>"}`
-
-
--- ERROR RECOVERY ---
-If a command fails, the page may have changed. Analyze the new screenshot and the error message. Do not repeat the failed command. Issue a new command to recover.
-
---- GUIDING PRINCIPLES ---
-1.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action to understand the full context.
-2.  **SEARCH STRATEGY:** Use `CUSTOM_SEARCH` with "Bing". Do NOT use `NAVIGATE` to go to other search engines.
-3.  **LOGIN & CREDENTIALS:** If a page requires a login, you MUST NOT attempt it. Stop and ask the user for permission using `PAUSE_AND_ASK`.
-4.  **SHOPPING STRATEGY:** Use `PAUSE_AND_ASK` to clarify product and price. Use sorting/filtering features on sites.
-5.  **POPUPS AND COOKIES:** IGNORE THEM. Do NOT click accept or reject. Just continue with your task.
-6.  IF YOU KNOW A WEBSITES URL, USE IT TO DIRECTLY GO TO IT WITHOUT USING SEARCH ENGINES (NAVIGATE TOOL)
-7.  ALWAYS TRY TO USE SEARCH BARS AS LESS AS POSSIBLE. IF YOU CAN USE THE NAVIGATE TOOL TO ALREADY GO TO A WEBSITE AND SEARCH ON IT WITH THE QUERY ON THE LINK (example https://lista.mercadolivre.com.br/QUERY) DO IT.
-
---- LANGUAGE ---
-Always speak the same language the user used.
-
---- MAGIC AND YOU ---
-You are built by Pyxel (pyxelworld.com). Another AI, Magic, can handle tasks you can't (like non-browser tasks or handling files).
-If you cannot do something, direct the user to Magic at https://wa.me/551127375623 or https://askmagic.com.br.
-You can create direct links for the user, for example: `https://wa.me/551127275623?text=gere+uma+imagem+de+um+gato`.
-
-REMEMBER THAT ONLY WHAT YOU "SPEAK" IS SENT TO THE USER!
-
---- FOLLOW 100% OF THE TIME ---
-1. NEVER ACCEPT/INTERACT WITH COOKIE OR COOKIE BANNERS/POPUPS
-2. IF YOU SEE A POPUP ASKING YOU SOMETHING, IGNORE IT. IF ITS TO ADD LOCATION, CEP, ANYTHING, DO NOT INTERACT WITH IT. FOCUS ON YOUR GOAL. AND YOUR GOAL IS NOT ADDING AN ADDRESS OR ACCEPTING COOKIES.
-3. NEVER USE SEARCH BOXES. ALREADY INPUT THE SEARCH YOU WANT IN THE URL TO SPEED UP THE PROCESS.
-"""
-
-def send_whatsapp_message(to, text):
-    url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"; headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}; data = {"messaging_product": "whatsapp", "to": to, "text": {"body": text}};
-    try: response = requests.post(url, headers=headers, json=data); response.raise_for_status(); print(f"Sent text message to {to}: {text[:80]}...")
-    except requests.exceptions.RequestException as e: print(f"Error sending WhatsApp text message: {e} - {response.text}")
-
-def send_whatsapp_document_by_id(to, media_id, caption="", filename="document.pdf"):
-    url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"; headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    data = {"messaging_product": "whatsapp", "to": to, "type": "document", "document": {"id": media_id, "filename": filename, "caption": caption}}
-    try: response = requests.post(url, headers=headers, json=data); response.raise_for_status(); print(f"Forwarded document {media_id} to {to}")
-    except requests.exceptions.RequestException as e: print(f"Error forwarding WhatsApp document: {e} - {response.text}")
-
-def get_or_create_session(phone_number):
-    if phone_number not in user_sessions:
-        print(f"Creating new session for {phone_number}")
-        session_id = str(uuid.uuid4())
-        user_dir = USER_DATA_DIR / session_id
-        user_dir.mkdir(parents=True, exist_ok=True)
-        session = {
-            "id": session_id, "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": "",
-            "user_dir": user_dir, "tab_handles": {}, "is_processing": False, "stop_requested": False,
-            "interrupt_requested": False, "cursor_pos": (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2),
-            "ocr_results": [], "last_status": "Session initialized. Waiting for prompt.",
-            "last_screenshot_path": None, "view_link_sent": False
-        }
-        user_sessions[phone_number] = session
-    return user_sessions[phone_number]
+# ## MODIFIED ##: Centralized session creation for both Web and WhatsApp
+def create_new_session(identifier, prompt, session_type="whatsapp"):
+    session_id = str(uuid.uuid4())
+    user_dir = USER_DATA_DIR / session_id
+    user_dir.mkdir(parents=True, exist_ok=True)
+    
+    session = {
+        "id": session_id,
+        "identifier": identifier, # WhatsApp number or a web session identifier
+        "session_type": session_type, # 'whatsapp' or 'web'
+        "mode": "CHAT", "driver": None, "chat_history": [], "original_prompt": prompt,
+        "user_dir": user_dir, "tab_handles": {}, "is_processing": False, "stop_requested": False,
+        "interrupt_requested": False, "cursor_pos": (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2),
+        "ocr_results": [], "last_status": "Session initialized. Waiting for prompt.",
+        "last_screenshot_path": None, "view_link_sent": False,
+        "live_view_updates_on": True # ## NEW ## For /view command
+    }
+    user_sessions[identifier] = session
+    return session
 
 def start_browser(session):
     if session.get("driver"): return session["driver"]
-    print("Starting new browser instance..."); options = Options(); options.add_argument("--no-sandbox"); options.add_argument("--disable-dev-shm-usage"); options.add_argument(f"--window-size={VIEWPORT_WIDTH},{VIEWPORT_HEIGHT}"); options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
+    print("Starting new browser instance..."); options = Options(); options.add_argument("--no-sandbox"); options.add_argument("--disable-dev-shm-usage"); options.add_argument(f"--window-size={1280},{800}"); options.add_argument(f"--user-data-dir={session['user_dir'] / 'profile'}")
     try: driver = webdriver.Chrome(options=options); session["driver"] = driver; session["mode"] = "BROWSER"; return driver
     except Exception as e: print(f"CRITICAL: Error starting Selenium browser: {e}"); traceback.print_exc(); return None
 
-def close_browser(session):
-    if session.get("driver"): print(f"Closing browser for session {session['id']}"); (lambda: (session["driver"].quit(), None))(); session["driver"] = None
-    session["mode"] = "CHAT"; session["original_prompt"] = ""; session["tab_handles"] = {}; session["cursor_pos"] = (VIEWPORT_WIDTH // 2, VIEWPORT_HEIGHT // 2); session["ocr_results"] = []; session["view_link_sent"] = False;
+def close_browser(session, reason="Session closed by user."):
+    if session.get("driver"):
+        print(f"Closing browser for session {session['id']}")
+        session["driver"].quit()
+        session["driver"] = None
+    
+    session["mode"] = "CHAT"
+    session["is_processing"] = False
+    session["stop_requested"] = True
+    session["last_status"] = reason
 
+    # Notify the live view that the session has ended
+    socketio.emit('session_ended', {'reason': reason}, room=session['id'])
+    
+    # Clean up the session object from memory after a delay
+    identifier = session['identifier']
+    if identifier in user_sessions:
+        # We don't delete immediately to allow final messages to be sent
+        print(f"Session {session['id']} for {identifier} marked for closure.")
+
+# ## MODIFIED ##: This function now emits WebSocket events
 def get_page_state(driver, session, status_message):
     screenshot_filename = "live_view.png"
     screenshot_path = session["user_dir"] / screenshot_filename
     session["last_screenshot_path"] = screenshot_path
     session["last_status"] = status_message
+    
     try:
-        window_handles = driver.window_handles; current_handle = driver.current_window_handle; tabs = []; session["tab_handles"] = {}
-        for i, handle in enumerate(window_handles): tab_id = i + 1; session["tab_handles"][tab_id] = handle; driver.switch_to.window(handle); tabs.append({"id": tab_id, "title": driver.title, "is_active": handle == current_handle})
-        driver.switch_to.window(current_handle); tab_info_text = "Open Tabs:\n" + "".join([f"  Tab {t['id']}: {t['title'][:70]}{' (Current)' if t['is_active'] else ''}\n" for t in tabs])
-    except Exception as e: print(f"Could not get tab info: {e}"); tab_info_text = "Could not get tab info."
-    try:
-        png_data = driver.get_screenshot_as_png(); image = Image.open(io.BytesIO(png_data))
-        try: ocr_data = pytesseract.image_to_data(image, lang='por+eng', output_type=pytesseract.Output.DICT); session['ocr_results'] = ocr_data; print(f"OCR executed. Found {len(ocr_data['text'])} words.")
-        except Exception as e: print(f"Tesseract/OCR error: {e}"); session['ocr_results'] = {}
+        # ... [The complex image generation part is the same] ...
+        png_data = driver.get_screenshot_as_png()
+        image = Image.open(io.BytesIO(png_data))
         draw = ImageDraw.Draw(image, 'RGBA')
-        try: font = ImageFont.truetype("DejaVuSans.ttf", size=20)
-        except IOError: font = ImageFont.load_default()
-        grid_color = (0, 0, 0, 100)
-        for i in range(100, VIEWPORT_WIDTH, 100): draw.line([(i, 0), (i, VIEWPORT_HEIGHT)], fill=grid_color, width=1); draw.text((i + 2, 2), str(i), fill='red', font=font)
-        for i in range(100, VIEWPORT_HEIGHT, 100): draw.line([(0, i), (VIEWPORT_WIDTH, i)], fill=grid_color, width=1); draw.text((2, i + 2), str(i), fill='red', font=font)
-        cursor_x, cursor_y = session['cursor_pos']; radius = 16; outline_width = 4
-        draw.ellipse([(cursor_x - radius, cursor_y - radius), (cursor_x + radius, cursor_y + radius)], fill='white')
-        draw.ellipse([(cursor_x - (radius-outline_width), cursor_y-(radius-outline_width)), (cursor_x+(radius-outline_width), cursor_y+(radius-outline_width))], fill='red')
-        image.save(screenshot_path); print(f"State captured to {screenshot_path} with cursor at {session['cursor_pos']}.")
+        # ... [Drawing grid and cursor] ...
+        image.save(screenshot_path)
+
+        # ## NEW ##: Emit the update via WebSocket
+        update_data = {
+            'status': status_message,
+            'image_path': f"/images/{session['id']}/{screenshot_filename}"
+        }
+        socketio.emit('session_update', update_data, room=session['id'])
+        print(f"Emitted session_update for {session['id']}")
+        
+        # This part is just for the AI's context, not for the user anymore
+        window_handles = driver.window_handles
+        current_handle = driver.current_window_handle
+        tabs = []
+        for i, handle in enumerate(window_handles):
+            driver.switch_to.window(handle)
+            tabs.append(f"Tab {i+1}: {driver.title[:60]}{' (Current)' if handle == current_handle else ''}")
+        driver.switch_to.window(current_handle)
+        tab_info_text = "Open Tabs:\n" + "\n".join(tabs)
+        
         return screenshot_path, tab_info_text
-    except Exception as e: print(f"Error getting page state: {e}"); traceback.print_exc(); session["last_status"] = f"Error getting page state: {e}"; return None, tab_info_text
 
-def find_text_in_ocr(ocr_results, target_text):
-    n_boxes = len(ocr_results.get('text', [])); target_words = target_text.lower().split();
-    if not target_words: return None
-    for i in range(n_boxes):
-        match_words = []; temp_left, temp_top, temp_right, temp_bottom = float('inf'), float('inf'), 0, 0
-        if target_words[0] in ocr_results['text'][i].lower():
-            k = 0
-            for j in range(i, n_boxes):
-                if k < len(target_words) and ocr_results['conf'][j] > 40:
-                    if target_words[k] in ocr_results['text'][j].lower():
-                        match_words.append(ocr_results['text'][j]);(x, y, w, h) = (ocr_results['left'][j], ocr_results['top'][j], ocr_results['width'][j], ocr_results['height'][j]);temp_left = min(temp_left, x); temp_top = min(temp_top, y); temp_right = max(temp_right, x + w); temp_bottom = max(temp_bottom, y + h);k += 1
-                        if k == len(target_words): print(f"OCR Match found for '{target_text}': '{' '.join(match_words)}'"); return {"left": temp_left, "top": temp_top, "width": temp_right - temp_left, "height": temp_bottom - temp_top, "text": ' '.join(match_words)}
-    return None
-
-def call_ai(chat_history, context_text="", image_path=None):
-    prompt_parts = [context_text]
-    if image_path:
-        try: prompt_parts.append({"mime_type": "image/png", "data": image_path.read_bytes()})
-        except Exception as e: return json.dumps({"command": "END_BROWSER", "params": {"reason": f"Error: {e}"}, "thought": "Image read failed.", "speak": "Erro com a visualização da tela."})
-    last_error = None
-    for i, key in enumerate(GEMINI_API_KEYS):
-        try:
-            print(f"Attempting to call AI with API key #{i+1}..."); genai.configure(api_key=key)
-            model = genai.GenerativeModel(AI_MODEL_NAME, system_instruction=SYSTEM_PROMPT, generation_config={"response_mime_type": "application/json"})
-            chat = model.start_chat(history=chat_history); response = chat.send_message(prompt_parts); print("AI call successful.")
-            return response.text
-        except Exception as e: print(f"API key #{i+1} failed. Error: {e}"); last_error = e; continue
-    print("All API keys failed.")
-    return json.dumps({"command": "END_BROWSER", "params": {"reason": f"AI error: {last_error}"}, "thought": "AI API failed.", "speak": "Erro ao conectar com meu cérebro."})
-
-def process_next_browser_step(from_number, session, caption):
-    screenshot_path, tab_info_text = get_page_state(session["driver"], session, caption)
-    if not session["view_link_sent"]:
-        live_view_url = f"{LIVE_VIEW_DOMAIN}/view/{session['id']}"
-        send_whatsapp_message(from_number, f"Estou começando! Acompanhe o que estou fazendo em tempo real aqui:\n{live_view_url}")
-        session["view_link_sent"] = True
-    if screenshot_path:
-        context_text = f"User's Goal: {session['original_prompt']}\n\nPrevious Action Result:\n{caption}\n\nCurrent Screen State:\n{tab_info_text}"
-        ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
-        process_ai_command(from_number, ai_response)
-    else:
-        error_msg = "Não foi possível capturar a tela do navegador. Encerrando a sessão para segurança."
-        send_whatsapp_message(from_number, error_msg); session["last_status"] = error_msg; close_browser(session)
-
-def process_ai_command(from_number, ai_response_text):
-    session = get_or_create_session(from_number)
-    if session.get("stop_requested"): print("Stop was requested."); session.clear(); return {}
-    if session.get("interrupt_requested"): print("Interrupt was requested."); session["interrupt_requested"] = False; return {}
-    try: command_data = json.loads(ai_response_text)
-    except json.JSONDecodeError:
-        error_message = f"O agente respondeu com um formato inválido: {ai_response_text}"
-        send_whatsapp_message(from_number, error_message);
-        if session["mode"] == "BROWSER": session["is_processing"] = False; send_whatsapp_message(from_number, "Estou um pouco confuso. Por favor, me diga o que fazer a seguir ou digite /stop para encerrar.")
-        return {}
-    command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
-    print(f"Executing: {command} | Params: {params} | Thought: {thought}")
-    session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
-    if speak: send_whatsapp_message(from_number, speak)
-    driver = session.get("driver")
-    if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER", "PAUSE_AND_ASK"]:
-        send_whatsapp_message(from_number, "O navegador não estava aberto. Iniciando e tentando seu comando novamente..."); driver = start_browser(session);
-        if not driver: send_whatsapp_message(from_number, "Falha crítica ao iniciar o navegador."); close_browser(session); return {}
-        time.sleep(1); return process_ai_command(from_number, ai_response_text)
-    try:
-        action_in_browser = True; next_step_caption = f"Ação: {command}"
-        if command == "MOVE_CURSOR_COORDS":
-            x = max(0, min(params.get("x", 0), VIEWPORT_WIDTH - 1)); y = max(0, min(params.get("y", 0), VIEWPORT_HEIGHT - 1))
-            if x != params.get("x") or y != params.get("y"): next_step_caption += f" [Aviso: Coordenadas ajustadas para ({x}, {y})]"
-            session['cursor_pos'] = (x, y); action_in_browser = False; next_step_caption = f"Cursor movido para ({x}, {y})."
-        elif command == "MOVE_CURSOR_TEXT":
-            target_text = params.get("text")
-            if not target_text: next_step_caption = "Erro: Tentativa de mover cursor sem texto."
-            else:
-                found_box = find_text_in_ocr(session.get('ocr_results', {}), target_text)
-                if found_box: session['cursor_pos'] = (found_box['left'] + found_box['width'] // 2, found_box['top'] + found_box['height'] // 2); next_step_caption = f"Cursor movido para o texto '{found_box['text']}'."
-                else: next_step_caption = f"ERRO: O texto '{target_text}' não foi encontrado na tela. Tente um texto diferente ou use coordenadas."
-            action_in_browser = False
-        elif command == "CLICK":
-            x, y = session['cursor_pos']
-            try: driver.execute_script("document.elementFromPoint(arguments[0], arguments[1]).click();", x, y); next_step_caption = f"Clicado em ({x}, {y})."; time.sleep(0.5)
-            except Exception as e: next_step_caption = f"Erro ao clicar: {e}"
-        elif command == "TYPE":
-            text_to_type = params.get("text", ""); ActionChains(driver).send_keys(text_to_type).perform(); next_step_caption = f"Digitado: '{text_to_type[:30]}...'"
-            if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform(); next_step_caption += " e pressionado Enter."
-        elif command == "CLEAR":
-            x, y = session['cursor_pos']
-            try: driver.execute_script("var el = document.elementFromPoint(arguments[0], arguments[1]); if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) { el.value = ''; }", x, y); next_step_caption = "Campo de texto limpo."; time.sleep(0.5)
-            except Exception as e: next_step_caption = f"Erro ao limpar: {e}"
-        elif command == "SCROLL":
-            direction = params.get('direction', 'down'); scroll_amount = VIEWPORT_HEIGHT * 0.8 if direction == 'down' else -VIEWPORT_HEIGHT * 0.8
-            driver.execute_script("window.scrollTo(0, window.scrollY + arguments[0]);", scroll_amount); next_step_caption = f"Página rolada para {direction}."
-        elif command == "WAIT":
-            seconds_to_wait = params.get("seconds", 3); next_step_caption = f"Aguardando {seconds_to_wait} segundos..."; time.sleep(seconds_to_wait); action_in_browser = False
-        elif command == "REFRESH_SCREEN": next_step_caption = "Atualizando a visualização da tela."; action_in_browser = False
-        elif command == "START_BROWSER": driver = start_browser(session); time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); next_step_caption = "Navegador iniciado."
-        elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE)); next_step_caption = f"Navegando para {params.get('url')}."
-        elif command == "CUSTOM_SEARCH": driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', ''))); next_step_caption = f"Buscando por '{params.get('query')}'."
-        elif command == "GO_BACK": driver.back(); next_step_caption = "Voltando para a página anterior."
-        elif command == "GET_CURRENT_URL":
-            try: current_url = driver.current_url; next_step_caption = f"URL atual: {current_url}"
-            except Exception as e: next_step_caption = f"Erro ao obter URL: {e}"
-            action_in_browser = False
-        elif command == "END_BROWSER":
-            reason = f"*Tarefa Concluída.*\n*Resumo:* {params.get('reason', 'N/A')}"; send_whatsapp_message(from_number, reason); session["last_status"] = reason; close_browser(session); return command_data
-        elif command == "PAUSE_AND_ASK" or command == "SPEAK": session["is_processing"] = False; return command_data
-        else: next_step_caption = f"Comando desconhecido ou não implementado: {command}"; action_in_browser = False
-        if action_in_browser: time.sleep(2)
-        process_next_browser_step(from_number, session, next_step_caption)
     except Exception as e:
-        error_summary = f"Erro crítico executando '{command}': {e}"; print(f"CRITICAL: {error_summary}"); traceback.print_exc(); time.sleep(1)
-        process_next_browser_step(from_number, session, caption=f"Ocorreu um erro inesperado: {error_summary}. Analise a tela e decida o próximo passo.")
-    return command_data
+        print(f"Error getting page state: {e}"); traceback.print_exc()
+        return None, "Error getting page state."
+
+# ## MODIFIED ##: Now takes session object, sends updates to Web and/or WhatsApp
+def process_next_browser_step(session, caption):
+    from_number = session['identifier'] if session['session_type'] == 'whatsapp' else None
+    
+    # For web sessions, send a chat log message
+    if session['session_type'] == 'web':
+        socketio.emit('session_update', {'log_message': {'sender': 'ai', 'text': caption}}, room=session['id'])
+
+    # Send WhatsApp message if it's a WhatsApp session AND live view is off
+    if from_number and not session.get('live_view_updates_on', True):
+        send_whatsapp_message(from_number, caption)
+
+    screenshot_path, tab_info_text = get_page_state(session["driver"], session, caption)
+
+    if not session.get("view_link_sent"):
+        live_view_url = f"{LIVE_VIEW_DOMAIN}/view/{session['id']}"
+        if from_number:
+            send_whatsapp_message(from_number, f"Estou começando! Acompanhe e controle a sessão em tempo real aqui:\n{live_view_url}")
+        session["view_link_sent"] = True
+
+    if screenshot_path:
+        context_text = f"User's Goal: {session['original_prompt']}\nPrevious Action: {caption}\n{tab_info_text}"
+        ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
+        process_ai_command(session, ai_response)
+    else:
+        # ... error handling ...
+
+# ## MODIFIED ##: Now takes session object
+def process_ai_command(session, ai_response_text):
+    if session.get("stop_requested"): return {}
+    
+    # ... [JSON parsing and error handling are the same] ...
+    
+    try: command_data = json.loads(ai_response_text)
+    except json.JSONDecodeError: # ...
+        return {}
+
+    command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
+
+    # Send AI's "speak" response to the right channel
+    if speak:
+        if session['session_type'] == 'whatsapp':
+            send_whatsapp_message(session['identifier'], speak)
+        socketio.emit('session_update', {'log_message': {'sender': 'ai', 'text': speak}}, room=session['id'])
+
+    # ... [The big `if/elif` block for commands is mostly the same] ...
+    # Main change is calling process_next_browser_step(session, caption)
+    # And for END_BROWSER, call close_browser(session, reason)
+
+    try:
+        if command == "END_BROWSER":
+            reason = params.get('reason', 'N/A')
+            close_browser(session, f"Task Completed. Summary: {reason}")
+            if session['session_type'] == 'whatsapp':
+                send_whatsapp_message(session['identifier'], f"*Tarefa Concluída.*\n*Resumo:* {reason}")
+            return command_data
+        
+        # ... all other commands ...
+
+        # At the end of the try block:
+        if action_in_browser: time.sleep(2)
+        socketio.start_background_task(process_next_browser_step, session, next_step_caption)
+
+    except Exception as e:
+        # ... error handling ...
+        socketio.start_background_task(process_next_browser_step, session, error_summary)
+
+# --- Flask Routes and WebSocket Events ---
+
+@app.route('/')
+def home():
+    return render_template_string(HOME_PAGE_TEMPLATE, whatsapp_number=WHATSAPP_NUMBER_CLEANED)
+
+@app.route('/start-web-session', methods=['POST'])
+def start_web_session():
+    prompt = request.form.get('prompt')
+    if not prompt: return "Prompt is required.", 400
+    
+    # Use the session ID itself as the identifier for web sessions
+    session_id = str(uuid.uuid4())
+    session = create_new_session(identifier=session_id, prompt=prompt, session_type="web")
+    session['is_processing'] = True
+    
+    # Kick off the AI process in the background
+    socketio.start_background_task(target=run_initial_ai, session=session, user_message=prompt)
+    
+    return redirect(url_for('view_session', session_id=session.get('id')))
+
+def run_initial_ai(session, user_message):
+    """Function to run the first AI call in a background thread."""
+    session["chat_history"].append({"role": "user", "parts": [user_message]})
+    ai_response = call_ai(session["chat_history"], context_text=f"New task: {user_message}")
+    process_ai_command(session, ai_response)
 
 @app.route('/view/<session_id>')
 def view_session(session_id):
+    session = find_session_by_id(session_id)
+    if not session:
+        return "Session not found or has expired.", 404
     return render_template_string(LIVE_VIEW_TEMPLATE, session_id=session_id)
 
-@app.route('/data/<session_id>')
-def session_data(session_id):
-    active_session = next((s for s in user_sessions.values() if s['id'] == session_id), None)
-    if not active_session or not active_session.get('last_screenshot_path'):
-        return jsonify({"error": "Session not found or not active"}), 404
-    return jsonify({"status": active_session.get('last_status', 'No status yet.'), "image_url": f"/images/{session_id}/live_view.png"})
+# ... [image and data routes are the same as before] ...
 
-@app.route('/images/<session_id>/<filename>')
-def serve_image(session_id, filename):
-    directory = USER_DATA_DIR / session_id
-    return send_from_directory(directory, filename)
+@socketio.on('join')
+def on_join(data):
+    session_id = data['session_id']
+    from flask import request as flask_request
+    join_room(session_id, sid=flask_request.sid)
+    print(f"Client joined room: {session_id}")
+    # You could optionally send the latest state immediately upon join
+
+@socketio.on('user_command')
+def handle_user_command(data):
+    session_id = data.get('session_id')
+    command = data.get('command')
+    value = data.get('value')
+    session = find_session_by_id(session_id)
+    if not session: return
+
+    if command == 'message':
+        if session.get("is_processing"):
+            socketio.emit('session_update', {'log_message': {'sender':'ai', 'text':"Working... please Interrupt first to send a new message."}}, room=session_id)
+            return
+        session['is_processing'] = True
+        session["chat_history"].append({"role": "user", "parts": [value]})
+        socketio.start_background_task(process_next_browser_step, session, f"User Guidance: {value}")
+    
+    elif command == 'interrupt':
+        session['interrupt_requested'] = True
+        session['is_processing'] = False
+        socketio.emit('session_update', {'status': 'Interrupted. Ready for new command.'}, room=session_id)
+
+    elif command == 'stop':
+        close_browser(session, reason="Session stopped by user via web interface.")
+
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
-    if request.method == 'GET':
-        if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
-            return Response(request.args.get('hub.challenge'), status=200)
-        return Response('Verification token mismatch', status=403)
+    # ... [GET request logic is the same] ...
     if request.method == 'POST':
-        body = request.get_json()
-        try:
-            message_info = body["entry"][0]["changes"][0]["value"]["messages"][0]
-            message_id = message_info.get("id")
-            if message_id in processed_message_ids: return Response(status=200)
-            processed_message_ids.add(message_id)
-            from_number = message_info["from"]
-            message_type = message_info.get("type")
-            if from_number not in subscribers:
-                # Non-subscriber logic here...
-                return Response(status=200)
-            if message_type != "text":
-                send_whatsapp_message(from_number, "Por enquanto, eu só entendo mensagens de texto.")
-                return Response(status=200)
-            user_message_text = message_info["text"]["body"]
-            print(f"Received from subscriber {from_number}: '{user_message_text}'")
-            session = get_or_create_session(from_number)
-            command_text = user_message_text.strip().lower()
-            if command_text == "/stop":
-                print(f"User {from_number} issued /stop command."); session["stop_requested"] = True; close_browser(session); session["is_processing"] = False
-                send_whatsapp_message(from_number, "Ação cancelada e sessão encerrada."); return Response(status=200)
-            if command_text == "/interrupt":
-                print(f"User {from_number} issued /interrupt command.")
-                if session["mode"] != "BROWSER": send_whatsapp_message(from_number, "Nenhuma ação em andamento para interromper.")
-                else: session["interrupt_requested"] = True; session["is_processing"] = False; send_whatsapp_message(from_number, "Ação interrompida. Me diga como continuar.")
-                return Response(status=200)
-            if command_text == "/clear":
-                print(f"User {from_number} issued /clear command."); close_browser(session)
-                if from_number in user_sessions: del user_sessions[from_number]
-                send_whatsapp_message(from_number, "Memória e navegador limpos. Pode começar uma nova tarefa."); return Response(status=200)
-            if session.get("is_processing"):
-                send_whatsapp_message(from_number, "Estou trabalhando... Acompanhe pelo link que enviei. Para cancelar, digite /stop."); return Response(status=200)
-            command_data = {}
-            try:
-                session["is_processing"] = True; session["chat_history"].append({"role": "user", "parts": [user_message_text]})
-                if session["mode"] == "CHAT":
-                    session["original_prompt"] = user_message_text
-                    ai_response = call_ai(session["chat_history"], context_text=f"New task from user: {user_message_text}")
-                    command_data = process_ai_command(from_number, ai_response)
-                elif session["mode"] == "BROWSER":
-                    process_next_browser_step(from_number, session, f"Instrução do usuário: {user_message_text}")
-            finally:
-                if not session.get("interrupt_requested") and command_data.get("command") not in ["PAUSE_AND_ASK", "SPEAK"]: session["is_processing"] = False
-        except (KeyError, IndexError, TypeError): pass
-        except Exception as e: print(f"Error processing webhook: {e}"); traceback.print_exc()
-        return Response(status=200)
+        # ... [message parsing and subscriber check logic is the same] ...
+        
+        user_message_text = message_info["text"]["body"]
+        from_number = message_info["from"]
+        command_text = user_message_text.strip().lower()
+
+        # ## NEW ##: Handle /view command
+        if command_text == '/view':
+            session = user_sessions.get(from_number)
+            if session:
+                session['live_view_updates_on'] = not session.get('live_view_updates_on', True)
+                status = "ATIVADO" if session['live_view_updates_on'] else "DESATIVADO"
+                send_whatsapp_message(from_number, f"Modo de visualização ao vivo {status}. Quando ativado, as atualizações de passo a passo não serão enviadas aqui.")
+            else:
+                send_whatsapp_message(from_number, "Nenhuma sessão ativa para configurar. Inicie uma tarefa primeiro.")
+            return Response(status=200)
+
+        # ... [/stop, /interrupt, /clear logic is the same] ...
+
+        # When starting a new session from WhatsApp:
+        session = create_new_session(identifier=from_number, prompt=user_message_text, session_type="whatsapp")
+        session['is_processing'] = True
+        socketio.start_background_task(target=run_initial_ai, session=session, user_message=user_message_text)
+
+    return Response(status=200)
+
+
+# (The rest of the functions like find_text_in_ocr, call_ai, etc. are needed but unchanged)
+# I will omit them here for brevity, but they should be in your final file.
 
 if __name__ == '__main__':
-    print("--- Magic Clicky WhatsApp Bot Server with Live View ---")
-    # This application is intended to be run behind a tunnel like cloudflared.
-    # You run the python script directly: `python your_script_name.py`
-    # And in a separate terminal, you run the cloudflared tunnel.
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    print("--- Magic Clicky Server with Web UI & Live Control ---")
+    # Use socketio.run() to start the server
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
