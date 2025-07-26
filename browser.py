@@ -26,8 +26,13 @@ WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2Z
 WHATSAPP_PHONE_NUMBER_ID = "645781611962423"
 WHATSAPP_BOT_NUMBER = "+16095314294" # The bot's public number for links
 VERIFY_TOKEN = "121222220611"
-AI_MODEL_NAME = "gemini-1.5-flash"
+AI_MODEL_NAME = "gemini-2.5-flash"
 ADMIN_NUMBER = "5511990007256"
+
+# Screen/Browser Dimensions (This is the fix)
+VIEWPORT_WIDTH = 1280
+VIEWPORT_HEIGHT = 800
+
 
 # Domain for the live view (this will be tunneled by cloudflared)
 LIVE_VIEW_DOMAIN = "https://clicky.pyxelworld.com"
