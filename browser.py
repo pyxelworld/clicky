@@ -13,18 +13,18 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from PIL import Image, ImageDraw, ImageFont
-import pytesseract # NOVA IMPORTAÇÃO
+import pytesseract
 import google.generativeai as genai
 
 # --- CONFIGURATION ---
 GEMINI_API_KEYS = [
-    # Suas chaves de API
+    # Your API keys
     "AIzaSyCnnkNB4qPXE9bgTwRH_Jj5lxUOq_xivJo", "AIzaSyDuAT3AP1wNd-FNb0QmvwQcSTD2dM3ZStc", "AIzaSyCuKxOa7GoY6id_aG-C3_uhvfJ1iI0SeQ0", "AIzaSyBwASUXeAVJ6xFFZdfjNZO5Hsumr4KAntw", "AIzaSyB4EZanzOFSu589lfBVO3M8dy72fBW2ObY", "AIzaSyASbyRix7Cbae7qCgPQntshA5DVJSVJbo4", "AIzaSyD07UM2S3qdSUyyY0Hp4YtN04J60PcO41w", "AIzaSyA9037TcPXJ2tdSrEe-hzLCn0Xa5zjiUOo",
 ]
 WHATSAPP_TOKEN = "EAARw2Bvip3MBPOv7lmh95XKvSPwiqO9mbYvNGBkY09joY37z7Q7yZBOWnUG2ZC0JGwMuQR5ZA0NzE8o9oXuNFDsZCdJ8mxA9mrCMHQCzhRmzcgV4zwVg01S8zbiWZARkG4py5SL6if1MvZBuRJkQNilImdXlyMFkxAmD3Ten7LUdw1ZAglxzeYLp5CCjbA9XTb4KAZDZD"
 WHATSAPP_PHONE_NUMBER_ID = "645781611962423"
 VERIFY_TOKEN = "121222220611"
-AI_MODEL_NAME = "gemini-2.5-flash"
+AI_MODEL_NAME = "gemini-1.5-flash"
 ADMIN_NUMBER = "5511990007256" # Administrator number for forwarding
 
 # --- PROJECT SETUP ---
@@ -100,7 +100,7 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
     - **Params:** `{"text": "<text_to_type>", "enter": <true/false>}`
 5.  **`CLEAR`**: Clears the input field under the cursor.
     - **Params:** `{}`
-6.  **`SCROLL`**: Scrolls the page.
+6.  **`SCROLL`**: Scrolls the page from the cursor's position.
     - **Params:** `{"direction": "<up|down>"}`
 
 **== BROWSER & NAVIGATION COMMANDS ==**
@@ -120,10 +120,16 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 13. **`SWITCH_TO_TAB`**: Switches to an existing tab by its ID number.
 14. **`CLOSE_TAB`**: Closes the current tab.
 
+**== STATE & TIMING COMMANDS ==**
+15. **`WAIT`**: Pauses for a few seconds (for loading content) then views the screen again.
+    - **Params:** `{"seconds": <int>}` (Optional, defaults to 3)
+16. **`REFRESH_SCREEN`**: Does no action, just gets a new view of the screen.
+    - **Params:** `{}`
+
 **== USER INTERACTION COMMANDS ==**
-15. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
+17. **`PAUSE_AND_ASK`**: Pauses to ask the user a question.
     - **Params:** `{"question": "<your_question>"}`
-16. **`SPEAK`**: For simple conversation when no browser action is needed.
+18. **`SPEAK`**: For simple conversation when no browser action is needed.
     - **Params:** `{"text": "<your_response>"}`
 
 
@@ -131,32 +137,28 @@ Your response MUST ALWAYS be a single JSON object with "command", "params", "tho
 If a command fails, the page may have changed. Analyze the new screenshot and the error message. Do not repeat the failed command. Issue a new command to recover.
 
 --- GUIDING PRINCIPLES ---
-
 1.  **PROACTIVE EXPLORATION & SCROLLING:** ALWAYS scroll down on a page after it loads or after an action to understand the full context.
 2.  **SEARCH STRATEGY:** Use `CUSTOM_SEARCH` with "Bing". Do NOT use `NAVIGATE` to go to other search engines.
 3.  **LOGIN & CREDENTIALS:** If a page requires a login, you MUST NOT attempt it. Stop and ask the user for permission using `PAUSE_AND_ASK`.
 4.  **SHOPPING STRATEGY:** Use `PAUSE_AND_ASK` to clarify product and price. Use sorting/filtering features on sites.
 5.  **POPUPS AND COOKIES:** IGNORE THEM. Do NOT click accept or reject. Just continue with your task.
-6. IF YOU KNOW A WEBSITES URL, USE IT TO DIRECTLY GO TO IT WITHOUT USING SEARCH ENGINES (NAVIGATE TOOL)
-7. ALWAYS TRY TO USE SEARCH BARS AS LESS AS POSSIBLE. IF YOU CAN USE THE NAVIGATE TOOL TO ALREADY GO TO A WEBSITE AND SEARCH ON IT WITH THE QUERY ON THE LINK (example https://lista.mercadolivre.com.br/QUERY) DO IT.
+6.  IF YOU KNOW A WEBSITES URL, USE IT TO DIRECTLY GO TO IT WITHOUT USING SEARCH ENGINES (NAVIGATE TOOL)
+7.  ALWAYS TRY TO USE SEARCH BARS AS LESS AS POSSIBLE. IF YOU CAN USE THE NAVIGATE TOOL TO ALREADY GO TO A WEBSITE AND SEARCH ON IT WITH THE QUERY ON THE LINK (example https://lista.mercadolivre.com.br/QUERY) DO IT.
 
 --- LANGUAGE ---
-
 Always speak the same language the user used.
 
 --- MAGIC AND YOU ---
-
 You are built by Pyxel (pyxelworld.com). Another AI, Magic, can handle tasks you can't (like non-browser tasks or handling files).
 If you cannot do something, direct the user to Magic at https://wa.me/551127375623 or https://askmagic.com.br.
-You can create direct links for the user, for example: `https://wa.me/551127375623?text=gere+uma+imagem+de+um+gato`.
+You can create direct links for the user, for example: `https://wa.me/551127275623?text=gere+uma+imagem+de+um+gato`.
 
 REMEMBER THAT ONLY WHAT YOU "SPEAK" IS SENT TO THE USER!
 
 --- FOLLOW 100% OF THE TIME ---
-1. NEVER ACCEPT/INTERECT WITH COOKIE OR COOKIE BANNERS/POPUPS
-2. IF YOU SEE A POPUP ASKING YOU SOMETHING, IGNORE IT. IF ITS TO ADD LOCATION, CEP, ANYTHING, DO NOT INTERACT WITH IT. FOCUS ON YOUR GOAL. AND YOUR GOAL IS NOT ADDING AN ADDRRESS OR ACCEPTING COOKIES.
+1. NEVER ACCEPT/INTERACT WITH COOKIE OR COOKIE BANNERS/POPUPS
+2. IF YOU SEE A POPUP ASKING YOU SOMETHING, IGNORE IT. IF ITS TO ADD LOCATION, CEP, ANYTHING, DO NOT INTERACT WITH IT. FOCUS ON YOUR GOAL. AND YOUR GOAL IS NOT ADDING AN ADDRESS OR ACCEPTING COOKIES.
 3. NEVER USE SEARCH BOXES. ALREADY INPUT THE SEARCH YOU WANT IN THE URL TO SPEED UP THE PROCESS.
-
 """
 
 def send_whatsapp_message(to, text):
@@ -212,11 +214,11 @@ def get_page_state(driver, session):
         for i, handle in enumerate(window_handles): tab_id = i + 1; session["tab_handles"][tab_id] = handle; driver.switch_to.window(handle); tabs.append({"id": tab_id, "title": driver.title, "is_active": handle == current_handle})
         driver.switch_to.window(current_handle); tab_info_text = "Open Tabs:\n" + "".join([f"  Tab {t['id']}: {t['title'][:70]}{' (Current)' if t['is_active'] else ''}\n" for t in tabs])
     except Exception as e: print(f"Could not get tab info: {e}"); tab_info_text = "Could not get tab info."
-    
+
     try:
         png_data = driver.get_screenshot_as_png()
         image = Image.open(io.BytesIO(png_data))
-        
+
         try: ocr_data = pytesseract.image_to_data(image, lang='por+eng', output_type=pytesseract.Output.DICT); session['ocr_results'] = ocr_data; print(f"OCR executed. Found {len(ocr_data['text'])} words.")
         except Exception as e: print(f"Tesseract/OCR error: {e}. Is tesseract-ocr installed and in your PATH?"); session['ocr_results'] = {}
 
@@ -224,7 +226,7 @@ def get_page_state(driver, session):
         try: font = ImageFont.truetype("DejaVuSans.ttf", size=20)
         except IOError: font = ImageFont.load_default()
 
-        grid_color = (000, 000, 000, 100)
+        grid_color = (0, 0, 0, 100)
         for i in range(100, VIEWPORT_WIDTH, 100):
             draw.line([(i, 0), (i, VIEWPORT_HEIGHT)], fill=grid_color, width=1); draw.text((i + 2, 2), str(i), fill='red', font=font)
         for i in range(100, VIEWPORT_HEIGHT, 100):
@@ -233,7 +235,7 @@ def get_page_state(driver, session):
         cursor_x, cursor_y = session['cursor_pos']; radius = 16; outline_width = 4
         draw.ellipse([(cursor_x - radius, cursor_y - radius), (cursor_x + radius, cursor_y + radius)], fill='white')
         draw.ellipse([(cursor_x - (radius-outline_width), cursor_y-(radius-outline_width)), (cursor_x+(radius-outline_width), cursor_y+(radius-outline_width))], fill='red')
-        
+
         image.save(screenshot_path); print(f"State captured with grid and cursor at {session['cursor_pos']}.")
         return screenshot_path, tab_info_text
     except Exception as e:
@@ -273,12 +275,12 @@ def call_ai(chat_history, context_text="", image_path=None):
 def process_next_browser_step(from_number, session, caption):
     screenshot_path, tab_info_text = get_page_state(session["driver"], session)
     if screenshot_path:
-        context_text = f"User's Goal: {session['original_prompt']}\n\nCurrent Screen State:\n{tab_info_text}\n{caption}"
+        context_text = f"User's Goal: {session['original_prompt']}\n\nPrevious Action Result:\n{caption}\n\nCurrent Screen State:\n{tab_info_text}"
         send_whatsapp_image(from_number, screenshot_path, caption=caption)
         ai_response = call_ai(session["chat_history"], context_text=context_text, image_path=screenshot_path)
         process_ai_command(from_number, ai_response)
     else:
-        send_whatsapp_message(from_number, "[Sistema] Não foi possível ver o navegador, fechando..."); close_browser(session)
+        send_whatsapp_message(from_number, "Não foi possível capturar a tela do navegador. Encerrando a sessão para segurança."); close_browser(session)
 
 def process_ai_command(from_number, ai_response_text):
     session = get_or_create_session(from_number)
@@ -286,87 +288,112 @@ def process_ai_command(from_number, ai_response_text):
     if session.get("interrupt_requested"): print("Interrupt was requested."); session["interrupt_requested"] = False; return {}
     try: command_data = json.loads(ai_response_text)
     except json.JSONDecodeError:
-        send_whatsapp_message(from_number, f"[Sistema] IA respondeu formato inválido: {ai_response_text}");
-        if session["mode"] == "BROWSER": session["is_processing"] = False; send_whatsapp_message(from_number, "[Sistema] IA confusa. Diga o que fazer.")
+        error_message = f"O agente respondeu com um formato inválido: {ai_response_text}"
+        send_whatsapp_message(from_number, error_message);
+        if session["mode"] == "BROWSER":
+            session["is_processing"] = False
+            send_whatsapp_message(from_number, "Estou um pouco confuso. Por favor, me diga o que fazer a seguir ou digite /stop para encerrar.")
         return {}
-    
+
     command, params, thought, speak = command_data.get("command"), command_data.get("params", {}), command_data.get("thought", ""), command_data.get("speak", "")
     print(f"Executing: {command} | Params: {params} | Thought: {thought}")
     session["chat_history"].append({"role": "model", "parts": [ai_response_text]})
     if speak: send_whatsapp_message(from_number, speak)
-    
+
     driver = session.get("driver")
     if not driver and command not in ["SPEAK", "START_BROWSER", "END_BROWSER", "PAUSE_AND_ASK"]:
-        send_whatsapp_message(from_number, "[Sistema] Navegador não aberto. Abrindo e tentando de novo..."); driver = start_browser(session);
-        if not driver: send_whatsapp_message(from_number, "[Sistema] Falha crítica ao iniciar navegador."); close_browser(session); return {}
+        send_whatsapp_message(from_number, "O navegador não estava aberto. Iniciando e tentando seu comando novamente..."); driver = start_browser(session);
+        if not driver: send_whatsapp_message(from_number, "Falha crítica ao iniciar o navegador."); close_browser(session); return {}
         time.sleep(1); return process_ai_command(from_number, ai_response_text)
 
     try:
-        action_in_browser = True; next_step_caption = f"[Sistema] O Agent executou: {command}"
+        action_in_browser = True
+        next_step_caption = f"Ação: {command}"
         if command == "MOVE_CURSOR_COORDS":
             x = max(0, min(params.get("x", 0), VIEWPORT_WIDTH - 1))
             y = max(0, min(params.get("y", 0), VIEWPORT_HEIGHT - 1))
             if x != params.get("x") or y != params.get("y"):
-                print(f"Clamped cursor from ({params.get('x')}, {params.get('y')}) to ({x}, {y})")
-                next_step_caption += f" [Aviso: Coordenadas ajustadas para limites da tela ({x}, {y})]"
+                 print(f"Clamped cursor from ({params.get('x')}, {params.get('y')}) to ({x}, {y})")
+                 next_step_caption += f" [Aviso: Coordenadas ajustadas para ({x}, {y})]"
             session['cursor_pos'] = (x, y); action_in_browser = False
+            next_step_caption = f"Cursor movido para ({x}, {y})."
         elif command == "MOVE_CURSOR_TEXT":
             target_text = params.get("text")
-            if not target_text: next_step_caption = "[Sistema] Erro: Tentou usar MOVE_CURSOR_TEXT sem texto."
+            if not target_text: next_step_caption = "Erro: Tentativa de mover cursor sem texto."
             else:
                 found_box = find_text_in_ocr(session.get('ocr_results', {}), target_text)
-                if found_box: session['cursor_pos'] = (found_box['left'] + found_box['width'] // 2, found_box['top'] + found_box['height'] // 2); next_step_caption = f"[Sistema] Cursor movido para o texto '{found_box['text']}'."
-                else: next_step_caption = f"[Sistema] ERRO: O texto '{target_text}' não foi encontrado na tela. Tente um texto diferente ou use coordenadas."
+                if found_box:
+                    session['cursor_pos'] = (found_box['left'] + found_box['width'] // 2, found_box['top'] + found_box['height'] // 2)
+                    next_step_caption = f"Cursor movido para o texto '{found_box['text']}'."
+                else:
+                    next_step_caption = f"ERRO: O texto '{target_text}' não foi encontrado na tela. Tente um texto diferente ou use coordenadas."
             action_in_browser = False
         elif command == "CLICK":
             x, y = session['cursor_pos']
             try:
-                driver.execute_script("""
-                var evt = new MouseEvent('click', {clientX: arguments[0], clientY: arguments[1], bubbles: true});
-                var el = document.elementFromPoint(arguments[0], arguments[1]);
-                if (el) el.dispatchEvent(evt);
-                """, x, y)
-                time.sleep(0.5)  # Small delay for page to react
+                driver.execute_script("document.elementFromPoint(arguments[0], arguments[1]).click();", x, y)
+                next_step_caption = f"Clicado em ({x}, {y})."
+                time.sleep(0.5)
             except Exception as e:
-                next_step_caption = f"[Sistema] Erro ao clicar: {e}"
+                next_step_caption = f"Erro ao clicar: {e}"
         elif command == "TYPE":
-            ActionChains(driver).send_keys(params.get("text", "")).perform();
-            if params.get("enter"): ActionChains(driver).send_keys(Keys.ENTER).perform()
+            text_to_type = params.get("text", "")
+            ActionChains(driver).send_keys(text_to_type).perform()
+            next_step_caption = f"Digitado: '{text_to_type[:30]}...'"
+            if params.get("enter"):
+                ActionChains(driver).send_keys(Keys.ENTER).perform()
+                next_step_caption += " e pressionado Enter."
         elif command == "CLEAR":
             x, y = session['cursor_pos']
             try:
                 driver.execute_script("""
                 var el = document.elementFromPoint(arguments[0], arguments[1]);
-                if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
-                    el.focus();
-                    el.select();
-                    el.value = '';
-                }
+                if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) { el.value = ''; }
                 """, x, y)
-                time.sleep(0.5)  # Small delay
+                next_step_caption = "Campo de texto limpo."
+                time.sleep(0.5)
             except Exception as e:
-                next_step_caption = f"[Sistema] Erro ao limpar: {e}"
-        elif command == "START_BROWSER":
-            driver = start_browser(session); time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE)
-        elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE))
-        elif command == "CUSTOM_SEARCH": driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', '')))
-        elif command == "GO_BACK": driver.back()
-        elif command == "GET_CURRENT_URL":
-            try: current_url = driver.current_url; next_step_caption = f"[Sistema] URL atual: {current_url}"
-            except Exception as e: next_step_caption = f"[Sistema] Erro ao obter URL: {e}"
+                next_step_caption = f"Erro ao limpar: {e}"
+        elif command == "SCROLL":
+            direction = params.get('direction', 'down')
+            scroll_amount = VIEWPORT_HEIGHT * 0.8 if direction == 'down' else -VIEWPORT_HEIGHT * 0.8
+            x, y = session['cursor_pos']
+            driver.execute_script("window.scrollTo(0, window.scrollY + arguments[0]);", scroll_amount) # Fallback
+            next_step_caption = f"Página rolada para {direction}."
+        elif command == "WAIT":
+            seconds_to_wait = params.get("seconds", 3)
+            next_step_caption = f"Aguardando {seconds_to_wait} segundos..."
+            time.sleep(seconds_to_wait)
             action_in_browser = False
-        elif command == "SCROLL": driver.execute_script(f"window.scrollBy(0, {VIEWPORT_HEIGHT * 0.8 if params.get('direction', 'down') == 'down' else -VIEWPORT_HEIGHT * 0.8});")
+        elif command == "REFRESH_SCREEN":
+            next_step_caption = "Atualizando a visualização da tela."
+            action_in_browser = False
+        elif command == "START_BROWSER":
+            driver = start_browser(session); time.sleep(1); driver.get(CUSTOM_SEARCH_URL_BASE); next_step_caption = "Navegador iniciado."
+        elif command == "NAVIGATE": driver.get(params.get("url", CUSTOM_SEARCH_URL_BASE)); next_step_caption = f"Navegando para {params.get('url')}."
+        elif command == "CUSTOM_SEARCH": driver.get(CUSTOM_SEARCH_URL_TEMPLATE % quote_plus(params.get('query', ''))); next_step_caption = f"Buscando por '{params.get('query')}'."
+        elif command == "GO_BACK": driver.back(); next_step_caption = "Voltando para a página anterior."
+        elif command == "GET_CURRENT_URL":
+            try: current_url = driver.current_url; next_step_caption = f"URL atual: {current_url}"
+            except Exception as e: next_step_caption = f"Erro ao obter URL: {e}"
+            action_in_browser = False
         elif command == "END_BROWSER":
-            send_whatsapp_message(from_number, f"*Tarefa Concluída.*\n*Sumário:* {params.get('reason', 'N/A')}"); close_browser(session); return command_data
+            send_whatsapp_message(from_number, f"*Tarefa Concluída.*\n*Resumo:* {params.get('reason', 'N/A')}"); close_browser(session); return command_data
         elif command == "PAUSE_AND_ASK" or command == "SPEAK":
             session["is_processing"] = False; return command_data
-        else: send_whatsapp_message(from_number, f"[Sistema] Comando desconhecido: {command}"); action_in_browser = False
-        
-        if action_in_browser: time.sleep(2)
+        else:
+            next_step_caption = f"Comando desconhecido ou não implementado: {command}"
+            action_in_browser = False
+
+        if action_in_browser: time.sleep(2) # Wait for page to update after actions
         process_next_browser_step(from_number, session, next_step_caption)
+
     except Exception as e:
-        error_summary = f"Erro no comando '{command}': {e}"; print(f"CRITICAL: {error_summary}"); traceback.print_exc()
-        time.sleep(1); process_next_browser_step(from_number, session, caption=f"Ocorreu um erro: {error_summary}. O que devo fazer agora?")
+        error_summary = f"Erro crítico executando '{command}': {e}"; print(f"CRITICAL: {error_summary}"); traceback.print_exc()
+        time.sleep(1)
+        # Give control back to AI with error context
+        process_next_browser_step(from_number, session, caption=f"Ocorreu um erro inesperado: {error_summary}. Analise a tela e decida o próximo passo.")
+
     return command_data
 
 
@@ -376,7 +403,7 @@ def webhook():
         if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
             return Response(request.args.get('hub.challenge'), status=200)
         return Response('Verification token mismatch', status=403)
-    
+
     if request.method == 'POST':
         body = request.get_json()
         try:
@@ -406,46 +433,46 @@ def webhook():
                     reply_text = "O Magic Clicky é uma IA dos mesmos criadores do Magic que tem acesso a um navegador completo (como o que você usa todos os dias), possibilitando ele de fazer ações na internet por você.\n\nVocê pode acessar o Magic Clicky fazendo um Pix Recorrente de 10 Reais todo mês para a chave Pix *magicagent@askmagic.com.br*.\nEnvie o comprovante em PDF aqui para receber acesso.\n\nOu use o Magic sem acesso ao navegador em https://askmagic.com.br"
                     send_whatsapp_message(from_number, reply_text)
                 return Response(status=200)
-            
+
             # --- SUBSCRIBER-ONLY LOGIC ---
             if message_type != "text":
-                send_whatsapp_message(from_number, "[Sistema] Suporto apenas mensagens de texto.")
+                send_whatsapp_message(from_number, "Por enquanto, eu só entendo mensagens de texto.")
                 return Response(status=200)
-            
+
             user_message_text = message_info["text"]["body"]
             print(f"Received from subscriber {from_number}: '{user_message_text}'")
             session = get_or_create_session(from_number)
-            
+
             command_text = user_message_text.strip().lower()
 
             if command_text == "/stop":
                 print(f"User {from_number} issued /stop command."); session["stop_requested"] = True; close_browser(session); session["is_processing"] = False
-                send_whatsapp_message(from_number, "[Sistema] Ação cancelada e sessão encerrada."); return Response(status=200)
+                send_whatsapp_message(from_number, "Ação cancelada e sessão encerrada."); return Response(status=200)
 
             if command_text == "/interrupt":
                 print(f"User {from_number} issued /interrupt command.")
-                if session["mode"] != "BROWSER": send_whatsapp_message(from_number, "[Sistema] Nenhuma ação em andamento para interromper.")
-                else: session["interrupt_requested"] = True; session["is_processing"] = False; send_whatsapp_message(from_number, "[Sistema] Ação interrompida. Me diga como continuar.")
+                if session["mode"] != "BROWSER": send_whatsapp_message(from_number, "Nenhuma ação em andamento para interromper.")
+                else: session["interrupt_requested"] = True; session["is_processing"] = False; send_whatsapp_message(from_number, "Ação interrompida. Me diga como continuar.")
                 return Response(status=200)
 
             if command_text == "/clear":
                 print(f"User {from_number} issued /clear command."); close_browser(session)
                 if from_number in user_sessions: del user_sessions[from_number]
-                send_whatsapp_message(from_number, "[Sistema] Memória e navegador limpos."); print(f"Session for {from_number} cleared.")
+                send_whatsapp_message(from_number, "Memória e navegador limpos. Pode começar uma nova tarefa."); print(f"Session for {from_number} cleared.")
                 return Response(status=200)
 
             if session.get("is_processing"):
-                send_whatsapp_message(from_number, "[Sistema] Trabalhando... Use /interrupt ou /stop."); return Response(status=200)
-            
+                send_whatsapp_message(from_number, "Estou trabalhando... Aguarde um momento. Para cancelar, digite /stop."); return Response(status=200)
+
             command_data = {}
             try:
                 session["is_processing"] = True; session["chat_history"].append({"role": "user", "parts": [user_message_text]})
                 if session["mode"] == "CHAT":
                     session["original_prompt"] = user_message_text
-                    ai_response = call_ai(session["chat_history"], context_text=f"New task: {user_message_text}")
+                    ai_response = call_ai(session["chat_history"], context_text=f"New task from user: {user_message_text}")
                     command_data = process_ai_command(from_number, ai_response)
                 elif session["mode"] == "BROWSER":
-                    process_next_browser_step(from_number, session, f"[User Guidance]: {user_message_text}")
+                    process_next_browser_step(from_number, session, f"Instrução do usuário: {user_message_text}")
             finally:
                 if not session.get("interrupt_requested") and command_data.get("command") not in ["PAUSE_AND_ASK", "SPEAK"]:
                     session["is_processing"] = False
