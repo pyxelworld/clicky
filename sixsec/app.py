@@ -2,7 +2,7 @@ import os
 import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, not_
+from sqlalchemy import func, not_, and_ # <<< IMPORTED and_
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
@@ -12,7 +12,7 @@ from jinja2 import BaseLoader, TemplateNotFound
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'a-chave-final-completa-e-polida-para-sixsec-v10-com-notificacoes'
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec_v3.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -82,7 +82,7 @@ class Repost(db.Model):
     __tablename__ = 'repost'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=True) # Nullable if post is deleted
     caption = db.Column(db.String(150), nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
@@ -90,9 +90,19 @@ class CommentRepost(db.Model):
     __tablename__ = 'comment_repost'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=False)
+    comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True) # Nullable if comment is deleted
     caption = db.Column(db.String(150), nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    actor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    action = db.Column(db.String(50), nullable=False) # e.g., 'like', 'comment', 'repost', 'follow', 'reply'
+    object_type = db.Column(db.String(50)) # e.g., 'post', 'comment'
+    object_id = db.Column(db.Integer)
+    timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -136,7 +146,11 @@ class Post(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Comment.post_id')
     reposts = db.relationship('Repost', backref='original_post', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.post_id')
-    notifications = db.relationship('Notification', backref='post_obj', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Notification.object_id')
+    
+    # *** FIXED RELATIONSHIP ***
+    notifications = db.relationship('Notification',
+                                    primaryjoin=and_(id == Notification.object_id, Notification.object_type == 'post'),
+                                    lazy='dynamic', cascade="all, delete-orphan")
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -148,17 +162,11 @@ class Comment(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy='dynamic', cascade="all, delete-orphan")
     reposts = db.relationship('CommentRepost', backref='original_comment', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.comment_id')
-    notifications = db.relationship('Notification', backref='comment_obj', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Notification.object_id')
-
-class Notification(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    actor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    action = db.Column(db.String(50), nullable=False) # e.g., 'like', 'comment', 'repost', 'follow', 'reply'
-    object_type = db.Column(db.String(50)) # e.g., 'post', 'comment'
-    object_id = db.Column(db.Integer)
-    timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
-    is_read = db.Column(db.Boolean, default=False)
+    
+    # *** FIXED RELATIONSHIP ***
+    notifications = db.relationship('Notification',
+                                     primaryjoin=and_(id == Notification.object_id, Notification.object_type == 'comment'),
+                                     lazy='dynamic', cascade="all, delete-orphan")
 
 
 # --- DICIONÁRIO DE TEMPLATES ---
@@ -275,6 +283,7 @@ templates = {
         .comment-thread { position: relative; padding-left: 20px; margin-left: 20px; margin-top: 10px; }
         .comment-thread::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background-color: var(--border-color); }
         .view-replies-btn { font-size: 14px; color: var(--accent-color); background: none; border: none; cursor: pointer; padding: 4px 0; margin-top: 8px; }
+        .content-spacer { height: 80px; }
         
         {% block style_override %}{% endblock %}
     </style>
@@ -285,14 +294,14 @@ templates = {
     <header class="top-bar">
         <h1 class="logo">{% block header_title %}Início{% endblock %}</h1>
         <div class="top-bar-icons">
-        {% if request.endpoint == 'home' %}
+        {% if request.endpoint == 'home' and current_user.is_authenticated %}
             <a href="{{ url_for('notifications') }}" class="notification-icon">
                 {{ ICONS.notifications|safe }}
                 {% if unread_notification_count > 0 %}
-                <span class="notification-badge">{{ unread_notification_count }}</span>
+                <span class="notification-badge">{{ unread_notification_count if unread_notification_count < 100 else '99+' }}</span>
                 {% endif %}
             </a>
-        {% elif request.endpoint == 'profile' and current_user == user %}
+        {% elif request.endpoint == 'profile' and user and current_user.is_authenticated and current_user.id == user.id %}
             <a href="{{ url_for('edit_profile') }}" style="color:var(--text-color);">{{ ICONS.settings|safe }}</a>
         {% endif %}
         </div>
@@ -641,7 +650,6 @@ templates = {
         border-bottom: 1px solid var(--border-color);
         font-size: 0.9em;
     }
-    .content-spacer { height: 80px; }
 {% endblock %}
 {% block content %}
     <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color);">
@@ -821,7 +829,7 @@ templates = {
                 markTextPostAsSeen(post.dataset.postId);
             }
         });
-    }, { threshold: 0.5 });
+    }, { threshold: 0.5, rootMargin: "0px 0px -50px 0px" });
 
     document.querySelectorAll('.post-card[data-post-id]').forEach(post => {
       textPostObserver.observe(post);
@@ -1062,7 +1070,6 @@ templates = {
             case 'idle':
                 recorderStatus.textContent = "Toque no botão para gravar";
                 recordButton.style.display = 'flex';
-                pauseResumeBtn.innerHTML = ICONS.pause.replace('width="24"', 'width="36"').replace('height="24"', 'height="36"');
                 break;
             case 'recording':
                 recorderStatus.textContent = 'Gravando...';
@@ -1082,6 +1089,7 @@ templates = {
                 retakeBtn.style.display = 'flex';
                 sixForm.style.display = 'block';
                 switchCameraBtn.disabled = true;
+                preview.style.transform = 'none'; // Ensure preview is not mirrored
                 break;
         }
     }
@@ -1141,21 +1149,30 @@ templates = {
         recorderState = 'idle';
         preview.controls = false;
         preview.muted = true;
+        preview.style.transform = (facingMode === 'user') ? 'scaleX(-1)' : 'none';
         setProgress(0);
         updateUI();
     }
 
     function startTimer() {
+        const startTime = Date.now();
         timerInterval = setInterval(() => {
-            recordedDuration += 100;
-            setProgress((recordedDuration / MAX_DURATION) * 100);
-            if (recordedDuration >= MAX_DURATION) {
+            const elapsedTime = Date.now() - startTime;
+            const totalDuration = recordedDuration + elapsedTime;
+            
+            setProgress((totalDuration / MAX_DURATION) * 100);
+
+            if (totalDuration >= MAX_DURATION) {
+                recordedDuration = MAX_DURATION;
                 stopRecording();
             }
         }, 100);
     }
     
-    function stopTimer() { clearInterval(timerInterval); }
+    function stopTimer() { 
+        recordedDuration += (Date.now() - (timerInterval.startTime || Date.now()));
+        clearInterval(timerInterval);
+    }
 
     enableCameraBtn.addEventListener('click', initCamera);
     switchCameraBtn.addEventListener('click', () => {
@@ -1164,8 +1181,16 @@ templates = {
     });
     recordButton.addEventListener('click', startRecording);
     pauseResumeBtn.addEventListener('click', () => {
-        if (recorderState === 'recording') pauseRecording();
-        else if (recorderState === 'paused') startRecording(); // It's a resume action
+        if (recorderState === 'recording') {
+            stopTimer(); // Manually stop timer to update recordedDuration
+            const elapsedTime = Date.now() - timerInterval.startTime;
+            recordedDuration += elapsedTime;
+            pauseRecording();
+        }
+        else if (recorderState === 'paused') {
+            timerInterval.startTime = Date.now(); // Reset start time for accurate tracking
+            startRecording(); // It's a resume action
+        }
     });
     retakeBtn.addEventListener('click', resetRecorder);
     finishBtn.addEventListener('click', stopRecording);
@@ -1311,11 +1336,10 @@ templates = {
         font-weight: bold; pointer-events: none; z-index: 100;
         display: none; /* Initially hidden */
     }
-    .follow-stats a { color: var(--text-muted); }
+    {% endif %}
+    .follow-stats a { color: var(--text-muted); text-decoration: none; }
     .follow-stats a:hover { text-decoration: underline; }
     .follow-stats strong { color: var(--text-color); }
-    {% endif %}
-    .content-spacer { height: 80px; }
 {% endblock %}
 
 {% block content %}
@@ -1332,7 +1356,7 @@ templates = {
                 {% endif %}
             </div>
             <div style="text-align: right;">
-            {% if current_user != user %}
+            {% if current_user.is_authenticated and current_user != user %}
                 {% if not current_user.is_following(user) %} <a href="{{ url_for('follow', username=user.username) }}" class="btn">Seguir</a>
                 {% else %} <a href="{{ url_for('unfollow', username=user.username) }}" class="btn btn-outline">Seguindo</a> {% endif %}
             {% endif %}
@@ -1401,7 +1425,7 @@ templates = {
             <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">
                 <div style="color: var(--text-muted); margin-bottom: 8px; font-size: 0.9em; display:flex; align-items:center; gap: 8px;">
                     {{ ICONS.repost|safe }}
-                    <a href="{{ url_for('profile', username=repost.reposter.username) }}">{{ repost.reposter.username }}</a> republicou
+                    <a href="{{ url_for('profile', username=repost.reposter.username) }}" style="color: var(--text-muted);">{{ repost.reposter.username }}</a> republicou
                 </div>
                  {% if repost.caption %}
                     <p style="margin: 4px 0 12px 0; padding-left: 20px; border-left: 2px solid var(--border-color); white-space: pre-wrap; word-wrap: break-word;">{{ repost.caption }}</p>
@@ -1534,7 +1558,7 @@ templates = {
                 <p style="font-size: 0.9em; color: var(--text-muted); margin: 2px 0;">{{ user.bio|truncate(50) if user.bio else 'Sem biografia.' }}</p>
             </div>
             <div>
-                {% if user != current_user %}
+                {% if current_user.is_authenticated and user != current_user %}
                     {% if not current_user.is_following(user) %}
                         <a href="{{ url_for('follow', username=user.username) }}" class="btn">Seguir</a>
                     {% else %}
@@ -1568,7 +1592,7 @@ templates = {
 {% block header_title %}{{ title }}{% endblock %}
 {% block content %}
     <div style="position: sticky; top: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 10;">
-        <a href="{{ url_for('profile', username=user.username) }}" style="display:flex; align-items: center; padding: 12px 16px; gap: 8px; color: var(--text-color); border-bottom: 1px solid var(--border-color);">{{ ICONS.back_arrow|safe }} Voltar para o Perfil</a>
+        <a href="{{ url_for('profile', username=user.username) }}" style="display:flex; align-items: center; padding: 12px 16px; gap: 8px; color: var(--text-color); border-bottom: 1px solid var(--border-color); text-decoration: none;">{{ ICONS.back_arrow|safe }} Voltar para o Perfil</a>
     </div>
     {% for u in user_list %}
     <div style="border-bottom: 1px solid var(--border-color); padding:12px 16px; display:flex; align-items:center; gap:12px;">
@@ -1582,11 +1606,11 @@ templates = {
             </a>
         </div>
         <div style="flex-grow:1;">
-            <a href="{{ url_for('profile', username=u.username) }}" style="color:var(--text-color); font-weight:bold;">{{ u.username }}</a>
+            <a href="{{ url_for('profile', username=u.username) }}" style="color:var(--text-color); font-weight:bold; text-decoration: none;">{{ u.username }}</a>
             <p style="font-size: 0.9em; color: var(--text-muted); margin: 2px 0;">{{ u.bio|truncate(50) if u.bio else 'Sem biografia.' }}</p>
         </div>
         <div>
-            {% if u != current_user %}
+            {% if current_user.is_authenticated and u != current_user %}
                 {% if not current_user.is_following(u) %}
                     <a href="{{ url_for('follow', username=u.username) }}" class="btn">Seguir</a>
                 {% else %}
@@ -1631,11 +1655,11 @@ templates = {
 {% block header_title %}Notificações{% endblock %}
 {% block content %}
 <div style="position: sticky; top: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 10;">
-    <a href="{{ url_for('home') }}" style="display:flex; align-items: center; padding: 12px 16px; gap: 8px; color: var(--text-color); border-bottom: 1px solid var(--border-color);">{{ ICONS.back_arrow|safe }} Voltar para o Início</a>
+    <a href="{{ url_for('home') }}" style="display:flex; align-items: center; padding: 12px 16px; gap: 8px; color: var(--text-color); border-bottom: 1px solid var(--border-color); text-decoration: none;">{{ ICONS.back_arrow|safe }} Voltar para o Início</a>
 </div>
 {% for notification in notifications %}
     <div class="notification-item" style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display: flex; gap: 12px; align-items: flex-start; background-color: {{ 'rgba(29, 155, 240, 0.1)' if not notification.is_read else 'transparent' }};">
-        <div style="width: 32px; height: 32px; flex-shrink: 0; margin-top: 4px;">
+        <div style="width: 32px; flex-shrink: 0; margin-top: 4px; text-align: center;">
             {% if notification.action == 'like' %}
                 <i class="fa-solid fa-heart" style="color: var(--red-color); font-size: 24px;"></i>
             {% elif notification.action in ['comment', 'reply'] %}
@@ -1673,7 +1697,7 @@ templates = {
                 {% endif %}
             </p>
             {% if notification.object_type == 'post' and notification.post_obj %}
-                <a href="{{ url_for('profile', username=current_user.username) }}#post-{{notification.object_id}}" style="display: block; color: var(--text-muted); border-left: 2px solid var(--border-color); padding-left: 12px; font-style: italic;">"{{ notification.post_obj.text_content|truncate(80) }}"</a>
+                <a href="{{ url_for('profile', username=current_user.username) }}#post-{{notification.object_id}}" style="display: block; color: var(--text-muted); border-left: 2px solid var(--border-color); padding-left: 12px; font-style: italic;">"{{ notification.post_obj.text_content|truncate(80) if notification.post_obj.text_content else 'Six' }}"</a>
             {% elif notification.object_type == 'comment' and notification.comment_obj %}
                  <a href="#" onclick="openCommentModal({{ notification.comment_obj.post_id }}); return false;" style="display: block; color: var(--text-muted); border-left: 2px solid var(--border-color); padding-left: 12px; font-style: italic;">"{{ notification.comment_obj.text|truncate(80) }}"</a>
             {% endif %}
@@ -1728,12 +1752,11 @@ def create_notification(recipient, actor, action, obj=None):
     
     # Prevent duplicate 'like' or 'follow' notifications
     if action in ['like', 'follow']:
+        obj_type = obj.__class__.__name__.lower() if obj else None
+        obj_id = obj.id if obj else None
         existing = Notification.query.filter_by(
-            recipient_id=recipient.id,
-            actor_id=actor.id,
-            action=action,
-            object_id=obj.id if obj else None,
-            object_type=obj.__class__.__name__.lower() if obj else None
+            recipient_id=recipient.id, actor_id=actor.id, action=action,
+            object_id=obj_id, object_type=obj_type
         ).first()
         if existing:
             return
@@ -1759,8 +1782,8 @@ def add_header(response):
 def inject_user_data():
     if current_user.is_authenticated:
         unread_notification_count = Notification.query.filter_by(recipient_id=current_user.id, is_read=False).count()
-        return dict(unread_notification_count=unread_notification_count)
-    return dict(unread_notification_count=0)
+        return dict(unread_notification_count=unread_notification_count, user=getattr(current_user, 'user', None))
+    return dict(unread_notification_count=0, user=None)
 
 
 # --- ROTAS ---
@@ -2079,7 +2102,7 @@ def discover():
             .join(post_likes, Post.id == post_likes.c.post_id)\
             .group_by(Post.id)\
             .having(func.count(post_likes.c.user_id) > 0)\
-            .order_by(func.count(post_likes.c.user_id).desc())\
+            .order_by(func.count(post_likes.c.user_id).desc(), Post.timestamp.desc())\
             .limit(30).all()
 
         popular_posts = add_user_flags_to_posts(popular_posts)
@@ -2123,9 +2146,15 @@ def mark_as_seen(post_type, post_id):
 def notifications():
     user_notifications = current_user.notifications_received.order_by(Notification.timestamp.desc()).all()
     
-    # Mark all as read
-    for notif in user_notifications:
-        notif.is_read = True
+    # Eager load related objects to prevent N+1 query problem in template
+    for n in user_notifications:
+        if n.object_type == 'post':
+            n.post_obj = Post.query.get(n.object_id)
+        elif n.object_type == 'comment':
+            n.comment_obj = Comment.query.get(n.object_id)
+
+    # Mark all as read after fetching them
+    Notification.query.filter_by(recipient_id=current_user.id, is_read=False).update({'is_read': True})
     db.session.commit()
     
     return render_template('notifications.html', notifications=user_notifications)
@@ -2166,5 +2195,4 @@ if __name__ == '__main__':
     with app.app_context():
         if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
         db.create_all()
-    app.run(debug=True, host='0.0.0.0', port=8000)
-
+    app.run(debug=True, host='0.0.0.0', port=5000)
