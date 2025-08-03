@@ -1592,7 +1592,7 @@ templates = {
 
 # --- JINJA2 LOADER ---
 class DictLoader(BaseLoader):
-    def init(self, templates_dict): self.templates = templates_dict
+    def __init__(self, templates_dict): self.templates = templates_dict
     def get_source(self, environment, template):
         if template in self.templates: return self.templates[template], None, lambda: True
         raise TemplateNotFound(template)
