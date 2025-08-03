@@ -10,9 +10,9 @@ from jinja2 import BaseLoader, TemplateNotFound
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v3-threaded-comments'
+app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v4-fixes'
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec_v3.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec_v4.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -36,7 +36,8 @@ ICONS = {
     'back_arrow': '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
     'stop_square': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>',
     'redo': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>',
-    'reply': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
+    'reply': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>',
+    'logout': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>'
 }
 app.jinja_env.globals.update(ICONS=ICONS)
 
@@ -191,30 +192,10 @@ templates = {
       </div>
     </div>
     
-    {% macro render_comment(comment) %}
-        <div class="comment-container" style="display:flex; gap:12px; margin-top:16px; margin-left: {{ 10 * (comment.depth|int) }}px">
-            <div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>
-            <div style="flex-grow:1">
-                <div><strong style="color:var(--text-color);">${comment.user.username}</strong> <span style="color:var(--text-muted);">${comment.timestamp}</span></div>
-                <div style="color:var(--text-color); margin: 4px 0;">${comment.text}</div>
-                <div class="comment-actions" style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
-                    <button onclick="handleLikeComment(this, ${comment.id})" class="action-button ${comment.is_liked_by_user ? 'liked' : ''}">
-                        ${ICONS.like.replace('width="24"','width="18"').replace('height="24"','height="18"')}
-                        <span>${comment.like_count}</span>
-                    </button>
-                    <button onclick="prepareReply(${comment.id}, '${comment.user.username}')" class="action-button">
-                        ${ICONS.reply|safe} Reply
-                    </button>
-                </div>
-            </div>
-        </div>
-        {% if comment.replies %}
-            {% for reply in comment.replies %}
-                {{ render_comment(reply) }}
-            {% endfor %}
-        {% endif %}
-    {% endmacro %}
-
+    <script>
+        // Make ICONS dictionary available to client-side scripts
+        const ICONS = {{ ICONS|tojson|safe }};
+    </script>
     <script>
     const commentModal = document.getElementById('commentModal');
     
@@ -223,6 +204,8 @@ templates = {
         container.classList.add('comment-container');
         container.style = `display:flex; gap:12px; margin-top:16px; margin-left: ${20 * (comment.depth || 0)}px`;
 
+        const likeIcon = ICONS.like.replace('width="24"','width="18"').replace('height="24"','height="18"');
+
         container.innerHTML = `
             <div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>
             <div style="flex-grow:1">
@@ -230,7 +213,7 @@ templates = {
                 <div style="color:var(--text-color); margin: 4px 0;">${comment.text}</div>
                 <div class="comment-actions" style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
                     <button id="like-comment-${comment.id}" onclick="handleLikeComment(this, ${comment.id})" class="action-button ${comment.is_liked_by_user ? 'liked' : ''}">
-                        ${ICONS.like.replace('width="24"','width="18"').replace('height="24"','height="18"')}
+                        ${likeIcon}
                         <span>${comment.like_count}</span>
                     </button>
                     <button onclick="prepareReply(${comment.id}, '${comment.user.username}')" class="action-button">
@@ -260,7 +243,7 @@ templates = {
                     const node = buildCommentNode(c);
                     container.appendChild(node);
                     if (c.replies && c.replies.length > 0) {
-                        appendComments(container, c.replies);
+                        appendComments(node, c.replies); // Append replies to the current comment node
                     }
                 });
             }
@@ -643,7 +626,6 @@ templates = {
         sixForm.style.display = 'none';
         recordButton.classList.remove('previewing');
         recordButton.classList.remove('recording');
-        // The SVG is set via CSS now, but let's clear it
         recordButton.innerHTML = '<div style="width: 32px; height: 32px; border-radius: 50%; background-color: white;"></div>';
         
         if (stream) { preview.srcObject = stream; }
@@ -670,7 +652,6 @@ templates = {
             recorderStatus.textContent = "Upload failed. Please try again.";
         });
     });
-    // Initialize the record button look
     resetRecorder();
 </script>
 {% endblock %}
@@ -693,8 +674,11 @@ templates = {
         </div>
         <button type="submit" class="btn">Save Changes</button>
     </form>
+    
     <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Account Actions</h4>
+    <a href="{{ url_for('logout') }}" class="btn btn-outline" style="width: 100%; box-sizing: border-box; text-align: center; margin-bottom: 24px;">Log Out</a>
+    
     <div style="border: 1px solid var(--red-color); border-radius: 8px; padding: 16px;">
         <h5 style="margin-top:0;">Delete Account</h5>
         <p style="color:var(--text-muted);">This action is permanent. All your posts, comments, likes, and follower data will be removed.</p>
@@ -1042,8 +1026,9 @@ def profile(username):
     if active_tab == 'reposts':
         reposts_data = user.reposts.order_by(Repost.timestamp.desc()).all()
         # Preload flags for the original posts inside the reposts
-        original_posts = [r.original_post for r in reposts_data]
-        add_user_flags_to_posts(original_posts)
+        if reposts_data:
+            original_posts = [r.original_post for r in reposts_data]
+            add_user_flags_to_posts(original_posts)
     elif active_tab == 'sixs':
         posts = user.posts.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
     else: # Default to 'posts' (text posts)
@@ -1116,7 +1101,8 @@ def get_comments(post_id):
 def add_comment(post_id):
     data = request.get_json()
     text = data.get('text', '').strip()
-    parent_id = data.get('parent_id')
+    parent_id = data.get('parent_id') if data.get('parent_id') else None
+
     if not text: return jsonify({'error': 'Comment text is required'}), 400
     
     parent_comment = None
@@ -1262,8 +1248,10 @@ def signup():
     return render_template('auth_form.html', title="Sign Up", form_type="signup")
 
 @app.route('/logout')
+@login_required
 def logout():
     logout_user()
+    flash('You have been logged out.', 'success')
     return redirect(url_for('login'))
 
 # --- MAIN EXECUTION ---
