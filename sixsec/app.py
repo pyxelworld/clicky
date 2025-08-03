@@ -2,6 +2,7 @@ import os
 import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from sqlalchemy import func, not_, and_
 from sqlalchemy.orm import foreign # <<< IMPORTED and_
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -21,6 +22,11 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 # --- INICIALIZAÇÃO DE EXTENSÕES E HELPERS ---
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)
+
+# This line fixes the "No such command 'db'" error
+app.cli.add_command('db', migrate.cli)
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
