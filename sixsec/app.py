@@ -2108,9 +2108,39 @@ def logout():
     flash('Você foi desconectado.', 'success')
     return redirect(url_for('login'))
 
+def check_and_upgrade_db():
+    """Verifica o esquema do DB e adiciona colunas ausentes sem perda de dados."""
+    engine = db.get_engine()
+    with engine.connect() as connection:
+        # Usamos 'text' para evitar problemas de importação circular com o modelo
+        from sqlalchemy import inspect, text
+        
+        inspector = inspect(engine)
+        table_name = 'user'
+        
+        if inspector.has_table(table_name):
+            columns = [col['name'] for col in inspector.get_columns(table_name)]
+            
+            # --- Adicionar coluna 'six_feed_style' ---
+            if 'six_feed_style' not in columns:
+                print(f"INFO: Coluna 'six_feed_style' não encontrada na tabela '{table_name}'. Adicionando...")
+                try:
+                    # O 'str' no default é importante para o SQL
+                    connection.execute(text("ALTER TABLE user ADD COLUMN six_feed_style VARCHAR(20) NOT NULL DEFAULT 'circle'"))
+                    connection.commit()
+                    print("INFO: Coluna 'six_feed_style' adicionada com sucesso.")
+                except Exception as e:
+                    print(f"ERRO: Falha ao adicionar a coluna 'six_feed_style': {e}")
+                    # Em alguns dialetos de SQLite, precisamos de um workaround
+                    # Esta é uma abordagem mais simples que funciona na maioria dos casos.
+                    # Para cenários complexos, Flask-Migrate é recomendado.
+
+
 # --- EXECUÇÃO PRINCIPAL ---
 if __name__ == '__main__':
     with app.app_context():
         if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
         db.create_all()
+        check_and_upgrade_db() # Executa a verificação/atualização aqui
+
     app.run(debug=True, host='0.0.0.0', port=8000)
