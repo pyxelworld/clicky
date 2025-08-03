@@ -22,7 +22,6 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 # --- INICIALIZAÇÃO DE EXTENSÕES E HELPERS ---
 db = SQLAlchemy(app)
-migrate = Migrate(app, db)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -170,7 +169,6 @@ class Comment(db.Model):
     notifications = db.relationship('Notification',
                                      primaryjoin=and_(id == foreign(Notification.object_id), Notification.object_type == 'comment'),
                                      lazy='dynamic', cascade="all, delete-orphan")
-
 
 # --- DICIONÁRIO DE TEMPLATES ---
 templates = {
@@ -2194,8 +2192,44 @@ def logout():
     return redirect(url_for('login'))
 
 # --- EXECUÇÃO PRINCIPAL ---
+def update_schema():
+    """
+    Checks the database schema against the models and adds missing columns.
+    This is a lightweight migration helper.
+    """
+    engine = db.get_engine()
+    with engine.connect() as connection:
+        # We use a transaction to ensure all changes are applied together
+        transaction = connection.begin()
+        try:
+            # 1. Check Notification table
+            cursor = connection.execute(text("PRAGMA table_info(notification)"))
+            columns = [row[1] for row in cursor.fetchall()]
+            required_cols = {
+                'action': 'VARCHAR(50)',
+                'object_type': 'VARCHAR(50)',
+                'object_id': 'INTEGER',
+            }
+
+            for col_name, col_type in required_cols.items():
+                if col_name not in columns:
+                    print(f"Schema update: Adding missing column '{col_name}' to 'notification' table...")
+                    connection.execute(text(f'ALTER TABLE notification ADD COLUMN {col_name} {col_type}'))
+                    print(f"...column '{col_name}' added.")
+            
+            # You can add checks for other tables here in the future if needed
+            # e.g., PRAGMA table_info(post), etc.
+
+            transaction.commit()
+        except Exception as e:
+            print(f"An error occurred during schema update: {e}")
+            transaction.rollback()
+
+
 if __name__ == '__main__':
+    from sqlalchemy import text # Import text for the update function
     with app.app_context():
         if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
-        db.create_all()
+        db.create_all() # Ensures tables exist before trying to alter them
+        update_schema() # Runs the schema check and update
     app.run(debug=True, host='0.0.0.0', port=8000)
