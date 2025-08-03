@@ -1590,8 +1590,22 @@ class User(UserMixin, db.Model):
     liked_posts = db.relationship('Post', secondary=post_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
     liked_comments = db.relationship('Comment', secondary=comment_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
     followed = db.relationship('User', secondary=followers, primaryjoin=(followers.c.follower_id == id), secondaryjoin=(followers.c.followed_id == id), backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
-    seen_sixs = db.relationship('Post', secondary=seen_sixs_posts, backref=db.backref('seen_by_six_users', lazy='dynamic'), foreign_keys=[seen_sixs_posts.c.post_id])
-    seen_texts = db.relationship('Post', secondary=seen_text_posts, backref=db.backref('seen_by_text_users', lazy='dynamic'), foreign_keys=[seen_text_posts.c.post_id])
+    seen_sixs = db.relationship(
+        'Post',
+        secondary=seen_sixs_posts,
+        primaryjoin=(seen_sixs_posts.c.user_id == id),
+        secondaryjoin=(seen_sixs_posts.c.post_id == Post.id),
+        backref=db.backref('seen_by_six_users', lazy='dynamic'),
+        lazy='dynamic'
+    )
+    seen_texts = db.relationship(
+        'Post',
+        secondary=seen_text_posts,
+        primaryjoin=(seen_text_posts.c.user_id == id),
+        secondaryjoin=(seen_text_posts.c.post_id == Post.id),
+        backref=db.backref('seen_by_text_users', lazy='dynamic'),
+        lazy='dynamic'
+    )
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
     def check_password(self, pw): return check_password_hash(self.password_hash, pw)
