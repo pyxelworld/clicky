@@ -50,17 +50,17 @@ templates = {
             --bg-color: #000000;
             --primary-color: #151515;
             --border-color: #2f2f2f;
-            --accent-color: #1d9bf0;
+            --accent-color: #1d9bf0; /* Twitter Blue */
             --text-color: #e7e9ea;
             --text-muted: #71767b;
-            --red-color: #f91880;
+            --red-color: #f91880; /* Twitter Like Red */
         }
         html { -webkit-tap-highlight-color: transparent; }
-        body { 
+        body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            margin: 0; 
-            background-color: var(--bg-color); 
-            color: var(--text-color); 
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
             font-size: 15px;
             overscroll-behavior-y: contain;
         }
@@ -76,13 +76,13 @@ templates = {
             display: flex; justify-content: space-between; align-items: center;
         }
         .top-bar .logo { font-weight: bold; font-size: 1.7em; }
-        .bottom-nav { 
+        .bottom-nav {
             position: fixed; bottom: 0; left: 0; right: 0;
             background: rgba(0, 0, 0, 0.65);
             backdrop-filter: blur(12px) saturate(180%); -webkit-backdrop-filter: blur(12px) saturate(180%);
             border-top: 1px solid var(--border-color);
             display: flex; justify-content: space-around; height: 53px;
-            z-index: 1000; 
+            z-index: 1000;
         }
         .bottom-nav a { color: var(--text-color); display:flex; align-items:center; transition: transform 0.1s ease; }
         .bottom-nav a.active svg { stroke-width: 2.5; }
@@ -131,7 +131,7 @@ templates = {
     </style>
 </head>
 <body {% if request.endpoint == 'home' and feed_type == 'sixs' %}style="overflow: hidden;"{% endif %}>
-    
+
     {% if not (request.endpoint == 'home' and feed_type == 'sixs') %}
     <header class="top-bar">
         <h1 class="logo">{% block header_title %}Home{% endblock %}</h1>
@@ -140,7 +140,7 @@ templates = {
         {% endif %}
     </header>
     {% endif %}
-    
+
     <main {% if not (request.endpoint == 'home' and feed_type == 'sixs') %}class="container"{% endif %}>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -159,7 +159,7 @@ templates = {
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
         <a href="{{ url_for('discover') }}" class="{{ 'active' if request.endpoint == 'discover' else '' }}">{{ ICONS.discover|safe }}</a>
         <a href="{{ url_for('create_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
-        <a href="{{ url_for('profile', username=current_user.username) }}">{{ ICONS.profile|safe }}</a>
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' else '' }}">{{ ICONS.profile|safe }}</a>
     </nav>
     {% endif %}
 
@@ -179,7 +179,7 @@ templates = {
         </div>
       </div>
     </div>
-    
+
     <script>
     const commentModal = document.getElementById('commentModal');
     async function openCommentModal(postId) {
@@ -246,14 +246,15 @@ templates = {
     .six-video-wrapper {
         position: relative;
         width: 100vw; height: 100vw;
-        max-width: 100dvh; max-height: 100dvh;
+        max-width: 100dvh; max-height: 100dvh; /* Ensures circle doesn't get cut on wide screens */
         clip-path: circle(50% at 50% 50%);
     }
     .six-video { width: 100%; height: 100%; object-fit: cover; }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
         color: white; display: flex; justify-content: space-between; align-items: flex-end;
-        padding: 16px; padding-bottom: 53px; pointer-events: none;
+        padding: 16px; padding-bottom: 70px; /* Space for nav bar */
+        pointer-events: none;
         background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%);
         text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
     }
@@ -261,19 +262,26 @@ templates = {
     .six-info .username { font-weight: bold; font-size: 1.1em; }
     .six-actions {
         display: flex; flex-direction: column; gap: 20px;
-        pointer-events: auto;
+        pointer-events: auto; align-items: center;
     }
     .six-actions button {
         background: none; border: none; color: white;
         display: flex; flex-direction: column; align-items: center;
         gap: 5px; cursor: pointer; font-size: 13px;
+        padding: 0;
     }
     .six-actions svg { width: 32px; height: 32px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
     .six-actions .liked svg { fill: var(--red-color); stroke: var(--red-color); }
     {% endif %}
+    .feed-nav {
+        display: flex; border-bottom: 1px solid var(--border-color);
+        background: rgba(0, 0, 0, 0.65);
+        backdrop-filter: blur(12px) saturate(180%); -webkit-backdrop-filter: blur(12px) saturate(180%);
+        position: sticky; top: 53px; z-index: 999;
+    }
 {% endblock %}
 {% block content %}
-    <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color);">
+    <div class="feed-nav">
         <a href="{{ url_for('home', feed_type='text') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type == 'text' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Text {% if feed_type == 'text' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
         <a href="{{ url_for('home', feed_type='sixs') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type == 'sixs' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Sixs {% if feed_type == 'sixs' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
     </div>
@@ -318,6 +326,12 @@ templates = {
             </section>
             {% endfor %}
         </div>
+        <nav class="bottom-nav" style="position:fixed; z-index:1001; bottom:0; left:0; right:0;">
+            <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
+            <a href="{{ url_for('discover') }}" class="{{ 'active' if request.endpoint == 'discover' else '' }}">{{ ICONS.discover|safe }}</a>
+            <a href="{{ url_for('create_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
+            <a href="{{ url_for('profile', username=current_user.username) }}">{{ ICONS.profile|safe }}</a>
+        </nav>
     {% endif %}
 {% endblock %}
 {% block scripts %}
@@ -326,11 +340,25 @@ templates = {
     const videos = document.querySelectorAll('.six-video');
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            if (entry.isIntersecting) { entry.target.play(); } else { entry.target.pause(); }
+            const video = entry.target;
+            if (entry.isIntersecting) {
+                video.play().catch(e => console.log("Play interrupted"));
+                // Handle unmuting
+                video.muted = video.dataset.muted === 'true' || typeof video.dataset.muted === 'undefined';
+            } else {
+                video.pause();
+                video.currentTime = 0;
+            }
         });
     }, { threshold: 0.5 });
-    videos.forEach(video => observer.observe(video));
-    
+    videos.forEach(video => {
+        observer.observe(video);
+        video.addEventListener('click', () => {
+             video.muted = !video.muted;
+             video.dataset.muted = video.muted;
+        });
+    });
+
     async function handleLike(button, postId) {
         const response = await fetch(`/like/${postId}`, { method: 'POST' });
         const data = await response.json();
@@ -341,23 +369,66 @@ templates = {
         const response = await fetch(`/repost/${postId}`, { method: 'POST' });
         const data = await response.json();
         if(data.success) {
-            button.style.color = 'var(--accent-color)';
-            alert('Reposted!');
+            button.style.transform = 'scale(1.2)';
+            setTimeout(() => { button.style.transform = 'scale(1)'; }, 200);
+            flashMessage(data.message);
         } else {
-            alert(data.message);
+            flashMessage(data.message, true);
         }
+    }
+    function flashMessage(message, isError = false) {
+        let flashDiv = document.createElement('div');
+        flashDiv.textContent = message;
+        flashDiv.style.position = 'fixed';
+        flashDiv.style.bottom = '80px';
+        flashDiv.style.left = '50%';
+        flashDiv.style.transform = 'translateX(-50%)';
+        flashDiv.style.padding = '12px 20px';
+        flashDiv.style.borderRadius = '20px';
+        flashDiv.style.background = isError ? 'var(--red-color)' : 'var(--accent-color)';
+        flashDiv.style.color = 'white';
+        flashDiv.style.zIndex = '9999';
+        flashDiv.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
+        document.body.appendChild(flashDiv);
+        setTimeout(() => flashDiv.remove(), 3000);
     }
 </script>
 {% endif %}
+<script>
+    async function handleLikeText(button, postId) {
+        const response = await fetch(`/like/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        const likeIcon = button.querySelector('svg');
+        const likeCount = button.querySelector('span');
+        likeCount.innerText = data.likes;
+        if(data.liked) {
+            button.style.color = 'var(--red-color)';
+            likeIcon.style.fill = 'var(--red-color)';
+        } else {
+            button.style.color = 'var(--text-muted)';
+            likeIcon.style.fill = 'none';
+        }
+    }
+    async function handleRepostText(button, postId) {
+        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        if(data.success) {
+            button.style.color = 'var(--accent-color)';
+        }
+        alert(data.message); // Simple alert for text feed
+    }
+</script>
 {% endblock %}
 """,
 
 "post_card_text.html": """
 <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
     <div style="width:40px; flex-shrink:0;">
-        <div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">
-            {{ post.author.username[0]|upper }}
-        </div>
+        <a href="{{ url_for('profile', username=post.author.username) }}">
+            <div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">
+                {{ post.author.username[0]|upper }}
+            </div>
+        </a>
     </div>
     <div style="flex-grow:1;">
         <div>
@@ -366,39 +437,27 @@ templates = {
         </div>
         <p style="margin: 4px 0 12px 0;">{{ post.text_content }}</p>
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
-            <button onclick="openCommentModal({{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
-            <button onclick="handleRepostText(this, {{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.repost|safe }}</button>
-            <button onclick="handleLikeText(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span></button>
+            <button onclick="openCommentModal({{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
+            <button onclick="handleRepostText(this, {{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;">{{ ICONS.repost|safe }}</button>
+            <button onclick="handleLikeText(this, {{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="{{ 'var(--red-color)' if post.liked_by_current_user else 'none' }}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: {{ 'var(--red-color)' if post.liked_by_current_user else 'var(--text-muted)' }}"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
+            </button>
         </div>
     </div>
 </div>
-<script>
-    async function handleLikeText(button, postId) {
-        const response = await fetch(`/like/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        button.querySelector('span').innerText = data.likes;
-        button.classList.toggle('liked', data.liked);
-        if(data.liked) button.style.color = 'var(--red-color)'; else button.style.color = 'var(--text-muted)';
-    }
-    async function handleRepostText(button, postId) {
-        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        if(data.success) button.style.color = 'var(--accent-color)';
-        alert(data.message);
-    }
-</script>
 """,
 "create_post.html": """
 {% extends "layout.html" %}
-{% block header_title %}Create{% endblock %}
+{% block header_title %}Create a Six{% endblock %}
 {% block content %}
     <div style="padding:16px;">
         <div id="six-creator" style="text-align: center;">
-            <p id="recorder-status" style="color:var(--text-muted); min-height: 20px;">Allow camera access to start</p>
-            <div style="width:100%; max-width: 400px; margin: 15px auto; aspect-ratio: 1/1; border-radius:50%; overflow:hidden; background:#111;">
-                <video id="video-preview" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover;"></video>
+            <p id="recorder-status" style="color:var(--text-muted); min-height: 20px;">Tap the red button to record</p>
+            <div style="width:100%; max-width: 400px; margin: 15px auto; aspect-ratio: 1/1; border-radius:50%; overflow:hidden; background:#111; border: 2px solid var(--border-color);">
+                <video id="video-preview" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover; transform: scaleX(-1);"></video>
             </div>
-            <button id="record-button" class="btn btn-danger" style="width: 80px; height: 80px; border-radius: 50%;" disabled></button>
+            <button id="record-button" style="width: 80px; height: 80px; border-radius: 50%; border: 4px solid white; background-color: var(--red-color); cursor: pointer; transition: all 0.2s ease;" disabled></button>
             <form id="six-form-element" method="POST" enctype="multipart/form-data" style="display: none; margin-top: 20px;">
                  <input type="hidden" name="post_type" value="six">
                  <div class="form-group"> <input type="text" name="caption" maxlength="50" placeholder="Add a caption... (optional)"> </div>
@@ -420,11 +479,13 @@ templates = {
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: "user" } };
             stream = await navigator.mediaDevices.getUserMedia(constraints);
             preview.srcObject = stream;
-            recorderStatus.textContent = "Tap the button to record";
             recordButton.disabled = false;
-        } catch (e) { recorderStatus.textContent = "Camera/Mic permission denied."; }
+        } catch (e) {
+            recorderStatus.textContent = "Camera/Mic permission is required to create a Six.";
+            console.error(e);
+        }
     }
-    
+
     document.addEventListener('DOMContentLoaded', initCamera);
 
     recordButton.addEventListener('click', () => {
@@ -439,23 +500,40 @@ templates = {
 
     function startRecording() {
         recordedBlobs = [];
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        let options = { mimeType: 'video/webm;codecs=vp9,opus' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            options = { mimeType: 'video/webm;codecs=vp8,opus' };
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+              options = { mimeType: 'video/webm' };
+            }
+        }
+        mediaRecorder = new MediaRecorder(stream, options);
         mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
         mediaRecorder.onstop = handleStop;
         mediaRecorder.start();
         recordButton.classList.add('recording');
-        recorderStatus.textContent = 'Recording...';
+        recordButton.style.borderRadius = '20%';
+        recordButton.style.backgroundColor = 'white';
+        recorderStatus.innerHTML = 'Recording... <strong><span id="timer">6</span>s</strong>';
+        let timeLeft = 5;
+        const timerInterval = setInterval(() => {
+            document.getElementById('timer').textContent = timeLeft;
+            timeLeft--;
+            if (timeLeft < 0) clearInterval(timerInterval);
+        }, 1000);
         setTimeout(() => { if (mediaRecorder.state === "recording") mediaRecorder.stop(); }, 6000);
     }
-    
+
     function handleStop() {
         recordButton.classList.remove('recording');
         recordButton.classList.add('previewing');
-        recorderStatus.textContent = 'Previewing... Tap to re-record.';
+        recordButton.style.borderRadius = '50%';
+        recordButton.style.backgroundColor = 'var(--red-color)';
+        recorderStatus.textContent = 'Previewing... Tap red button to re-record.';
         const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
         preview.srcObject = null;
         preview.src = window.URL.createObjectURL(superBuffer);
-        preview.muted = false; preview.controls = true;
+        preview.muted = false; preview.controls = true; preview.loop = true;
         sixForm.style.display = 'block';
     }
 
@@ -464,7 +542,7 @@ templates = {
         recordButton.classList.remove('previewing');
         preview.srcObject = stream;
         preview.controls = false; preview.muted = true;
-        recorderStatus.textContent = "Tap the button to record";
+        recorderStatus.textContent = "Tap the red button to record";
     }
 
     sixForm.addEventListener('submit', (event) => {
@@ -494,13 +572,27 @@ templates = {
     </form>
     <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Account Actions</h4>
+    <a href="{{ url_for('logout') }}" class="btn btn-outline" style="display:block; text-align:center; margin-bottom: 20px;">Log Out</a>
+
     <div style="border: 1px solid var(--red-color); border-radius: 8px; padding: 16px;">
         <h5 style="margin-top:0;">Delete Account</h5>
         <p style="color:var(--text-muted);">This action is permanent. All your posts, comments, likes, and follower data will be removed.</p>
-        <form action="{{ url_for('delete_account') }}" method="POST">
-             <div class="form-group"><label for="password">Confirm with your password</label><input type="password" id="password" name="password" required></div>
-            <button type="submit" class="btn btn-danger" onclick="return confirm('Are you absolutely sure?')">Delete My Account</button>
-        </form>
+        <button onclick="document.getElementById('deleteModal').style.display='flex'" class="btn btn-danger">Delete My Account</button>
+    </div>
+</div>
+<div id="deleteModal" class="modal" style="align-items:center;">
+    <div class="modal-content" style="border-radius:16px; margin:auto; animation:none;">
+        <div class="modal-header">
+            <span class="close" onclick="document.getElementById('deleteModal').style.display='none'">×</span>
+            <h4 style="margin:0; padding-left:16px;">Confirm Account Deletion</h4>
+        </div>
+        <div class="modal-body">
+            <p>This is permanent. Are you sure you want to delete your account?</p>
+            <form action="{{ url_for('delete_account') }}" method="POST">
+                <div class="form-group"><label for="password">Enter your password to confirm</label><input type="password" id="password" name="password" required></div>
+                <button type="submit" class="btn btn-danger" style="width:100%;">Permanently Delete Account</button>
+            </form>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -645,7 +737,7 @@ def load_user(user_id): return User.query.get(int(user_id))
 def home():
     feed_type = request.args.get('feed_type', 'text')
     followed_ids = [u.id for u in current_user.followed]
-    followed_ids.append(current_user.id)
+    followed_ids.append(current_user.id) # Include user's own posts
     query = Post.query.filter(Post.user_id.in_(followed_ids))
     if feed_type == 'text':
         posts = query.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
@@ -660,7 +752,7 @@ def profile(username):
     user = User.query.filter_by(username=username).first_or_404()
     active_tab = request.args.get('tab', 'posts')
     if active_tab == 'reposts': posts = user.reposts.order_by(Post.timestamp.desc()).all()
-    elif active_tab == 'likes': posts = user.liked_posts.order_by(Post.timestamp.desc()).all()
+    elif active_tab == 'likes': posts = user.liked_posts.order_by(likes.c.post_id.desc()).all()
     else: posts = user.posts.order_by(Post.timestamp.desc()).all()
     for p in posts: p.liked_by_current_user = current_user in p.liked_by
     return render_template('profile.html', user=user, posts=posts, active_tab=active_tab)
@@ -669,12 +761,10 @@ def profile(username):
 @login_required
 def create_post():
     if request.method == 'POST':
-        post_type = request.form.get('post_type')
-        if post_type == 'text': # This is for a future enhancement, currently create page is only for sixs
-            flash('Text posts can be made from the home feed.', 'info'); return redirect(url_for('home'))
-        elif post_type == 'six':
+        if request.form.get('post_type') == 'six':
             video_file = request.files.get('video_file')
-            if not video_file: flash('Video data not received.', 'error'); return redirect(url_for('create_post'))
+            if not video_file:
+                flash('Video data not received.', 'error'); return redirect(url_for('create_post'))
             filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
             video_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
             post = Post(post_type='six', text_content=request.form.get('caption', ''), video_filename=filename, author=current_user)
@@ -701,18 +791,22 @@ def add_comment(post_id):
 @login_required
 def like(post_id):
     post = Post.query.get_or_404(post_id)
-    if current_user in post.liked_by: post.liked_by.remove(current_user); liked = False
-    else: post.liked_by.append(current_user); liked = True
+    if current_user in post.liked_by:
+        post.liked_by.remove(current_user); liked = False
+    else:
+        post.liked_by.append(current_user); liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': len(post.liked_by)})
+    return jsonify({'liked': liked, 'likes': len(post.liked_by.all())})
 
 @app.route('/repost/<int:post_id>', methods=['POST'])
 @login_required
 def repost(post_id):
     post = Post.query.get_or_404(post_id)
     if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
-    if post in current_user.reposts: current_user.reposts.remove(post); message = "Repost removed."
-    else: current_user.reposts.append(post); message = "Post reposted!"
+    if post in current_user.reposts:
+        return jsonify({'success': False, 'message': "You've already reposted this."})
+    else:
+        current_user.reposts.append(post); message = "Post reposted!"
     db.session.commit()
     return jsonify({'success': True, 'message': message})
 
@@ -728,20 +822,26 @@ def edit_profile():
 @app.route('/delete_account', methods=['POST'])
 @login_required
 def delete_account():
-    if not current_user.check_password(request.form.get('password')):
+    password = request.form.get('password')
+    if not password or not current_user.check_password(password):
         flash('Incorrect password. Account not deleted.', 'error')
         return redirect(url_for('edit_profile'))
-    user_id = current_user.id
+    
+    user_to_delete = User.query.get(current_user.id)
     logout_user() # Log out before deleting
-    user = User.query.get(user_id)
-    db.session.delete(user); db.session.commit()
+    
+    db.session.delete(user_to_delete)
+    db.session.commit()
+    
     flash('Your account has been permanently deleted.', 'success')
     return redirect(url_for('login'))
 
 @app.route('/discover')
 @login_required
 def discover():
-    users = User.query.filter(User.id != current_user.id).order_by(db.func.random()).limit(15).all()
+    followed_ids = [u.id for u in current_user.followed]
+    followed_ids.append(current_user.id)
+    users = User.query.filter(User.id.notin_(followed_ids)).order_by(db.func.random()).limit(15).all()
     return render_template('discover.html', users=users)
 
 @app.route('/follow/<username>')
@@ -749,14 +849,14 @@ def discover():
 def follow(username):
     user = User.query.filter_by(username=username).first_or_404()
     if user != current_user: current_user.follow(user); db.session.commit()
-    return redirect(request.referrer or url_for('home'))
+    return redirect(request.referrer or url_for('profile', username=username))
 
 @app.route('/unfollow/<username>')
 @login_required
 def unfollow(username):
     user = User.query.filter_by(username=username).first_or_404()
     if user != current_user: current_user.unfollow(user); db.session.commit()
-    return redirect(request.referrer or url_for('home'))
+    return redirect(request.referrer or url_for('profile', username=username))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -781,6 +881,7 @@ def signup():
     return render_template('auth_form.html', title="Sign Up", form_type="signup")
 
 @app.route('/logout')
+@login_required
 def logout():
     logout_user()
     return redirect(url_for('login'))
