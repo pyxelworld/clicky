@@ -23,10 +23,6 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 # --- INICIALIZAÇÃO DE EXTENSÕES E HELPERS ---
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
-
-# This line fixes the "No such command 'db'" error
-app.cli.add_command('db', migrate.cli)
-
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
