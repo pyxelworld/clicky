@@ -2148,7 +2148,7 @@ def check_and_upgrade_db():
 
 
 # --- EXECUÇÃO PRINCIPAL ---
-if name == '__main__':
+if __name__ == '__main__':
     with app.app_context():
         if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
         db.create_all()
