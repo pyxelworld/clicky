@@ -992,7 +992,7 @@ templates = {
         progressCircle.style.strokeDashoffset = offset;
     }
 
-    async function initCamera() {
+    async function initCamera(isSwitching = false) {
         try {
             if (stream) { stream.getTracks().forEach(track => track.stop()); }
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: facingMode } };
@@ -1007,19 +1007,22 @@ templates = {
             preview.srcObject = stream;
             preview.classList.toggle('mirrored', facingMode === 'user');
             
-            // Re-create the recorder for the new stream, but only reset if idle
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-            mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
-            mediaRecorder.onstop = handleStop;
-
-            if (recorderState === 'idle') {
-                resetRecorder(); // This will also call updateUI()
+            // If we are just switching camera while paused, we don't reset everything.
+            if (isSwitching && recorderState === 'paused') {
+                // Just prepare the recorder for the next clip and update UI.
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+                mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
+                mediaRecorder.onstop = handleStop;
+                updateUI();
             } else {
-                updateUI(); // Manually update UI if not resetting
+                // Otherwise, it's a fresh start or a full retake.
+                resetRecorder();
             }
 
         } catch (e) {
             console.error(e);
+            recorderState = 'idle';
+            updateUI();
             document.getElementById('permission-status').textContent = "Permissão de Câmera/Mic negada. Por favor, habilite nas configurações do seu navegador e atualize a página.";
             enableCameraBtn.disabled = true;
         }
@@ -1031,7 +1034,8 @@ templates = {
             elements[key].style.display = 'none';
         }
         switchCameraBtn.disabled = false;
-        
+        recordButton.classList.remove('recording');
+
         if (recorderState === 'idle') {
             recorderStatus.textContent = "Toque no botão para gravar";
             recordButton.style.display = 'flex';
@@ -1103,11 +1107,12 @@ templates = {
 
     function resetRecorder() {
         stopTimer();
+        recordedBlobs = [];
         recordedDuration = 0;
         recorderState = 'idle';
         if (stream) {
             preview.srcObject = stream;
-            preview.play();
+            preview.play().catch(()=>{});
         }
         preview.controls = false;
         preview.muted = true;
@@ -1128,11 +1133,11 @@ templates = {
     
     function stopTimer() { clearInterval(timerInterval); }
 
-    enableCameraBtn.addEventListener('click', initCamera);
+    enableCameraBtn.addEventListener('click', () => initCamera(false));
     switchCameraBtn.addEventListener('click', () => {
         if (recorderState === 'idle' || recorderState === 'paused') {
             facingMode = (facingMode === 'user') ? 'environment' : 'user';
-            initCamera();
+            initCamera(true); // Pass true to indicate it's a switch
         }
     });
     
@@ -1141,7 +1146,7 @@ templates = {
         else if (recorderState === 'recording') pauseRecording();
     });
     pauseResumeBtn.addEventListener('click', resumeRecording);
-    retakeBtn.addEventListener('click', resetRecorder);
+    retakeBtn.addEventListener('click', () => initCamera(false));
     finishBtn.addEventListener('click', stopRecording);
     
     sixForm.addEventListener('submit', (event) => {
@@ -1172,8 +1177,8 @@ templates = {
 {% block header_title %}Configurações{% endblock %}
 {% block content %}
 <div style="padding:16px;">
-    <h4>Editar Perfil</h4>
     <form method="POST" action="{{ url_for('edit_profile') }}" enctype="multipart/form-data">
+        <h4>Editar Perfil</h4>
         <div class="form-group" style="text-align: center;">
             <label for="pfp" style="cursor: pointer;">
                 {% if current_user.pfp_filename %}
@@ -1196,19 +1201,20 @@ templates = {
             <label for="bio">Bio</label>
             <textarea id="bio" name="bio" rows="3" maxlength="150">{{ current_user.bio or '' }}</textarea>
         </div>
-        <button type="submit" class="btn">Salvar Alterações</button>
+
+        <hr style="border-color: var(--border-color); margin: 30px 0;">
+        <h4>Preferências</h4>
+        <div class="form-group">
+            <label for="six_feed_style">Estilo do Feed de Sixs</label>
+            <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none; background-color: var(--primary-color); border: 1px solid var(--border-color);">
+                <option value="circle" {% if current_user.six_feed_style == 'circle' %}selected{% endif %}>Círculo</option>
+                <option value="fullscreen" {% if current_user.six_feed_style == 'fullscreen' %}selected{% endif %}>Tela Cheia</option>
+            </select>
+            <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
+        </div>
+        
+        <button type="submit" class="btn" style="width:100%; margin-top: 10px;">Salvar Alterações</button>
     </form>
-    
-    <hr style="border-color: var(--border-color); margin: 30px 0;">
-    <h4>Preferências</h4>
-    <div class="form-group">
-        <label for="six_feed_style">Estilo do Feed de Sixs</label>
-        <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none;">
-            <option value="circle" {% if current_user.six_feed_style == 'circle' %}selected{% endif %}>Círculo</option>
-            <option value="fullscreen" {% if current_user.six_feed_style == 'fullscreen' %}selected{% endif %}>Tela Cheia</option>
-        </select>
-        <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
-    </div>
 
 
     <hr style="border-color: var(--border-color); margin: 30px 0;">
