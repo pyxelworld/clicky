@@ -15,7 +15,10 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16MB max upload size
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+# --- NEW: Allowed extensions for image uploads ---
+app.config['ALLOWED_IMAGE_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+
 
 # --- INITIALIZE EXTENSIONS & HELPERS ---
 db = SQLAlchemy(app)
@@ -23,7 +26,11 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# Feather Icons for a clean, flat look
+# --- NEW: Helper function for allowed image files ---
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_IMAGE_EXTENSIONS']
+
 ICONS = {
     'home': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>',
     'discover': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
@@ -136,18 +143,22 @@ templates = {
     {% if not (request.endpoint == 'home' and feed_type == 'sixs') %}
     <header class="top-bar">
         <h1 class="logo">{% block header_title %}Home{% endblock %}</h1>
-        {% if request.endpoint == 'profile' and current_user == user %}
-        <a href="{{ url_for('edit_profile') }}">{{ ICONS.settings|safe }}</a>
-        {% endif %}
+        {% block header_extra %}
+            {% if request.endpoint == 'profile' and current_user == user %}
+                <a href="{{ url_for('edit_profile') }}">{{ ICONS.settings|safe }}</a>
+            {% elif request.endpoint == 'home' and feed_type == 'text' %}
+                <a href="{{ url_for('create_text_post') }}" class="btn">New Post</a>
+            {% endif %}
+        {% endblock %}
     </header>
     {% endif %}
     
     <main {% if not (request.endpoint == 'home' and feed_type == 'sixs') %}class="container"{% endif %}>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-            <div style="position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index: 9999;">
+            <div style="position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index: 9999; width: 90%; max-width: 400px;">
                 {% for category, message in messages %}
-                <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 15px; background-color: var(--accent-color); color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">{{ message }}</div>
+                <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 15px; background-color: {{ 'var(--red-color)' if category == 'error' else 'var(--accent-color)' }}; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center;">{{ message }}</div>
                 {% endfor %}
             </div>
             {% endif %}
@@ -159,8 +170,8 @@ templates = {
     <nav class="bottom-nav">
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
         <a href="{{ url_for('discover') }}" class="{{ 'active' if request.endpoint == 'discover' else '' }}">{{ ICONS.discover|safe }}</a>
-        <a href="{{ url_for('create_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
-        <a href="{{ url_for('profile', username=current_user.username) }}">{{ ICONS.profile|safe }}</a>
+        <a href="{{ url_for('create_six_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' else '' }}">{{ ICONS.profile|safe }}</a>
     </nav>
     {% endif %}
 
@@ -225,6 +236,27 @@ templates = {
         }
     });
     window.onclick = (event) => { if (event.target == commentModal) closeCommentModal(); };
+
+    // --- REFACTORED: Global post interaction scripts ---
+    async function handleLikeText(button, postId) {
+        const response = await fetch(`/like/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        button.querySelector('span').innerText = data.likes;
+        button.classList.toggle('liked', data.liked);
+        if (data.liked) {
+            button.style.color = 'var(--red-color)';
+        } else {
+            button.style.color = 'var(--text-muted)';
+        }
+    }
+    async function handleRepostText(button, postId) {
+        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            button.style.color = data.reposted ? 'var(--accent-color)' : 'var(--text-muted)';
+        }
+        alert(data.message);
+    }
     </script>
     {% block scripts %}{% endblock %}
 </body>
@@ -233,6 +265,7 @@ templates = {
 
 "home.html": """
 {% extends "layout.html" %}
+{% block header_title %}Home{% endblock %}
 {% block style_override %}
     {% if feed_type == 'sixs' %}
     #sixs-feed-container {
@@ -254,13 +287,12 @@ templates = {
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
         color: white; display: flex; justify-content: space-between; align-items: flex-end;
-        padding: 16px; padding-bottom: 70px; pointer-events: none;
+        padding: 16px; padding-bottom: 53px; pointer-events: none;
         background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%);
         text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
     }
-    .six-info { pointer-events: auto; max-width: 70%;}
+    .six-info { pointer-events: auto; }
     .six-info .username { font-weight: bold; font-size: 1.1em; }
-    .six-info p { margin: 4px 0 0 0; }
     .six-actions {
         display: flex; flex-direction: column; gap: 20px;
         pointer-events: auto;
@@ -269,7 +301,7 @@ templates = {
         background: none; border: none; color: white;
         display: flex; flex-direction: column; align-items: center;
         gap: 5px; cursor: pointer; font-size: 13px;
-        padding: 0;
+        transition: color 0.2s;
     }
     .six-actions svg { width: 32px; height: 32px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
     .six-actions .liked svg { fill: var(--red-color); stroke: var(--red-color); }
@@ -306,7 +338,7 @@ templates = {
                     <div class="six-actions">
                         <button onclick="handleLike(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}">
                             {{ ICONS.like|safe }}
-                            <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
+                            <span id="like-count-{{ post.id }}">{{ post.likes_count }}</span>
                         </button>
                         <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
                         <button onclick="handleRepost(this, {{ post.id }})">{{ ICONS.repost|safe }}</button>
@@ -317,7 +349,7 @@ templates = {
             <section class="six-video-slide" style="flex-direction:column; text-align:center; color:white;">
                 <h4>No Sixs to show!</h4>
                 <p style="color:#aaa;">Follow accounts or create your own.</p>
-                <a href="{{ url_for('create_post') }}" class="btn" style="margin-top:20px;">Create a Six</a>
+                <a href="{{ url_for('create_six_post') }}" class="btn" style="margin-top:20px;">Create a Six</a>
             </section>
             {% endfor %}
         </div>
@@ -329,14 +361,15 @@ templates = {
     const videos = document.querySelectorAll('.six-video');
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.play().catch(e => console.error("Autoplay was prevented:", e));
-            } else {
-                entry.target.pause();
-                entry.target.currentTime = 0;
+            const video = entry.target;
+            if (entry.isIntersecting) { 
+                video.play().catch(e => console.log("Autoplay was prevented.")); 
+            } else { 
+                video.pause();
+                video.currentTime = 0;
             }
         });
-    }, { threshold: 0.5 });
+    }, { threshold: 0.8 });
     videos.forEach(video => observer.observe(video));
     
     async function handleLike(button, postId) {
@@ -349,8 +382,8 @@ templates = {
         const response = await fetch(`/repost/${postId}`, { method: 'POST' });
         const data = await response.json();
         if(data.success) {
-            button.style.color = 'var(--accent-color)';
-            alert('Reposted!');
+            button.style.color = data.reposted ? 'var(--accent-color)' : 'white';
+            alert(data.message);
         } else {
             alert(data.message);
         }
@@ -362,69 +395,42 @@ templates = {
 
 "post_card_text.html": """
 <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
-    <a href="{{ url_for('profile', username=post.author.username) }}" style="width:40px; flex-shrink:0;">
+    <div style="width:40px; flex-shrink:0;">
         <div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">
             {{ post.author.username[0]|upper }}
         </div>
-    </a>
+    </div>
     <div style="flex-grow:1;">
         <div>
             <a href="{{ url_for('profile', username=post.author.username) }}" style="color:var(--text-color); font-weight:bold;">{{ post.author.username }}</a>
             <span style="color:var(--text-muted);">· {{ post.timestamp.strftime('%b %d') }}</span>
         </div>
         <p style="margin: 4px 0 12px 0;">{{ post.text_content }}</p>
-        <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
+        {% if post.image_filename %}
+        <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" alt="Post image" style="width:100%; border-radius: 16px; margin-top: 12px; border: 1px solid var(--border-color);">
+        {% endif %}
+        <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted); margin-top: 12px;">
             <button onclick="openCommentModal({{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
             <button onclick="handleRepostText(this, {{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.repost|safe }}</button>
-            <button onclick="handleLikeText(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span></button>
+            <button onclick="handleLikeText(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:{{ 'var(--red-color)' if post.liked_by_current_user else 'var(--text-muted)' }}; display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.likes_count }}</span></button>
         </div>
     </div>
 </div>
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        document.querySelectorAll('.liked').forEach(button => {
-            if (button.matches('[onclick^="handleLikeText"]')) {
-                button.style.color = 'var(--red-color)';
-            }
-        });
-    });
-
-    async function handleLikeText(button, postId) {
-        const response = await fetch(`/like/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        button.querySelector('span').innerText = data.likes;
-        button.classList.toggle('liked', data.liked);
-        if(data.liked) {
-            button.style.color = 'var(--red-color)';
-        } else {
-            button.style.color = 'var(--text-muted)';
-        }
-    }
-    async function handleRepostText(button, postId) {
-        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        if(data.success) {
-            button.style.color = 'var(--accent-color)';
-        }
-        alert(data.message);
-    }
-</script>
 """,
 "create_post.html": """
 {% extends "layout.html" %}
-{% block header_title %}Create{% endblock %}
+{% block header_title %}Create Six{% endblock %}
 {% block content %}
     <div style="padding:16px;">
         <div id="six-creator" style="text-align: center;">
-            <p id="recorder-status" style="color:var(--text-muted); min-height: 20px;">Tap the button to start your camera</p>
-            <div style="width:100%; max-width: 400px; margin: 15px auto; aspect-ratio: 1/1; border-radius:50%; overflow:hidden; background:#111; display:flex; align-items:center; justify-content:center;">
-                <video id="video-preview" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover; display: none;"></video>
-                <div id="camera-placeholder">{{ ICONS.create|safe }}</div>
+            <p id="recorder-status" style="color:var(--text-muted); min-height: 20px;">Allow camera access to start</p>
+            <div style="width:100%; max-width: 400px; margin: 15px auto; aspect-ratio: 1/1; border-radius:50%; overflow:hidden; background:#111;">
+                <video id="video-preview" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover;"></video>
             </div>
-            <button id="record-button" class="btn btn-danger" style="width: 80px; height: 80px; border-radius: 50%;"></button>
+            <button id="record-button" class="btn btn-danger" style="width: 80px; height: 80px; border-radius: 50%;" disabled></button>
             <form id="six-form-element" method="POST" enctype="multipart/form-data" style="display: none; margin-top: 20px;">
                  <input type="hidden" name="post_type" value="six">
-                 <div class="form-group"> <input type="text" name="caption" maxlength="150" placeholder="Add a caption... (optional)"> </div>
+                 <div class="form-group"> <input type="text" name="caption" maxlength="50" placeholder="Add a caption... (optional)"> </div>
                  <button type="submit" class="btn" style="width: 100%;">Post Six</button>
             </form>
         </div>
@@ -433,9 +439,9 @@ templates = {
 {% block scripts %}
 <script>
     let mediaRecorder; let recordedBlobs; let stream;
+    let currentBlobUrl = null;
     const recordButton = document.getElementById('record-button');
     const preview = document.getElementById('video-preview');
-    const cameraPlaceholder = document.getElementById('camera-placeholder');
     const sixForm = document.getElementById('six-form-element');
     const recorderStatus = document.getElementById('recorder-status');
 
@@ -444,109 +450,117 @@ templates = {
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: "user" } };
             stream = await navigator.mediaDevices.getUserMedia(constraints);
             preview.srcObject = stream;
-            preview.style.display = 'block';
-            cameraPlaceholder.style.display = 'none';
             recorderStatus.textContent = "Tap the button to record";
-            return true;
-        } catch (e) {
-            recorderStatus.textContent = "Camera/Mic permission denied.";
-            console.error("Error accessing media devices.", e);
-            return false;
-        }
+            recordButton.disabled = false;
+        } catch (e) { recorderStatus.textContent = "Camera/Mic permission denied."; }
     }
+    
+    document.addEventListener('DOMContentLoaded', initCamera);
 
-    recordButton.addEventListener('click', async () => {
-        // State: Initial / Needs permission
-        if (!stream) {
-            const success = await initCamera();
-            if (!success) return; // Stop if permission was denied
-        }
-        // State: Recording
-        else if (recordButton.classList.contains('recording')) {
+    recordButton.addEventListener('click', () => {
+        if (recordButton.classList.contains('recording')) {
             mediaRecorder.stop();
-        } 
-        // State: Reviewing recorded video
-        else if (recordButton.classList.contains('previewing')) {
+        } else if (recordButton.classList.contains('previewing')) {
             resetRecorder();
-        }
-        // State: Ready to record (stream is active)
-        else {
+        } else {
             startRecording();
         }
     });
 
     function startRecording() {
         recordedBlobs = [];
-        try {
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-        } catch (e) {
-            console.error('Exception while creating MediaRecorder:', e);
-            recorderStatus.textContent = "Recording format not supported by browser.";
-            return;
+        const options = { mimeType: 'video/webm; codecs=vp9' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+             options.mimeType = 'video/webm; codecs=vp8';
+             if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                 options.mimeType = 'video/webm';
+             }
         }
+        mediaRecorder = new MediaRecorder(stream, options);
         mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
         mediaRecorder.onstop = handleStop;
         mediaRecorder.start();
         recordButton.classList.add('recording');
-        recordButton.style.animation = 'pulse 1.2s infinite';
-        recorderStatus.textContent = 'Recording... (max 6 seconds)';
-        
-        setTimeout(() => { 
-            if (mediaRecorder && mediaRecorder.state === "recording") {
-                mediaRecorder.stop(); 
-            }
-        }, 6000);
+        recorderStatus.textContent = 'Recording...';
+        setTimeout(() => { if (mediaRecorder.state === "recording") mediaRecorder.stop(); }, 6000);
     }
     
     function handleStop() {
         recordButton.classList.remove('recording');
         recordButton.classList.add('previewing');
-        recordButton.style.animation = '';
         recorderStatus.textContent = 'Previewing... Tap to re-record.';
-
         const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
         preview.srcObject = null;
-        preview.src = window.URL.createObjectURL(superBuffer);
-        preview.muted = false; 
-        preview.controls = true;
-
-        stream.getTracks().forEach(track => track.stop()); // Stop camera stream
-        stream = null; // Clear stream variable
-
+        currentBlobUrl = window.URL.createObjectURL(superBuffer);
+        preview.src = currentBlobUrl;
+        preview.muted = false; preview.controls = true; preview.loop = true;
         sixForm.style.display = 'block';
     }
 
     function resetRecorder() {
+        if (currentBlobUrl) {
+            window.URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = null;
+        }
         sixForm.style.display = 'none';
         recordButton.classList.remove('previewing');
-        preview.src = null;
-        preview.controls = false; 
-        preview.muted = true;
-        preview.style.display = 'none';
-        cameraPlaceholder.style.display = 'flex';
-        recorderStatus.textContent = "Tap the button to start your camera";
+        preview.srcObject = stream;
+        preview.controls = false; preview.muted = true; preview.loop = false;
+        recorderStatus.textContent = "Tap the button to record";
     }
 
     sixForm.addEventListener('submit', (event) => {
         event.preventDefault();
         const formData = new FormData(sixForm);
         const videoBlob = new Blob(recordedBlobs, {type: 'video/webm'});
-        formData.append('video_file', videoBlob, `six-${current_user.id}-${Date.now()}.webm`);
+        formData.append('video_file', videoBlob, 'six-video.webm');
         const submitBtn = sixForm.querySelector('button');
         submitBtn.disabled = true; submitBtn.textContent = "Uploading...";
+        recorderStatus.textContent = 'Uploading...';
         
-        fetch("{{ url_for('create_post') }}", { method: 'POST', body: formData })
-        .then(response => { if (response.redirected) window.location.href = response.url; })
+        fetch("{{ url_for('create_six_post') }}", { method: 'POST', body: formData })
+        .then(response => {
+            if (response.redirected) {
+                window.location.href = response.url;
+                return;
+            }
+            if (!response.ok) {
+                return response.json().then(err => { 
+                    throw new Error(err.error || 'Server responded with an error.');
+                });
+            }
+        })
         .catch(error => {
             console.error('Error:', error);
-            submitBtn.disabled = false; submitBtn.textContent = "Post Six";
-            recorderStatus.textContent = "Upload failed. Please try again.";
+            recorderStatus.textContent = error.message || 'Upload failed. Please try again.';
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Post Six";
         });
     });
 </script>
-<style> @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(255, 82, 82, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); } } </style>
 {% endblock %}
 """,
+
+# --- NEW TEMPLATE: create_text_post.html ---
+"create_text_post.html": """
+{% extends "layout.html" %}
+{% block header_title %}New Post{% endblock %}
+{% block content %}
+<div style="padding:16px;">
+    <form method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+            <textarea name="text_content" rows="5" placeholder="What's on your mind?" required maxlength="280"></textarea>
+        </div>
+        <div class="form-group">
+            <label for="image_file">Attach an image (optional)</label>
+            <input type="file" id="image_file" name="image_file" accept="image/*">
+        </div>
+        <button type="submit" class="btn" style="width:100%; height: 40px;">Post</button>
+    </form>
+</div>
+{% endblock %}
+""",
+
 "edit_profile.html": """
 {% extends "layout.html" %}
 {% block header_title %}Settings{% endblock %}
@@ -554,17 +568,28 @@ templates = {
 <div style="padding:16px;">
     <h4>Edit Profile</h4>
     <form method="POST" action="{{ url_for('edit_profile') }}">
+        <input type="hidden" name="action" value="update_profile">
         <div class="form-group"><label for="bio">Bio</label><textarea id="bio" name="bio" rows="3" maxlength="150">{{ current_user.bio or '' }}</textarea></div>
-        <button type="submit" class="btn">Save Changes</button>
+        <button type="submit" class="btn">Save Bio</button>
     </form>
     <hr style="border-color: var(--border-color); margin: 30px 0;">
+    
+    <h4>Change Username</h4>
+    <form method="POST" action="{{ url_for('edit_profile') }}">
+        <input type="hidden" name="action" value="update_username">
+        <div class="form-group"><label for="username">New Username</label><input type="text" id="username" name="username" value="{{ current_user.username }}" required></div>
+        <div class="form-group"><label for="password_confirm">Confirm with your password</label><input type="password" id="password_confirm" name="password" required></div>
+        <button type="submit" class="btn">Change Username</button>
+    </form>
+    <hr style="border-color: var(--border-color); margin: 30px 0;">
+
     <h4>Account Actions</h4>
     <div style="border: 1px solid var(--red-color); border-radius: 8px; padding: 16px;">
         <h5 style="margin-top:0;">Delete Account</h5>
-        <p style="color:var(--text-muted);">This action is permanent. All your posts, comments, likes, and follower data will be removed.</p>
+        <p style="color:var(--text-muted);">This action is permanent. All your data will be removed.</p>
         <form action="{{ url_for('delete_account') }}" method="POST">
-             <div class="form-group"><label for="password">Confirm with your password</label><input type="password" id="password" name="password" required></div>
-            <button type="submit" class="btn btn-danger" onclick="return confirm('Are you absolutely sure? This cannot be undone.')">Delete My Account</button>
+             <div class="form-group"><label for="password_delete">Confirm with your password</label><input type="password" id="password_delete" name="password" required></div>
+            <button type="submit" class="btn btn-danger" onclick="return confirm('Are you absolutely sure?')">Delete My Account</button>
         </form>
     </div>
 </div>
@@ -579,7 +604,7 @@ templates = {
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div style="width: 80px; height: 80px; border-radius:50%; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-size: 2.5rem; font-weight:bold;">{{ user.username[0]|upper }}</div>
             <div style="text-align: right;">
-            {% if current_user != user %}
+            {% if current_user.is_authenticated and current_user != user %}
                 {% if not current_user.is_following(user) %} <a href="{{ url_for('follow', username=user.username) }}" class="btn">Follow</a>
                 {% else %} <a href="{{ url_for('unfollow', username=user.username) }}" class="btn btn-outline">Following</a> {% endif %}
             {% endif %}
@@ -610,15 +635,29 @@ templates = {
 {% extends "layout.html" %}
 {% block header_title %}Discover{% endblock %}
 {% block content %}
+    <div style="padding: 16px;">
+        <form method="GET" action="{{ url_for('discover') }}" class="form-group">
+            <input type="text" name="q" placeholder="Search for users..." value="{{ search_query or '' }}">
+        </form>
+    </div>
+
+    {% if search_active %}
+        <h4 style="padding: 0 16px;">Search Results for "{{ search_query }}"</h4>
+    {% endif %}
+
     {% for user in users %}
     <div style="border-bottom: 1px solid var(--border-color); padding:12px 16px; display:flex; align-items:center; gap:12px;">
-        <a href="{{ url_for('profile', username=user.username) }}" style="width: 40px; height: 40px; border-radius:50%; flex-shrink:0; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">{{ user.username[0]|upper }}</a>
+        <div style="width: 40px; height: 40px; border-radius:50%; flex-shrink:0; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">{{ user.username[0]|upper }}</div>
         <div style="flex-grow:1;">
             <a href="{{ url_for('profile', username=user.username) }}" style="color:var(--text-color); font-weight:bold;">{{ user.username }}</a>
             <p style="font-size: 0.9em; color: var(--text-muted); margin: 2px 0;">{{ user.bio|truncate(50) if user.bio else 'No bio yet.' }}</p>
         </div>
-        <div>{% if not current_user.is_following(user) %}<a href="{{ url_for('follow', username=user.username) }}" class="btn">Follow</a>{% endif %}</div>
+        <div>{% if current_user.is_authenticated and current_user != user and not current_user.is_following(user) %}<a href="{{ url_for('follow', username=user.username) }}" class="btn">Follow</a>{% endif %}</div>
     </div>
+    {% else %}
+        <p style="text-align:center; color:var(--text-muted); padding:20px;">
+            {% if search_active %}No users found matching your search.{% else %}No users to show.{% endif %}
+        </p>
     {% endfor %}
 {% endblock %}
 """,
@@ -657,17 +696,11 @@ app.jinja_loader = DictLoader(templates)
 
 # --- DATABASE MODELS ---
 followers = db.Table('followers',
-    db.Column('follower_id', db.Integer, db.ForeignKey('user.id')), 
-    db.Column('followed_id', db.Integer, db.ForeignKey('user.id'))
-)
+    db.Column('follower_id', db.Integer, db.ForeignKey('user.id')), db.Column('followed_id', db.Integer, db.ForeignKey('user.id')))
 reposts = db.Table('reposts',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id')), 
-    db.Column('post_id', db.Integer, db.ForeignKey('post.id'))
-)
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id')), db.Column('post_id', db.Integer, db.ForeignKey('post.id')))
 likes = db.Table('likes',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id')), 
-    db.Column('post_id', db.Integer, db.ForeignKey('post.id'))
-)
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id')), db.Column('post_id', db.Integer, db.ForeignKey('post.id')))
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -677,12 +710,7 @@ class User(UserMixin, db.Model):
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Post.user_id')
     reposts = db.relationship('Post', secondary=reposts, backref=db.backref('reposted_by', lazy='dynamic'), lazy='dynamic')
     liked_posts = db.relationship('Post', secondary=likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
-    followed = db.relationship('User', secondary=followers, 
-                               primaryjoin=(followers.c.follower_id == id), 
-                               secondaryjoin=(followers.c.followed_id == id), 
-                               backref=db.backref('followers', lazy='dynamic'), 
-                               lazy='dynamic')
-
+    followed = db.relationship('User', secondary=followers, primaryjoin=(followers.c.follower_id == id), secondaryjoin=(followers.c.followed_id == id), backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
     def check_password(self, pw): return check_password_hash(self.password_hash, pw)
     def is_following(self, u): return self.followed.filter(followers.c.followed_id == u.id).count() > 0
@@ -690,21 +718,22 @@ class User(UserMixin, db.Model):
         if not self.is_following(u): self.followed.append(u)
     def unfollow(self, u):
         if self.is_following(u): self.followed.remove(u)
-
     @property
     def pfp_gradient(self):
         colors = [("#ef4444", "#fb923c"), ("#a855f7", "#ec4899"), ("#84cc16", "#22c55e"), ("#0ea5e9", "#6366f1")]
-        c1, c2 = colors[hash(self.username) % len(colors)]
-        return f"linear-gradient(45deg, {c1}, {c2})"
+        c1, c2 = colors[hash(self.username) % len(colors)]; return f"linear-gradient(45deg, {c1}, {c2})"
 
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    post_type = db.Column(db.String(10), nullable=False)
-    text_content = db.Column(db.String(150))
-    video_filename = db.Column(db.String(120))
+    post_type = db.Column(db.String(10), nullable=False) # 'text' or 'six'
+    text_content = db.Column(db.String(280))
+    # --- MODIFIED: Added image_filename ---
+    image_filename = db.Column(db.String(120), nullable=True)
+    video_filename = db.Column(db.String(120), nullable=True)
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
+    likes_count = db.Column(db.Integer, default=0, nullable=False)
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -712,7 +741,7 @@ class Comment(db.Model):
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'))
-    user = db.relationship('User', backref=db.backref('comments', cascade="all, delete-orphan"))
+    user = db.relationship('User')
 
 # --- ROUTES ---
 @login_manager.user_loader
@@ -724,12 +753,17 @@ def home():
     feed_type = request.args.get('feed_type', 'text')
     followed_ids = [u.id for u in current_user.followed]
     followed_ids.append(current_user.id)
+    
     query = Post.query.filter(Post.user_id.in_(followed_ids))
     if feed_type == 'text':
-        posts = query.filter(Post.post_type != 'six').order_by(Post.timestamp.desc()).all()
-    else: # sixs
+        posts = query.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
+    else:
         posts = query.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
-    for p in posts: p.liked_by_current_user = current_user in p.liked_by
+    
+    liked_post_ids = {p.id for p in current_user.liked_posts.all()}
+    for p in posts:
+        p.liked_by_current_user = p.id in liked_post_ids
+        
     return render_template('home.html', posts=posts, feed_type=feed_type)
 
 @app.route('/profile/<username>')
@@ -737,88 +771,145 @@ def home():
 def profile(username):
     user = User.query.filter_by(username=username).first_or_404()
     active_tab = request.args.get('tab', 'posts')
-    if active_tab == 'reposts': 
-        posts = user.reposts.order_by(Post.timestamp.desc()).all()
-    elif active_tab == 'likes': 
-        posts = user.liked_posts.order_by(Post.timestamp.desc()).all()
-    else: 
-        posts = user.posts.filter(Post.post_type != 'six').order_by(Post.timestamp.desc()).all()
+    if active_tab == 'reposts': posts = user.reposts.order_by(Post.timestamp.desc()).all()
+    elif active_tab == 'likes': posts = user.liked_posts.order_by(Post.timestamp.desc()).all()
+    else: posts = user.posts.filter_by(post_type='text').order_by(Post.timestamp.desc()).all() # Show only text posts on profile
     
-    for p in posts: p.liked_by_current_user = current_user in p.liked_by
+    liked_post_ids = {p.id for p in current_user.liked_posts.all()}
+    for p in posts:
+        p.liked_by_current_user = p.id in liked_post_ids
+        
     return render_template('profile.html', user=user, posts=posts, active_tab=active_tab)
 
-@app.route('/create', methods=['GET', 'POST'])
+# --- NEW: Route for creating text posts with images ---
+@app.route('/create_text', methods=['GET', 'POST'])
 @login_required
-def create_post():
+def create_text_post():
     if request.method == 'POST':
-        post_type = request.form.get('post_type')
-        if post_type == 'six':
-            video_file = request.files.get('video_file')
-            if not video_file: 
-                flash('Video data not received.', 'error')
-                return redirect(url_for('create_post'))
-            filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
-            video_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            post = Post(post_type='six', text_content=request.form.get('caption', ''), video_filename=filename, author=current_user)
-            db.session.add(post)
-            db.session.commit()
-            flash('Six posted successfully!', 'success')
-            return redirect(url_for('home', feed_type='sixs'))
+        text_content = request.form.get('text_content', '').strip()
+        if not text_content:
+            flash('Post content cannot be empty.', 'error')
+            return redirect(url_for('create_text_post'))
+        
+        image_file = request.files.get('image_file')
+        image_filename = None
+        if image_file and image_file.filename != '' and allowed_file(image_file.filename):
+            image_filename = secure_filename(f"img_{current_user.id}_{int(datetime.datetime.now().timestamp())}.{image_file.filename.rsplit('.', 1)[1].lower()}")
+            image_file.save(os.path.join(app.config['UPLOAD_FOLDER'], image_filename))
+
+        post = Post(post_type='text', text_content=text_content, image_filename=image_filename, author=current_user)
+        db.session.add(post)
+        db.session.commit()
+        flash('Post created successfully!', 'success')
+        return redirect(url_for('home'))
+
+    return render_template('create_text_post.html')
+
+# --- MODIFIED: Renamed route for clarity ---
+@app.route('/create_six', methods=['GET', 'POST'])
+@login_required
+def create_six_post():
+    if request.method == 'POST':
+        video_file = request.files.get('video_file')
+        if not video_file: 
+            return jsonify({'error': 'Video data not received.'}), 400
+        
+        filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
+        video_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        
+        post = Post(post_type='six', text_content=request.form.get('caption', ''), video_filename=filename, author=current_user)
+        db.session.add(post); db.session.commit()
+        
+        flash('Six posted successfully!', 'success')
+        return redirect(url_for('home', feed_type='sixs'))
+
     return render_template('create_post.html')
 
 @app.route('/post/<int:post_id>/comments')
 @login_required
 def get_comments(post_id):
-    comments_data = [{'text': c.text, 'timestamp': c.timestamp.strftime('%b %d'), 'user': {'username': c.user.username, 'pfp_gradient': c.user.pfp_gradient, 'initial': c.user.username[0].upper()}} for c in Post.query.get_or_404(post_id).comments.order_by(Comment.timestamp.asc()).all()]
+    post = Post.query.get_or_404(post_id)
+    comments = post.comments.order_by(Comment.timestamp.asc()).all()
+    comments_data = [{'text': c.text, 'timestamp': c.timestamp.strftime('%b %d'), 'user': {'username': c.user.username, 'pfp_gradient': c.user.pfp_gradient, 'initial': c.user.username[0].upper()}} for c in comments]
     return jsonify(comments_data)
 
 @app.route('/post/<int:post_id>/comment', methods=['POST'])
 @login_required
 def add_comment(post_id):
-    data = request.get_json()
-    text = data.get('text', '').strip()
+    data = request.get_json(); text = data.get('text', '').strip()
     if not text: return jsonify({'error': 'Comment text is required'}), 400
     comment = Comment(text=text, user_id=current_user.id, post_id=post_id)
-    db.session.add(comment)
-    db.session.commit()
+    db.session.add(comment); db.session.commit()
     return jsonify({'success': True}), 201
 
 @app.route('/like/<int:post_id>', methods=['POST'])
 @login_required
 def like(post_id):
     post = Post.query.get_or_404(post_id)
-    if current_user in post.liked_by: 
+    if current_user in post.liked_by:
         post.liked_by.remove(current_user)
+        post.likes_count = max(0, post.likes_count - 1)
         liked = False
-    else: 
+    else:
         post.liked_by.append(current_user)
+        post.likes_count = post.likes_count + 1
         liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': len(post.liked_by.all())})
+    return jsonify({'liked': liked, 'likes': post.likes_count})
 
 @app.route('/repost/<int:post_id>', methods=['POST'])
 @login_required
 def repost(post_id):
     post = Post.query.get_or_404(post_id)
-    if post.author == current_user: 
-        return jsonify({'success': False, 'message': "You can't repost your own post."})
-    if post in current_user.reposts: 
+    if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
+    
+    reposted = False
+    if post in current_user.reposts:
         current_user.reposts.remove(post)
         message = "Repost removed."
-    else: 
+    else:
         current_user.reposts.append(post)
         message = "Post reposted!"
+        reposted = True
+        
     db.session.commit()
-    return jsonify({'success': True, 'message': message})
+    return jsonify({'success': True, 'message': message, 'reposted': reposted})
 
+# --- MODIFIED: Route to handle username change and bio update ---
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
 def edit_profile():
     if request.method == 'POST':
-        current_user.bio = request.form.get('bio', current_user.bio)
-        db.session.commit()
-        flash('Profile updated!', 'success')
-        return redirect(url_for('profile', username=current_user.username))
+        action = request.form.get('action')
+        
+        if action == 'update_profile':
+            current_user.bio = request.form.get('bio', current_user.bio)
+            db.session.commit()
+            flash('Profile updated!', 'success')
+            return redirect(url_for('profile', username=current_user.username))
+
+        elif action == 'update_username':
+            new_username = request.form.get('username', '').strip()
+            password = request.form.get('password')
+
+            if not current_user.check_password(password):
+                flash('Incorrect password.', 'error')
+                return redirect(url_for('edit_profile'))
+            
+            if len(new_username) < 3:
+                flash('Username must be at least 3 characters long.', 'error')
+                return redirect(url_for('edit_profile'))
+
+            existing_user = User.query.filter(User.username == new_username, User.id != current_user.id).first()
+            if existing_user:
+                flash('That username is already taken.', 'error')
+                return redirect(url_for('edit_profile'))
+
+            current_user.username = new_username
+            db.session.commit()
+            flash('Username changed successfully!', 'success')
+            return redirect(url_for('profile', username=new_username))
+
     return render_template('edit_profile.html')
 
 @app.route('/delete_account', methods=['POST'])
@@ -827,38 +918,38 @@ def delete_account():
     if not current_user.check_password(request.form.get('password')):
         flash('Incorrect password. Account not deleted.', 'error')
         return redirect(url_for('edit_profile'))
-    
-    user_to_delete = User.query.get(current_user.id)
-    logout_user() # Log out before deleting session-tied data
-    
-    db.session.delete(user_to_delete)
-    db.session.commit()
-    
+    user = User.query.get(current_user.id)
+    logout_user()
+    db.session.delete(user); db.session.commit()
     flash('Your account has been permanently deleted.', 'success')
     return redirect(url_for('login'))
 
+# --- MODIFIED: Route to handle user search ---
 @app.route('/discover')
 @login_required
 def discover():
-    users = User.query.filter(User.id != current_user.id).order_by(db.func.random()).limit(15).all()
-    return render_template('discover.html', users=users)
+    search_query = request.args.get('q', '').strip()
+    search_active = bool(search_query)
+    
+    if search_active:
+        users = User.query.filter(User.username.ilike(f'%{search_query}%'), User.id != current_user.id).limit(20).all()
+    else:
+        users = User.query.filter(User.id != current_user.id).order_by(db.func.random()).limit(15).all()
+        
+    return render_template('discover.html', users=users, search_active=search_active, search_query=search_query)
 
 @app.route('/follow/<username>')
 @login_required
 def follow(username):
     user = User.query.filter_by(username=username).first_or_404()
-    if user != current_user: 
-        current_user.follow(user)
-        db.session.commit()
+    if user != current_user: current_user.follow(user); db.session.commit()
     return redirect(request.referrer or url_for('home'))
 
 @app.route('/unfollow/<username>')
 @login_required
 def unfollow(username):
     user = User.query.filter_by(username=username).first_or_404()
-    if user != current_user: 
-        current_user.unfollow(user)
-        db.session.commit()
+    if user != current_user: current_user.unfollow(user); db.session.commit()
     return redirect(request.referrer or url_for('home'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -867,8 +958,7 @@ def login():
     if request.method == 'POST':
         user = User.query.filter_by(username=request.form['username']).first()
         if user and user.check_password(request.form['password']):
-            login_user(user, remember=True)
-            return redirect(url_for('home'))
+            login_user(user, remember=True); return redirect(url_for('home'))
         flash('Invalid username or password.', 'error')
     return render_template('auth_form.html', title="Login", form_type="login")
 
@@ -876,18 +966,21 @@ def login():
 def signup():
     if current_user.is_authenticated: return redirect(url_for('home'))
     if request.method == 'POST':
-        if User.query.filter_by(username=request.form['username']).first():
-            flash('Username already taken.', 'error')
+        username = request.form.get('username', '').strip()
+        if len(username) < 3:
+            flash('Username must be at least 3 characters long.', 'error')
             return redirect(url_for('signup'))
-        new_user = User(username=request.form['username'], bio=request.form.get('bio', ''))
+        if User.query.filter_by(username=username).first():
+            flash('Username already taken.', 'error'); return redirect(url_for('signup'))
+        
+        new_user = User(username=username, bio=request.form.get('bio', ''))
         new_user.set_password(request.form['password'])
-        db.session.add(new_user)
-        db.session.commit()
-        flash('Account created! Please log in.', 'success')
-        return redirect(url_for('login'))
+        db.session.add(new_user); db.session.commit()
+        flash('Account created! Please log in.', 'success'); return redirect(url_for('login'))
     return render_template('auth_form.html', title="Sign Up", form_type="signup")
 
 @app.route('/logout')
+@login_required
 def logout():
     logout_user()
     return redirect(url_for('login'))
@@ -895,7 +988,6 @@ def logout():
 # --- MAIN EXECUTION ---
 if __name__ == '__main__':
     with app.app_context():
-        if not os.path.exists(app.config['UPLOAD_FOLDER']): 
-            os.makedirs(app.config['UPLOAD_FOLDER'])
+        if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
         db.create_all()
     app.run(debug=True, host='0.0.0.0', port=8000)
