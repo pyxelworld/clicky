@@ -992,33 +992,28 @@ templates = {
         progressCircle.style.strokeDashoffset = offset;
     }
 
-    async function initCamera(isSwitching = false) {
+    async function setupStream() {
+        if (stream) { stream.getTracks().forEach(track => track.stop()); }
+        const constraints = { audio: true, video: { width: 480, height: 480, facingMode: facingMode } };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        preview.srcObject = stream;
+        preview.classList.toggle('mirrored', facingMode === 'user');
+        
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+        mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
+        mediaRecorder.onstop = handleStop;
+    }
+
+    async function initCamera() {
         try {
-            if (stream) { stream.getTracks().forEach(track => track.stop()); }
-            const constraints = { audio: true, video: { width: 480, height: 480, facingMode: facingMode } };
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
-            
             permissionPrompt.style.display = 'none';
             sixCreatorUI.style.display = 'flex';
             if (!sixCreatorUI.classList.contains('visible')) {
                 setTimeout(() => sixCreatorUI.classList.add('visible'), 10);
             }
-            
-            preview.srcObject = stream;
-            preview.classList.toggle('mirrored', facingMode === 'user');
-            
-            // If we are just switching camera while paused, we don't reset everything.
-            if (isSwitching && recorderState === 'paused') {
-                // Just prepare the recorder for the next clip and update UI.
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-                mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
-                mediaRecorder.onstop = handleStop;
-                updateUI();
-            } else {
-                // Otherwise, it's a fresh start or a full retake.
-                resetRecorder();
-            }
-
+            await setupStream();
+            resetRecorder();
         } catch (e) {
             console.error(e);
             recorderState = 'idle';
@@ -1061,9 +1056,7 @@ templates = {
     function startRecording() {
         if (recorderState !== 'idle') return;
         recordedBlobs = [];
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-        mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
-        mediaRecorder.onstop = handleStop;
+        recordedDuration = 0;
         mediaRecorder.start();
         recorderState = 'recording';
         startTimer();
@@ -1133,11 +1126,13 @@ templates = {
     
     function stopTimer() { clearInterval(timerInterval); }
 
-    enableCameraBtn.addEventListener('click', () => initCamera(false));
-    switchCameraBtn.addEventListener('click', () => {
+    enableCameraBtn.addEventListener('click', initCamera);
+    
+    switchCameraBtn.addEventListener('click', async () => {
         if (recorderState === 'idle' || recorderState === 'paused') {
             facingMode = (facingMode === 'user') ? 'environment' : 'user';
-            initCamera(true); // Pass true to indicate it's a switch
+            await setupStream(); // Just setup the new stream
+            updateUI(); // The UI state remains 'paused'
         }
     });
     
@@ -1145,8 +1140,9 @@ templates = {
         if (recorderState === 'idle') startRecording();
         else if (recorderState === 'recording') pauseRecording();
     });
+    
     pauseResumeBtn.addEventListener('click', resumeRecording);
-    retakeBtn.addEventListener('click', () => initCamera(false));
+    retakeBtn.addEventListener('click', resetRecorder);
     finishBtn.addEventListener('click', stopRecording);
     
     sixForm.addEventListener('submit', (event) => {
