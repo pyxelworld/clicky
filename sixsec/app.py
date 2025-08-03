@@ -2,7 +2,8 @@ import os
 import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, not_, and_ # <<< IMPORTED and_
+from sqlalchemy import func, not_, and_
+from sqlalchemy.orm import foreign # <<< IMPORTED and_
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
@@ -149,7 +150,7 @@ class Post(db.Model):
     
     # *** FIXED RELATIONSHIP ***
     notifications = db.relationship('Notification',
-                                    primaryjoin=and_(id == Notification.object_id, Notification.object_type == 'post'),
+                                    primaryjoin=and_(id == foreign(Notification.object_id), Notification.object_type == 'post'),
                                     lazy='dynamic', cascade="all, delete-orphan")
 
 class Comment(db.Model):
@@ -165,7 +166,7 @@ class Comment(db.Model):
     
     # *** FIXED RELATIONSHIP ***
     notifications = db.relationship('Notification',
-                                     primaryjoin=and_(id == Notification.object_id, Notification.object_type == 'comment'),
+                                     primaryjoin=and_(id == foreign(Notification.object_id), Notification.object_type == 'comment'),
                                      lazy='dynamic', cascade="all, delete-orphan")
 
 
