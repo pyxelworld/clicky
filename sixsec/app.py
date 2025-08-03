@@ -144,9 +144,9 @@ templates = {
     <main {% if not (request.endpoint == 'home' and feed_type == 'sixs') %}class="container"{% endif %}>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-            <div style="position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index: 9999;">
+            <div style="position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index: 9999; max-width: 90%;">
                 {% for category, message in messages %}
-                <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 15px; background-color: var(--accent-color); color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">{{ message }}</div>
+                <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 15px; background-color: {% if category == 'error' %}var(--red-color){% else %}var(--accent-color){% endif %}; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center;">{{ message }}</div>
                 {% endfor %}
             </div>
             {% endif %}
@@ -267,7 +267,6 @@ templates = {
         background: none; border: none; color: white;
         display: flex; flex-direction: column; align-items: center;
         gap: 5px; cursor: pointer; font-size: 13px;
-        transition: color 0.2s;
     }
     .six-actions svg { width: 32px; height: 32px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
     .six-actions .liked svg { fill: var(--red-color); stroke: var(--red-color); }
@@ -280,6 +279,17 @@ templates = {
     </div>
 
     {% if feed_type == 'text' %}
+        <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">
+            <form method="POST" action="{{ url_for('create_text_post') }}" enctype="multipart/form-data">
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <textarea name="text_content" rows="3" placeholder="What's happening?" required maxlength="150" style="resize:vertical;"></textarea>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <input type="file" name="image" accept="image/png, image/jpeg, image/gif">
+                    <button type="submit" class="btn">Post</button>
+                </div>
+            </form>
+        </div>
         {% for post in posts %}
             {% include 'post_card_text.html' %}
         {% else %}
@@ -304,7 +314,7 @@ templates = {
                     <div class="six-actions">
                         <button onclick="handleLike(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}">
                             {{ ICONS.like|safe }}
-                            <span id="like-count-{{ post.id }}">{{ post.likes_count }}</span>
+                            <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
                         </button>
                         <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
                         <button onclick="handleRepost(this, {{ post.id }})">{{ ICONS.repost|safe }}</button>
@@ -322,43 +332,14 @@ templates = {
     {% endif %}
 {% endblock %}
 {% block scripts %}
-{% if feed_type == 'text' %}
-<script>
-    async function handleLikeText(button, postId) {
-        const response = await fetch(`/like/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        button.querySelector('span').innerText = data.likes;
-        button.classList.toggle('liked', data.liked);
-        if (data.liked) {
-            button.style.color = 'var(--red-color)';
-        } else {
-            button.style.color = 'var(--text-muted)';
-        }
-    }
-    async function handleRepostText(button, postId) {
-        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        if (data.success) {
-            button.style.color = data.reposted ? 'var(--accent-color)' : 'var(--text-muted)';
-        }
-        alert(data.message);
-    }
-</script>
-{% endif %}
 {% if feed_type == 'sixs' %}
 <script>
     const videos = document.querySelectorAll('.six-video');
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const video = entry.target;
-            if (entry.isIntersecting) { 
-                video.play().catch(e => console.log("Autoplay was prevented.")); 
-            } else { 
-                video.pause();
-                video.currentTime = 0; // Reset video on scroll away
-            }
+            if (entry.isIntersecting) { entry.target.play(); } else { entry.target.pause(); }
         });
-    }, { threshold: 0.8 }); // FIX: Increased threshold for better UX
+    }, { threshold: 0.5 });
     videos.forEach(video => observer.observe(video));
     
     async function handleLike(button, postId) {
@@ -371,9 +352,8 @@ templates = {
         const response = await fetch(`/repost/${postId}`, { method: 'POST' });
         const data = await response.json();
         if(data.success) {
-            // FIX: Use returned state to toggle color
-            button.style.color = data.reposted ? 'var(--accent-color)' : 'white';
-            alert(data.message); // FIX: Use message from server
+            button.style.color = 'var(--accent-color)';
+            alert('Reposted!');
         } else {
             alert(data.message);
         }
@@ -396,13 +376,31 @@ templates = {
             <span style="color:var(--text-muted);">· {{ post.timestamp.strftime('%b %d') }}</span>
         </div>
         <p style="margin: 4px 0 12px 0;">{{ post.text_content }}</p>
+        {% if post.image_filename %}
+            <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color);">
+        {% endif %}
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
             <button onclick="openCommentModal({{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
             <button onclick="handleRepostText(this, {{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.repost|safe }}</button>
-            <button onclick="handleLikeText(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:{{ 'var(--red-color)' if post.liked_by_current_user else 'var(--text-muted)' }}; display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.likes_count }}</span></button>
+            <button onclick="handleLikeText(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span></button>
         </div>
     </div>
 </div>
+<script>
+    async function handleLikeText(button, postId) {
+        const response = await fetch(`/like/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        button.querySelector('span').innerText = data.likes;
+        button.classList.toggle('liked', data.liked);
+        if(data.liked) button.style.color = 'var(--red-color)'; else button.style.color = 'var(--text-muted)';
+    }
+    async function handleRepostText(button, postId) {
+        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        if(data.success) button.style.color = 'var(--accent-color)';
+        alert(data.message);
+    }
+</script>
 """,
 "create_post.html": """
 {% extends "layout.html" %}
@@ -426,7 +424,6 @@ templates = {
 {% block scripts %}
 <script>
     let mediaRecorder; let recordedBlobs; let stream;
-    let currentBlobUrl = null; // FIX: Variable to track blob URL for memory management
     const recordButton = document.getElementById('record-button');
     const preview = document.getElementById('video-preview');
     const sixForm = document.getElementById('six-form-element');
@@ -456,14 +453,7 @@ templates = {
 
     function startRecording() {
         recordedBlobs = [];
-        const options = { mimeType: 'video/webm; codecs=vp9' };
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-             options.mimeType = 'video/webm; codecs=vp8';
-             if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                 options.mimeType = 'video/webm';
-             }
-        }
-        mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
         mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
         mediaRecorder.onstop = handleStop;
         mediaRecorder.start();
@@ -478,23 +468,16 @@ templates = {
         recorderStatus.textContent = 'Previewing... Tap to re-record.';
         const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
         preview.srcObject = null;
-        // FIX: Store and use the blob URL
-        currentBlobUrl = window.URL.createObjectURL(superBuffer);
-        preview.src = currentBlobUrl;
-        preview.muted = false; preview.controls = true; preview.loop = true;
+        preview.src = window.URL.createObjectURL(superBuffer);
+        preview.muted = false; preview.controls = true;
         sixForm.style.display = 'block';
     }
 
     function resetRecorder() {
-        // FIX: Revoke the old blob URL to prevent memory leak
-        if (currentBlobUrl) {
-            window.URL.revokeObjectURL(currentBlobUrl);
-            currentBlobUrl = null;
-        }
         sixForm.style.display = 'none';
         recordButton.classList.remove('previewing');
         preview.srcObject = stream;
-        preview.controls = false; preview.muted = true; preview.loop = false;
+        preview.controls = false; preview.muted = true;
         recorderStatus.textContent = "Tap the button to record";
     }
 
@@ -505,28 +488,9 @@ templates = {
         formData.append('video_file', videoBlob, 'six-video.webm');
         const submitBtn = sixForm.querySelector('button');
         submitBtn.disabled = true; submitBtn.textContent = "Uploading...";
-        recorderStatus.textContent = 'Uploading...';
-        
-        // FIX: Improved fetch with error handling
         fetch("{{ url_for('create_post') }}", { method: 'POST', body: formData })
-        .then(response => {
-            if (response.redirected) {
-                window.location.href = response.url;
-                return;
-            }
-            if (!response.ok) {
-                 // Try to get error message from server JSON response
-                return response.json().then(err => { 
-                    throw new Error(err.error || 'Server responded with an error.');
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            recorderStatus.textContent = error.message || 'Upload failed. Please try again.';
-            submitBtn.disabled = false;
-            submitBtn.textContent = "Post Six";
-        });
+        .then(response => { if (response.redirected) window.location.href = response.url; })
+        .catch(error => console.error('Error:', error));
     });
 </script>
 {% endblock %}
@@ -539,7 +503,14 @@ templates = {
 <div style="padding:16px;">
     <h4>Edit Profile</h4>
     <form method="POST" action="{{ url_for('edit_profile') }}">
-        <div class="form-group"><label for="bio">Bio</label><textarea id="bio" name="bio" rows="3" maxlength="150">{{ current_user.bio or '' }}</textarea></div>
+        <div class="form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" value="{{ current_user.username }}" required minlength="3" maxlength="80">
+        </div>
+        <div class="form-group">
+            <label for="bio">Bio</label>
+            <textarea id="bio" name="bio" rows="3" maxlength="150">{{ current_user.bio or '' }}</textarea>
+        </div>
         <button type="submit" class="btn">Save Changes</button>
     </form>
     <hr style="border-color: var(--border-color); margin: 30px 0;">
@@ -564,7 +535,7 @@ templates = {
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div style="width: 80px; height: 80px; border-radius:50%; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-size: 2.5rem; font-weight:bold;">{{ user.username[0]|upper }}</div>
             <div style="text-align: right;">
-            {% if current_user.is_authenticated and current_user != user %}
+            {% if current_user != user %}
                 {% if not current_user.is_following(user) %} <a href="{{ url_for('follow', username=user.username) }}" class="btn">Follow</a>
                 {% else %} <a href="{{ url_for('unfollow', username=user.username) }}" class="btn btn-outline">Following</a> {% endif %}
             {% endif %}
@@ -589,35 +560,20 @@ templates = {
         <p style="text-align:center; color:var(--text-muted); padding:40px;">No posts in this section.</p>
     {% endfor %}
 {% endblock %}
-{% block scripts %}
-<script>
-    async function handleLikeText(button, postId) {
-        const response = await fetch(`/like/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        button.querySelector('span').innerText = data.likes;
-        button.classList.toggle('liked', data.liked);
-        if (data.liked) {
-            button.style.color = 'var(--red-color)';
-        } else {
-            button.style.color = 'var(--text-muted)';
-        }
-    }
-    async function handleRepostText(button, postId) {
-        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        if (data.success) {
-            button.style.color = data.reposted ? 'var(--accent-color)' : 'var(--text-muted)';
-        }
-        alert(data.message);
-    }
-</script>
-{% endblock %}
 """,
 
 "discover.html": """
 {% extends "layout.html" %}
 {% block header_title %}Discover{% endblock %}
 {% block content %}
+    <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
+        <form method="GET" action="{{ url_for('discover') }}">
+            <div style="display: flex; gap: 8px;">
+                <input type="search" name="q" placeholder="Search for users..." class="form-group" style="margin:0; flex-grow:1;" value="{{ request.args.get('q', '') }}">
+                <button type="submit" class="btn">{{ ICONS.discover|safe }}</button>
+            </div>
+        </form>
+    </div>
     {% for user in users %}
     <div style="border-bottom: 1px solid var(--border-color); padding:12px 16px; display:flex; align-items:center; gap:12px;">
         <div style="width: 40px; height: 40px; border-radius:50%; flex-shrink:0; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">{{ user.username[0]|upper }}</div>
@@ -625,8 +581,18 @@ templates = {
             <a href="{{ url_for('profile', username=user.username) }}" style="color:var(--text-color); font-weight:bold;">{{ user.username }}</a>
             <p style="font-size: 0.9em; color: var(--text-muted); margin: 2px 0;">{{ user.bio|truncate(50) if user.bio else 'No bio yet.' }}</p>
         </div>
-        <div>{% if not current_user.is_following(user) %}<a href="{{ url_for('follow', username=user.username) }}" class="btn">Follow</a>{% endif %}</div>
+        <div>
+            {% if user != current_user %}
+                {% if not current_user.is_following(user) %}
+                    <a href="{{ url_for('follow', username=user.username) }}" class="btn">Follow</a>
+                {% else %}
+                    <a href="{{ url_for('unfollow', username=user.username) }}" class="btn btn-outline">Following</a>
+                {% endif %}
+            {% endif %}
+        </div>
     </div>
+    {% else %}
+        <p style="text-align:center; padding: 40px; color: var(--text-muted);">No users found.</p>
     {% endfor %}
 {% endblock %}
 """,
@@ -697,11 +663,10 @@ class Post(db.Model):
     post_type = db.Column(db.String(10), nullable=False)
     text_content = db.Column(db.String(150))
     video_filename = db.Column(db.String(120))
+    image_filename = db.Column(db.String(120), nullable=True) # ADDED: For text post images
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
-    # FIX: Add a counter cache for likes to improve performance
-    likes_count = db.Column(db.Integer, default=0, nullable=False)
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -721,18 +686,12 @@ def home():
     feed_type = request.args.get('feed_type', 'text')
     followed_ids = [u.id for u in current_user.followed]
     followed_ids.append(current_user.id)
-    
     query = Post.query.filter(Post.user_id.in_(followed_ids))
     if feed_type == 'text':
         posts = query.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
     else: # sixs
         posts = query.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
-    
-    # FIX: Resolve N+1 query problem by pre-fetching liked post IDs
-    liked_post_ids = {p.id for p in current_user.liked_posts.all()}
-    for p in posts:
-        p.liked_by_current_user = p.id in liked_post_ids
-        
+    for p in posts: p.liked_by_current_user = current_user in p.liked_by
     return render_template('home.html', posts=posts, feed_type=feed_type)
 
 @app.route('/profile/<username>')
@@ -742,49 +701,49 @@ def profile(username):
     active_tab = request.args.get('tab', 'posts')
     if active_tab == 'reposts': posts = user.reposts.order_by(Post.timestamp.desc()).all()
     elif active_tab == 'likes': posts = user.liked_posts.order_by(Post.timestamp.desc()).all()
-    else: posts = user.posts.order_by(Post.timestamp.desc()).all()
-    
-    # FIX: Resolve N+1 query problem by pre-fetching liked post IDs
-    liked_post_ids = {p.id for p in current_user.liked_posts.all()}
-    for p in posts:
-        p.liked_by_current_user = p.id in liked_post_ids
-        
+    else: posts = user.posts.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
+    for p in posts: p.liked_by_current_user = current_user in p.liked_by
     return render_template('profile.html', user=user, posts=posts, active_tab=active_tab)
 
 @app.route('/create', methods=['GET', 'POST'])
 @login_required
 def create_post():
     if request.method == 'POST':
-        video_file = request.files.get('video_file')
-        if not video_file: 
-            return jsonify({'error': 'Video data not received.'}), 400
-        
-        filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
-        video_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        
-        post = Post(post_type='six', text_content=request.form.get('caption', ''), video_filename=filename, author=current_user)
-        db.session.add(post); db.session.commit()
-        
-        flash('Six posted successfully!', 'success')
-        # The JS client will handle the redirect, but this provides a fallback.
-        return redirect(url_for('home', feed_type='sixs'))
-
+        post_type = request.form.get('post_type')
+        if post_type == 'text':
+             # This functionality is now handled by create_text_post from the home feed
+            flash('Text posts can be made from the home feed.', 'info'); return redirect(url_for('home'))
+        elif post_type == 'six':
+            video_file = request.files.get('video_file')
+            if not video_file: flash('Video data not received.', 'error'); return redirect(url_for('create_post'))
+            filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
+            video_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            post = Post(post_type='six', text_content=request.form.get('caption', ''), video_filename=filename, author=current_user)
+            db.session.add(post); db.session.commit()
+            flash('Six posted successfully!', 'success'); return redirect(url_for('home', feed_type='sixs'))
     return render_template('create_post.html')
+
+@app.route('/create_text_post', methods=['POST'])
+@login_required
+def create_text_post():
+    text = request.form.get('text_content')
+    image_file = request.files.get('image')
+    filename = None
+    if not text or not text.strip():
+        flash('Post content cannot be empty.', 'error')
+        return redirect(url_for('home'))
+    if image_file and image_file.filename != '':
+        filename = secure_filename(f"img_{current_user.id}_{int(datetime.datetime.now().timestamp())}{os.path.splitext(image_file.filename)[1]}")
+        image_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    post = Post(post_type='text', text_content=text, image_filename=filename, author=current_user)
+    db.session.add(post); db.session.commit()
+    flash('Post created!', 'success')
+    return redirect(url_for('home', feed_type='text'))
 
 @app.route('/post/<int:post_id>/comments')
 @login_required
 def get_comments(post_id):
-    post = Post.query.get_or_404(post_id)
-    comments = post.comments.order_by(Comment.timestamp.asc()).all()
-    comments_data = [{
-        'text': c.text, 
-        'timestamp': c.timestamp.strftime('%b %d'), 
-        'user': {
-            'username': c.user.username, 
-            'pfp_gradient': c.user.pfp_gradient, 
-            'initial': c.user.username[0].upper()
-        }
-    } for c in comments]
+    comments_data = [{'text': c.text, 'timestamp': c.timestamp.strftime('%b %d'), 'user': {'username': c.user.username, 'pfp_gradient': c.user.pfp_gradient, 'initial': c.user.username[0].upper()}} for c in Post.query.get_or_404(post_id).comments.order_by(Comment.timestamp.asc()).all()]
     return jsonify(comments_data)
 
 @app.route('/post/<int:post_id>/comment', methods=['POST'])
@@ -800,43 +759,44 @@ def add_comment(post_id):
 @login_required
 def like(post_id):
     post = Post.query.get_or_404(post_id)
-    if current_user in post.liked_by:
-        post.liked_by.remove(current_user)
-        post.likes_count = Post.likes_count - 1
-        liked = False
-    else:
-        post.liked_by.append(current_user)
-        post.likes_count = Post.likes_count + 1
-        liked = True
+    if current_user in post.liked_by: post.liked_by.remove(current_user); liked = False
+    else: post.liked_by.append(current_user); liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': post.likes_count})
+    return jsonify({'liked': liked, 'likes': len(post.liked_by.all())})
 
 @app.route('/repost/<int:post_id>', methods=['POST'])
 @login_required
 def repost(post_id):
     post = Post.query.get_or_404(post_id)
     if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
-    
-    reposted = False
-    if post in current_user.reposts:
-        current_user.reposts.remove(post)
-        message = "Repost removed."
-    else:
-        current_user.reposts.append(post)
-        message = "Post reposted!"
-        reposted = True
-        
+    if post in current_user.reposts: current_user.reposts.remove(post); message = "Repost removed."
+    else: current_user.reposts.append(post); message = "Post reposted!"
     db.session.commit()
-    # FIX: Return the new reposted state for accurate UI updates
-    return jsonify({'success': True, 'message': message, 'reposted': reposted})
+    return jsonify({'success': True, 'message': message})
 
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
 def edit_profile():
     if request.method == 'POST':
-        current_user.bio = request.form.get('bio', current_user.bio)
-        db.session.commit(); flash('Profile updated!', 'success')
+        new_username = request.form.get('username', '').strip()
+        new_bio = request.form.get('bio', current_user.bio).strip()
+
+        # Handle username change
+        if new_username and new_username != current_user.username:
+            # Case-insensitive check for existing user
+            existing_user = User.query.filter(User.username.ilike(new_username)).first()
+            if existing_user:
+                flash('Username is already taken.', 'error')
+                return redirect(url_for('edit_profile'))
+            current_user.username = new_username
+        
+        # Handle bio change
+        current_user.bio = new_bio
+        
+        db.session.commit()
+        flash('Profile updated!', 'success')
         return redirect(url_for('profile', username=current_user.username))
+    
     return render_template('edit_profile.html')
 
 @app.route('/delete_account', methods=['POST'])
@@ -855,8 +815,14 @@ def delete_account():
 @app.route('/discover')
 @login_required
 def discover():
-    # Note: db.func.random() can be slow on large tables with some DBs (e.g., PostgreSQL)
-    users = User.query.filter(User.id != current_user.id).order_by(db.func.random()).limit(15).all()
+    query = request.args.get('q')
+    if query:
+        # Search for users by username, case-insensitive, excluding self
+        search_term = f"%{query}%"
+        users = User.query.filter(User.username.ilike(search_term), User.id != current_user.id).all()
+    else:
+        # Show random users if no query, excluding self
+        users = User.query.filter(User.id != current_user.id).order_by(db.func.random()).limit(20).all()
     return render_template('discover.html', users=users)
 
 @app.route('/follow/<username>')
@@ -887,16 +853,16 @@ def login():
 def signup():
     if current_user.is_authenticated: return redirect(url_for('home'))
     if request.method == 'POST':
-        if User.query.filter_by(username=request.form['username']).first():
+        username = request.form.get('username').strip()
+        if User.query.filter(User.username.ilike(username)).first():
             flash('Username already taken.', 'error'); return redirect(url_for('signup'))
-        new_user = User(username=request.form['username'], bio=request.form.get('bio', ''))
+        new_user = User(username=username, bio=request.form.get('bio', ''))
         new_user.set_password(request.form['password'])
         db.session.add(new_user); db.session.commit()
         flash('Account created! Please log in.', 'success'); return redirect(url_for('login'))
     return render_template('auth_form.html', title="Sign Up", form_type="signup")
 
 @app.route('/logout')
-@login_required
 def logout():
     logout_user()
     return redirect(url_for('login'))
