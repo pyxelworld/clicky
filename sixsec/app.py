@@ -1252,8 +1252,6 @@ def like_comment(comment_id):
 @app.route('/repost/post/<int:post_id>', methods=['POST'])
 @login_required
 def repost_post(post_id):
-    post = Post.query.get_or_404(post_id)
-    if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
     
     caption = request.json.get('caption', '').strip() or None
     existing_repost = Repost.query.filter_by(user_id=current_user.id, post_id=post.id).first()
@@ -1275,8 +1273,6 @@ def repost_post(post_id):
 @login_required
 def repost_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
-    if comment.user == current_user:
-        return jsonify({'success': False, 'message': "You can't repost your own comment."})
 
     caption = request.json.get('caption', '').strip() or None
     existing_repost = CommentRepost.query.filter_by(user_id=current_user.id, comment_id=comment.id).first()
