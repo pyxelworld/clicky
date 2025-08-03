@@ -1,9 +1,10 @@
+
 import os
 import datetime
 import random
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, not_
+from sqlalchemy import func, not_, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
@@ -13,7 +14,7 @@ from jinja2 import BaseLoader, TemplateNotFound
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'a-chave-final-completa-e-polida-para-sixsec-v10-ptbr-final'
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec_v3.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -37,7 +38,7 @@ ICONS = {
     'repost': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>',
     'send': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>',
     'settings': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
-    'back_arrow': '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="12 19 5 12 12 5"></polyline></svg>',
+    'back_arrow': '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
     'redo': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>',
     'reply': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>',
     'logout': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>',
@@ -47,13 +48,35 @@ ICONS = {
     'notifications': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>',
     'camera_switch': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"></path><path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"></path><path d="m18 19-3-3 3-3"></path><path d="m6 5 3 3-3 3"></path></svg>',
     'pause': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg>',
-    'record_circle': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle></svg>',
+    'record_circle': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"></circle></svg>',
     'check': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
 }
 app.jinja_env.globals.update(ICONS=ICONS)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# --- BANCO DE DADOS ---
+followers = db.Table('followers',
+    db.Column('follower_id', db.Integer, db.ForeignKey('user.id')),
+    db.Column('followed_id', db.Integer, db.ForeignKey('user.id'))
+)
+post_likes = db.Table('post_likes',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
+    db.Column('post_id', db.Integer, db.ForeignKey('post.id'))
+)
+comment_likes = db.Table('comment_likes',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
+    db.Column('comment_id', db.Integer, db.ForeignKey('comment.id'))
+)
+seen_sixs_posts = db.Table('seen_sixs_posts',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('post_id', db.Integer, db.ForeignKey('post.id'), primary_key=True)
+)
+seen_text_posts = db.Table('seen_text_posts',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('post_id', db.Integer, db.ForeignKey('post.id'), primary_key=True)
+)
 
 # --- DICIONÁRIO DE TEMPLATES ---
 templates = {
@@ -84,7 +107,7 @@ templates = {
             font-size: 15px;
             overscroll-behavior-y: contain;
         }
-        body.sixs-view, body.creator-view { padding-bottom: 0; }
+        body.sixs-view, body.creator-view { padding-bottom: 0; background-color: #000; }
         .container { max-width: 600px; margin: 0 auto; }
         a { color: var(--accent-color); text-decoration: none; }
         .top-bar {
@@ -112,17 +135,19 @@ templates = {
              background: var(--accent-color); border-radius: 50%; width: 50px; height: 50px;
              display: flex; align-items: center; justify-content: center;
              transform: translateY(-15px); border: 4px solid var(--bg-color);
+             transition: transform 0.2s ease;
         }
+        .bottom-nav .create-btn:active { transform: translateY(-15px) scale(0.9); }
         .bottom-nav .create-btn svg { color: white; width: 28px; height: 28px; }
         .btn {
             background-color: var(--text-color); color: var(--bg-color); padding: 8px 16px;
             border-radius: 20px; border: none;
             cursor: pointer; font-weight: bold; font-size: 15px;
-            transition: opacity 0.2s ease, transform 0.2s ease;
+            transition: opacity 0.2s ease;
             display: inline-flex; align-items: center; justify-content: center; gap: 6px;
         }
         .btn:hover { opacity: 0.9; }
-        .btn:active { transform: scale(0.95); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-outline { background: transparent; border: 1px solid var(--text-muted); color: var(--text-color); }
         .btn-danger { background-color: var(--red-color); color: white; }
         .form-group { margin-bottom: 1.5rem; }
@@ -142,7 +167,7 @@ templates = {
             background-color: var(--bg-color); margin: auto auto 0 auto;
             border-radius: 16px 16px 0 0; width: 100%; max-width: 600px;
             max-height: 80vh; display: flex; flex-direction: column;
-            animation: slideUp 0.3s ease;
+            animation: slideUp 0.3s ease-out;
         }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .modal-header { padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; }
@@ -160,17 +185,36 @@ templates = {
         .comment-thread::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background-color: var(--border-color); }
         .view-replies-btn { font-size: 14px; color: var(--accent-color); background: none; border: none; cursor: pointer; padding: 4px 0; margin-top: 8px; }
         
+        .flash-message-container {
+            position: fixed; top: 10px; left: 50%; transform: translateX(-50%); 
+            z-index: 9999; max-width: 90%; pointer-events: none;
+        }
+        .flash-message {
+            padding: 12px 16px; border-radius: 8px; margin-bottom: 15px;
+            color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center;
+            animation: fadeInOut 3.5s ease-in-out forwards;
+        }
+        .flash-message.info { background-color: var(--accent-color); }
+        .flash-message.success { background-color: #0f7b4f; }
+        .flash-message.error { background-color: var(--red-color); }
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; transform: translateY(-20px); }
+            10%, 90% { opacity: 1; transform: translateY(0); }
+        }
+
         {% block style_override %}{% endblock %}
     </style>
 </head>
-<body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}class="sixs-view" style="overflow: hidden;"{% elif request.endpoint == 'create_post' %}class="creator-view" style="overflow: hidden;"{% endif %}>
+<body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}class="sixs-view" style="overflow: hidden;"
+      {% elif request.endpoint == 'create_post' %}class="creator-view" style="overflow: hidden;"
+      {% endif %}>
     
     {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') or request.endpoint == 'create_post') %}
     <header class="top-bar">
         <h1 class="logo">{% block header_title %}Início{% endblock %}</h1>
         <div>
         {% if request.endpoint == 'profile' and current_user == user %}
-            <a href="{{ url_for('edit_profile') }}">{{ ICONS.settings|safe }}</a>
+            <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }}</a>
         {% elif request.endpoint == 'home' %}
             {# Placeholder for future notification icon #}
         {% endif %}
@@ -179,15 +223,15 @@ templates = {
     {% endif %}
     
     <main {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs')) %}class="container"{% endif %}>
+        <div class="flash-message-container">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-            <div style="position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index: 9999; max-width: 90%; pointer-events:none;">
                 {% for category, message in messages %}
-                <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 15px; background-color: {% if category == 'error' %}var(--red-color){% else %}var(--accent-color){% endif %}; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);">{{ message }}</div>
+                <div class="flash-message {{ category }}">{{ message }}</div>
                 {% endfor %}
-            </div>
             {% endif %}
         {% endwith %}
+        </div>
         {% block content %}{% endblock %}
     </main>
 
@@ -281,7 +325,7 @@ templates = {
         const repliesWrapper = commentNode.querySelector('.replies-wrapper');
 
         if (repliesWrapper.style.display === 'none') {
-            if (!repliesWrapper.hasChildNodes()) {
+            if (!repliesWrapper.hasChildNodes()) { // Fetch only if empty
                 repliesWrapper.innerHTML = '<p style="color:var(--text-muted); padding-left:20px;">Carregando respostas...</p>';
                 const response = await fetch(`/comment/${commentId}/replies`);
                 const replies = await response.json();
@@ -321,10 +365,8 @@ templates = {
 
     function closeCommentModal() {
         commentModal.style.display = 'none';
-        const bodyClass = document.body.className;
-        if (!bodyClass.includes('sixs-view') && !bodyClass.includes('creator-view')) {
-            document.body.style.overflow = 'auto';
-        }
+        const isSixsView = document.body.classList.contains('sixs-view');
+        if (!isSixsView) document.body.style.overflow = 'auto';
         prepareReply(null, null);
     }
     
@@ -418,7 +460,11 @@ templates = {
         const data = await response.json();
         if(data.success) {
             const postElement = document.getElementById(`post-${postId}`);
-            if(postElement) postElement.remove();
+            if(postElement) {
+                postElement.style.transition = 'opacity 0.3s ease';
+                postElement.style.opacity = '0';
+                setTimeout(() => postElement.remove(), 300);
+            }
             flash(data.message, 'success');
         } else {
             flash(data.message, 'error');
@@ -426,27 +472,20 @@ templates = {
     }
 
     function flash(message, category = 'info') {
-        const container = document.body;
+        const container = document.querySelector('.flash-message-container') || document.body;
         const flashDiv = document.createElement('div');
-        flashDiv.style = `position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index: 9999; max-width: 90%; padding: 12px 16px; border-radius: 8px; background-color: ${category === 'error' ? 'var(--red-color)' : 'var(--accent-color)'}; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);`;
-        flashDiv.innerText = message;
-        
-        const existingFlashes = container.querySelectorAll(':scope > [style*="position:fixed"][style*="z-index: 9999"]');
-        existingFlashes.forEach(f => f.remove());
-
+        flashDiv.className = `flash-message ${category}`;
+        flashDiv.textContent = message;
         container.appendChild(flashDiv);
         setTimeout(() => {
-            flashDiv.style.transition = 'opacity 0.5s ease';
-            flashDiv.style.opacity = '0';
-            setTimeout(() => flashDiv.remove(), 500);
-        }, 3000);
+            container.removeChild(flashDiv);
+        }, 3500);
     }
     </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
 """,
-
 "home.html": """
 {% extends "layout.html" %}
 {% block style_override %}
@@ -463,16 +502,19 @@ templates = {
     }
     .six-video-wrapper {
         position: relative;
-        width: min(100vw, 100dvh);
-        height: min(100vw, 100dvh);
-        clip-path: circle(50% at 50% 50%);
+        width: 100%; height: 100%;
+        display:flex; justify-content:center; align-items:center;
     }
-    .six-video { width: 100%; height: 100%; object-fit: cover; }
+    .six-video { 
+        width: 100%; height: 100%; object-fit: cover; 
+        aspect-ratio: 9/16; /* Common mobile aspect ratio */
+        max-width: 100vw; max-height: 100dvh;
+    }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
         color: white; display: flex; justify-content: space-between; align-items: flex-end;
-        padding: 16px; padding-bottom: 53px; pointer-events: none;
-        background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%), linear-gradient(to bottom, rgba(0,0,0,0.3), transparent 20%);
+        padding: 16px; padding-bottom: 70px; pointer-events: none;
+        background: linear-gradient(to top, rgba(0,0,0,0.5), transparent 40%), linear-gradient(to bottom, rgba(0,0,0,0.4), transparent 20%);
         text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
     }
     .six-info { pointer-events: auto; text-align: left; }
@@ -502,20 +544,12 @@ templates = {
         display: none; /* Initially hidden */
     }
     {% endif %}
-    .feed-divider {
-        padding: 24px 16px;
-        text-align: center;
-        color: var(--text-muted);
-        border-bottom: 1px solid var(--border-color);
-        border-top: 1px solid var(--border-color);
-        margin: 8px 0;
-    }
-    .feed-end {
-        padding: 40px 16px 80px 16px;
-        text-align: center;
-        color: var(--text-muted);
-    }
     .content-spacer { height: 80px; }
+    .feed-divider {
+        padding: 12px 16px; text-align: center; color: var(--text-muted);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.9em;
+    }
 {% endblock %}
 {% block content %}
     <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color);">
@@ -541,25 +575,24 @@ templates = {
         {% endfor %}
 
         {% if unseen_posts and seen_posts %}
-            <div class="feed-divider">
-                <p>Publicações já vistas</p>
-            </div>
+            <div class="feed-divider">Publicações já vistas</div>
         {% endif %}
 
         {% for post in seen_posts %}
             {% include 'post_card_text.html' %}
         {% endfor %}
 
+        {% if unseen_posts or seen_posts %}
+             <div class="feed-divider" style="border-top: 1px solid var(--border-color); border-bottom: none;">Fim das publicações</div>
+        {% endif %}
+        
         {% if not unseen_posts and not seen_posts %}
-             <div style="text-align:center; padding: 40px; color:var(--text-muted);">
+            <div style="text-align:center; padding: 40px; color:var(--text-muted);">
                 <h4>Seu feed está vazio.</h4>
                 <p>Siga contas na página <a href="{{ url_for('discover') }}">Descobrir</a>!</p>
             </div>
-        {% else %}
-            <div class="feed-end">
-                <p>Você chegou ao fim.</p>
-            </div>
         {% endif %}
+        <div class="content-spacer"></div>
 
     {% elif feed_type == 'sixs' %}
         <div id="sixs-feed-container">
@@ -609,6 +642,27 @@ templates = {
     {% endif %}
 {% endblock %}
 {% block scripts %}
+{% if feed_type == 'text' %}
+<script>
+    const seenTextPosts = new Set();
+    function markTextPostAsSeen(postId) {
+        if (!postId || seenTextPosts.has(postId)) {
+            return;
+        }
+        seenTextPosts.add(postId);
+        fetch(`/mark_text_post_as_seen/${postId}`, { method: 'POST' });
+    }
+    const textObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                markTextPostAsSeen(entry.target.dataset.postId);
+            }
+        });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('.post-card').forEach(card => textObserver.observe(card));
+</script>
+{% endif %}
+
 {% if feed_type == 'sixs' %}
 <script>
     const container = document.getElementById('sixs-feed-container');
@@ -618,7 +672,7 @@ templates = {
 
     let isSoundOn = false;
     let hasInteracted = false;
-    let seenSixs = new Set();
+    const seenSixs = new Set();
 
     function setMutedState(isMuted) {
         isSoundOn = !isMuted;
@@ -631,6 +685,7 @@ templates = {
     }
 
     if (videos.length > 0) {
+        volumeToggle.style.display = 'block';
         volumeToggle.addEventListener('click', (e) => {
             e.stopPropagation();
             setMutedState(isSoundOn);
@@ -640,7 +695,6 @@ templates = {
             if (!hasInteracted) {
                 hasInteracted = true;
                 unmutePrompt.style.display = 'none';
-                volumeToggle.style.display = 'block';
                 setMutedState(false);
             }
         }, { once: true });
@@ -682,36 +736,9 @@ templates = {
       sixObserver.observe(slide);
     });
 </script>
-{% elif feed_type == 'text' %}
-<script>
-    let seenTextPosts = new Set();
-
-    function markTextAsSeen(postId) {
-        if (!postId || seenTextPosts.has(postId)) {
-            return;
-        }
-        seenTextPosts.add(postId);
-        fetch(`/mark_text_as_seen/${postId}`, { method: 'POST' });
-    }
-
-    const textObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const postCard = entry.target;
-                markTextAsSeen(postCard.dataset.postId);
-                // No need to unobserve, just mark as seen once
-            }
-        });
-    }, { threshold: 0.5 });
-    
-    document.querySelectorAll('.post-card').forEach(card => {
-        textObserver.observe(card);
-    });
-</script>
 {% endif %}
 {% endblock %}
 """,
-
 "six_slide.html": """
 <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
     <div class="six-video-wrapper">
@@ -739,7 +766,6 @@ templates = {
     </div>
 </section>
 """,
-
 "post_card_text.html": """
 <div class="post-card" id="post-{{ post.id }}" data-post-id="{{ post.id }}" style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
     <div style="width:40px; height:40px; flex-shrink:0;">
@@ -779,7 +805,6 @@ templates = {
     </div>
 </div>
 """,
-
 "comment_card.html": """
 <div class="comment-card" style="border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
     <div style="display:flex; gap:12px;">
@@ -802,72 +827,92 @@ templates = {
     </div>
 </div>
 """,
-
 "create_post.html": """
 {% extends "layout.html" %}
 {% block title %}Criar Six{% endblock %}
 {% block style_override %}
-    body.creator-view { background: #000; }
     #six-creator-ui {
         position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-        display: none; flex-direction: column; align-items: center; justify-content: space-between;
-        color: white; z-index: 100; padding: 20px; box-sizing: border-box;
+        display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+        color: white; z-index: 100;
+        background: #000;
+        padding: 20px 0;
+        box-sizing: border-box;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    #six-creator-ui.visible { opacity: 1; }
+    .controls-top {
+        width: 100%; padding: 0 20px; box-sizing: border-box;
+        display: flex; justify-content: space-between; align-items: center;
     }
     .video-container {
-        width: min(90vw, 90vh); height: min(90vw, 90vh);
-        margin: 0 auto; border-radius:50%; overflow:hidden; background:#111;
-        border: 2px solid var(--border-color); position: relative;
-        display: flex; align-items: center; justify-content: center;
+        width: 90vw;
+        max-width: 480px;
+        aspect-ratio: 1 / 1;
+        border-radius: 50%;
+        overflow: hidden;
+        background: #111;
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
-    #video-preview { 
-        width:100%; height:100%; object-fit:cover; 
+    #video-preview {
+        width: 100%; height: 100%;
+        object-fit: cover;
         transition: transform 0.3s ease;
     }
-    #video-preview.selfie-view { transform: scaleX(-1); }
-    .controls-top {
-        width: 100%; display: flex; justify-content: space-between;
-    }
+    #video-preview.mirrored { transform: scaleX(-1); }
     .controls-bottom {
-        width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px;
+        width: 100%;
+        display: flex; flex-direction: column; align-items: center; gap: 15px;
     }
-    .record-controls-wrapper {
-        display: flex; align-items: center; justify-content: center; min-height: 80px; width: 100%;
+    .recorder-controls-wrapper {
+        height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 30px;
     }
-    .icon-btn { 
-        background: rgba(255,255,255,0.15); color: white; border: none; border-radius: 50%; width: 48px; height: 48px; 
-        display:flex; align-items:center; justify-content:center; cursor: pointer;
-        backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
-        transition: background-color 0.2s ease, transform 0.2s ease;
+    .icon-btn {
+        background: rgba(255,255,255,0.15); color: white; border: none;
+        width: 50px; height: 50px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+        border-radius: 50%;
+        backdrop-filter: blur(5px);
+        transition: all 0.2s ease;
     }
-    .icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .icon-btn:active:not(:disabled) { transform: scale(0.9); }
-    
+    .icon-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.25); }
+    .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
     .record-button {
-        width: 72px; height: 72px; border-radius: 50%; border: 4px solid white;
+        width: 70px; height: 70px; border: 4px solid rgba(255,255,255,0.8);
         background-color: transparent; cursor: pointer;
         display: flex; align-items: center; justify-content: center;
+        border-radius: 50%;
+        padding: 2px;
         transition: all 0.2s ease-in-out;
-        padding: 0;
     }
-    .record-button:active { transform: scale(0.95); }
     .record-button .inner-circle {
-        width: 60px; height: 60px; background-color: var(--red-color);
-        border-radius: 50%; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        width: 100%; height: 100%; background-color: var(--red-color);
+        border-radius: 50%;
+        transition: all 0.2s ease-in-out;
     }
     .record-button.recording .inner-circle {
-        width: 30px; height: 30px; border-radius: 8px;
+        width: 50%; height: 50%;
+        border-radius: 8px;
     }
-    .progress-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg); z-index: 105; pointer-events:none; }
-    .progress-ring__circle { transition: stroke-dashoffset 0.1s linear; stroke: var(--accent-color); stroke-linecap: round; }
-
-    .control-cluster {
-        display: flex; gap: 20px; align-items: center;
-        opacity: 0; transform: scale(0.8);
-        transition: opacity 0.3s ease, transform 0.3s ease;
-        pointer-events: none;
+    .progress-ring {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%) rotate(-90deg);
+        z-index: 105; pointer-events: none;
     }
-    .control-cluster.visible {
-        opacity: 1; transform: scale(1); pointer-events: auto;
+    .progress-ring__circle {
+        stroke-dashoffset: 0;
+        transition: stroke-dashoffset 0.1s linear;
+        stroke: var(--accent-color);
+        stroke-linecap: round;
     }
 {% endblock %}
 {% block content %}
@@ -876,7 +921,7 @@ templates = {
         <button id="enable-camera-btn" class="btn">Habilitar Câmera</button>
     </div>
 
-    <div id="six-creator-ui">
+    <div id="six-creator-ui" style="display: none;">
         <div class="controls-top">
             <a href="{{ url_for('home') }}" class="icon-btn">{{ ICONS.back_arrow|safe }}</a>
             <button id="switch-camera-btn" class="icon-btn">{{ ICONS.camera_switch|safe }}</button>
@@ -891,19 +936,13 @@ templates = {
 
         <div class="controls-bottom">
             <p id="recorder-status" style="min-height: 20px; text-shadow: 1px 1px 2px #000;">Toque no botão para gravar</p>
-            <div class="record-controls-wrapper">
+            <div class="recorder-controls-wrapper">
+                 <button id="retake-btn" class="icon-btn">{{ ICONS.redo|safe }}</button>
                  <button id="record-button" class="record-button"><div class="inner-circle"></div></button>
-                 
-                 <div id="paused-controls" class="control-cluster">
-                    <button id="resume-btn" class="icon-btn" style="width: 60px; height: 60px;">{{ ICONS.record_circle|safe }}</button>
-                    <button id="finish-btn" class="icon-btn" style="width: 60px; height: 60px; background-color: #22c55e;">{{ ICONS.check|safe }}</button>
-                 </div>
-                 
-                 <div id="preview-controls" class="control-cluster">
-                    <button id="retake-btn" class="icon-btn" style="width: 60px; height: 60px; background-color: var(--red-color);">{{ ICONS.redo|safe }}</button>
-                 </div>
+                 <button id="pause-resume-btn" class="icon-btn"></button>
+                 <button id="finish-btn" class="icon-btn">{{ ICONS.check|safe }}</button>
             </div>
-             <form id="six-form-element" method="POST" enctype="multipart/form-data" style="display: none; width: 90%; max-width: 400px; margin-top: 20px;">
+             <form id="six-form-element" method="POST" enctype="multipart/form-data" style="display: none; width: 80%; max-width: 400px; margin-top: 5px;">
                  <input type="hidden" name="post_type" value="six">
                  <div class="form-group"> <input type="text" name="caption" maxlength="50" placeholder="Adicionar uma legenda... (opcional)"> </div>
                  <button type="submit" class="btn" style="width: 100%;">Publicar Six</button>
@@ -929,75 +968,76 @@ templates = {
     const switchCameraBtn = document.getElementById('switch-camera-btn');
     const recorderStatus = document.getElementById('recorder-status');
     const recordButton = document.getElementById('record-button');
-    const pausedControls = document.getElementById('paused-controls');
-    const resumeBtn = document.getElementById('resume-btn');
-    const finishBtn = document.getElementById('finish-btn');
-    const previewControls = document.getElementById('preview-controls');
+    const pauseResumeBtn = document.getElementById('pause-resume-btn');
     const retakeBtn = document.getElementById('retake-btn');
+    const finishBtn = document.getElementById('finish-btn');
     const sixForm = document.getElementById('six-form-element');
+    
     const progressCircle = document.querySelector('.progress-ring__circle');
     const radius = progressCircle.r.baseVal.value;
     const circumference = radius * 2 * Math.PI;
     progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
     
-    const setProgress = (percent) => {
-        const offset = circumference - percent / 100 * circumference;
+    function setProgress(duration) {
+        const percent = (duration / MAX_DURATION);
+        const offset = circumference - percent * circumference;
         progressCircle.style.strokeDashoffset = offset;
     }
-    setProgress(0);
 
     async function initCamera() {
         try {
             if (stream) { stream.getTracks().forEach(track => track.stop()); }
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: facingMode } };
             stream = await navigator.mediaDevices.getUserMedia(constraints);
+            
             permissionPrompt.style.display = 'none';
             sixCreatorUI.style.display = 'flex';
-            preview.srcObject = stream;
+            setTimeout(() => sixCreatorUI.classList.add('visible'), 10);
             
-            if (facingMode === 'user') {
-                preview.classList.add('selfie-view');
-            } else {
-                preview.classList.remove('selfie-view');
+            preview.srcObject = stream;
+            preview.classList.toggle('mirrored', facingMode === 'user');
+            
+            if (recorderState === 'idle') {
+                resetRecorder();
+            } else if (recorderState === 'paused') {
+                // Re-create the recorder with the new stream but don't reset blobs
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+                mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
+                mediaRecorder.onstop = handleStop;
             }
-            if(recorderState === 'idle') resetRecorder();
-
         } catch (e) {
             console.error(e);
             document.getElementById('permission-status').textContent = "Permissão de Câmera/Mic negada. Por favor, habilite nas configurações do seu navegador e atualize a página.";
             enableCameraBtn.disabled = true;
         }
     }
-
+    
     function updateUI() {
-        recordButton.style.display = 'none';
-        pausedControls.classList.remove('visible');
-        previewControls.classList.remove('visible');
-        sixForm.style.display = 'none';
+        const elements = { recordButton, retakeBtn, pauseResumeBtn, finishBtn, sixForm };
+        for (const key in elements) {
+            elements[key].style.display = 'none';
+        }
         switchCameraBtn.disabled = false;
-
-        switch(recorderState) {
-            case 'idle':
-                recorderStatus.textContent = "Toque no botão para gravar";
-                recordButton.style.display = 'flex';
-                recordButton.classList.remove('recording');
-                break;
-            case 'recording':
-                recorderStatus.textContent = 'Gravando...';
-                recordButton.style.display = 'flex';
-                recordButton.classList.add('recording');
-                switchCameraBtn.disabled = true;
-                break;
-            case 'paused':
-                recorderStatus.textContent = 'Pausado. Continue ou finalize.';
-                pausedControls.classList.add('visible');
-                break;
-            case 'previewing':
-                recorderStatus.textContent = 'Pré-visualização. Refaça ou publique.';
-                previewControls.classList.add('visible');
-                sixForm.style.display = 'block';
-                switchCameraBtn.disabled = true;
-                break;
+        
+        if (recorderState === 'idle') {
+            recorderStatus.textContent = "Toque no botão para gravar";
+            recordButton.style.display = 'flex';
+        } else if (recorderState === 'recording') {
+            recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
+            recordButton.style.display = 'flex';
+            recordButton.classList.add('recording');
+            switchCameraBtn.disabled = true;
+        } else if (recorderState === 'paused') {
+            recorderStatus.textContent = 'Pausado. Continue ou finalize.';
+            pauseResumeBtn.style.display = 'flex';
+            retakeBtn.style.display = 'flex';
+            finishBtn.style.display = 'flex';
+            pauseResumeBtn.innerHTML = ICONS.record_circle;
+        } else if (recorderState === 'previewing') {
+            recorderStatus.textContent = 'Pré-visualização. Refaça ou publique.';
+            retakeBtn.style.display = 'flex';
+            sixForm.style.display = 'block';
+            switchCameraBtn.disabled = true;
         }
     }
 
@@ -1007,40 +1047,30 @@ templates = {
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
         mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
         mediaRecorder.onstop = handleStop;
-        
-        mediaRecorder.start(100); // Trigger dataavailable event every 100ms
+        mediaRecorder.start();
         recorderState = 'recording';
         startTimer();
         updateUI();
     }
     
-    recordButton.addEventListener('click', () => {
-        if (recorderState === 'idle') startRecording();
-        else if (recorderState === 'recording') pauseRecording();
-    });
-    
     function pauseRecording() {
-        if (recorderState !== 'recording') return;
+        if (recorderState !== 'recording' || !mediaRecorder) return;
         mediaRecorder.pause();
         recorderState = 'paused';
         stopTimer();
         updateUI();
     }
     
-    resumeBtn.addEventListener('click', () => {
-        if (recorderState !== 'paused') return;
+    function resumeRecording() {
+        if (recorderState !== 'paused' || !mediaRecorder) return;
         mediaRecorder.resume();
         recorderState = 'recording';
         startTimer();
         updateUI();
-    });
-    
-    finishBtn.addEventListener('click', () => {
-        if (recorderState === 'paused') stopRecording();
-    });
+    }
     
     function stopRecording() {
-        if (mediaRecorder && (recorderState === 'recording' || recorderState === 'paused')) {
+        if (mediaRecorder && (mediaRecorder.state === 'recording' || mediaRecorder.state === 'paused')) {
              mediaRecorder.stop();
         }
     }
@@ -1058,16 +1088,14 @@ templates = {
         updateUI();
     }
 
-    retakeBtn.addEventListener('click', () => {
-        resetRecorder();
-        initCamera(); // Re-initialize camera to get live feed back
-    });
-
     function resetRecorder() {
         stopTimer();
         recordedDuration = 0;
         recorderState = 'idle';
-        if (stream) preview.srcObject = stream;
+        if (stream) {
+            preview.srcObject = stream;
+            preview.play();
+        }
         preview.controls = false;
         preview.muted = true;
         setProgress(0);
@@ -1077,7 +1105,8 @@ templates = {
     function startTimer() {
         timerInterval = setInterval(() => {
             recordedDuration += 100;
-            setProgress((recordedDuration / MAX_DURATION) * 100);
+            setProgress(recordedDuration);
+            recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
             if (recordedDuration >= MAX_DURATION) {
                 stopRecording();
             }
@@ -1088,10 +1117,19 @@ templates = {
 
     enableCameraBtn.addEventListener('click', initCamera);
     switchCameraBtn.addEventListener('click', () => {
-        if (recorderState === 'recording') return;
-        facingMode = (facingMode === 'user') ? 'environment' : 'user';
-        initCamera();
+        if (recorderState === 'idle' || recorderState === 'paused') {
+            facingMode = (facingMode === 'user') ? 'environment' : 'user';
+            initCamera();
+        }
     });
+    
+    recordButton.addEventListener('click', () => {
+        if (recorderState === 'idle') startRecording();
+        else if (recorderState === 'recording') pauseRecording();
+    });
+    pauseResumeBtn.addEventListener('click', resumeRecording);
+    retakeBtn.addEventListener('click', resetRecorder);
+    finishBtn.addEventListener('click', stopRecording);
     
     sixForm.addEventListener('submit', (event) => {
         event.preventDefault();
@@ -1099,7 +1137,8 @@ templates = {
         const videoBlob = new Blob(recordedBlobs, {type: 'video/webm'});
         formData.append('video_file', videoBlob, 'six-video.webm');
         const submitBtn = sixForm.querySelector('button');
-        submitBtn.disabled = true; submitBtn.textContent = "Enviando...";
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Enviando...";
         fetch("{{ url_for('create_post') }}", { method: 'POST', body: formData })
         .then(response => { if (response.redirected) window.location.href = response.url; })
         .catch(error => {
@@ -1114,7 +1153,6 @@ templates = {
 </script>
 {% endblock %}
 """,
-
 "edit_profile.html": """
 {% extends "layout.html" %}
 {% block title %}Configurações{% endblock %}
@@ -1178,7 +1216,6 @@ templates = {
 </div>
 {% endblock %}
 """,
-
 "profile.html": """
 {% extends "layout.html" %}
 {% block title %}{{ user.username }}{% endblock %}
@@ -1195,17 +1232,18 @@ templates = {
         position: relative; display: flex; justify-content: center; align-items: center;
     }
     .six-video-wrapper {
-        position: relative;
-        width: min(100vw, 100dvh);
-        height: min(100vw, 100dvh);
-        clip-path: circle(50% at 50% 50%);
+        position: relative; width: 100%; height: 100%;
+        display:flex; justify-content:center; align-items:center;
     }
-    .six-video { width: 100%; height: 100%; object-fit: cover; }
+    .six-video { 
+        width: 100%; height: 100%; object-fit: cover; 
+        aspect-ratio: 9/16; max-width: 100vw; max-height: 100dvh;
+    }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
         color: white; display: flex; justify-content: space-between; align-items: flex-end;
-        padding: 16px; padding-bottom: 53px; pointer-events: none;
-        background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%), linear-gradient(to bottom, rgba(0,0,0,0.3), transparent 20%);
+        padding: 16px; padding-bottom: 70px; pointer-events: none;
+        background: linear-gradient(to top, rgba(0,0,0,0.5), transparent 40%), linear-gradient(to bottom, rgba(0,0,0,0.4), transparent 20%);
         text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
     }
     .six-info { pointer-events: auto; text-align: left;}
@@ -1235,11 +1273,10 @@ templates = {
         display: none; /* Initially hidden */
     }
     {% endif %}
-    .stat-link {
-        color: inherit;
-        text-decoration: none;
-    }
     .content-spacer { height: 80px; }
+    .follow-stats a { color: var(--text-muted); }
+    .follow-stats a:hover { text-decoration: underline; }
+    .follow-stats strong { color: var(--text-color); }
 {% endblock %}
 
 {% block content %}
@@ -1264,9 +1301,9 @@ templates = {
         </div>
         <h2 style="margin: 12px 0 0 0;">{{ user.username }}</h2>
         <p style="color: var(--text-muted); margin: 4px 0 12px 0;">{{ user.bio or "Sem biografia ainda." }}</p>
-        <div style="display:flex; gap: 16px; color:var(--text-muted);">
-            <a href="{{ url_for('follow_list', username=user.username, list_type='followers') }}" class="stat-link"><strong style="color:var(--text-color)">{{ user.followers.count() }}</strong> Seguidores</a>
-            <a href="{{ url_for('follow_list', username=user.username, list_type='following') }}" class="stat-link"><strong style="color:var(--text-color)">{{ user.followed.count() }}</strong> Seguindo</a>
+        <div class="follow-stats" style="display:flex; gap: 16px;">
+            <a href="{{ url_for('follow_list', username=user.username, list_type='followers') }}"><strong>{{ user.followers.count() }}</strong> Seguidores</a>
+            <a href="{{ url_for('follow_list', username=user.username, list_type='following') }}"><strong>{{ user.followed.count() }}</strong> Seguindo</a>
         </div>
     </div>
     {% endif %}
@@ -1304,30 +1341,18 @@ templates = {
                     <a href="{{ url_for('profile', username=repost.reposter.username) }}">{{ repost.reposter.username }}</a> republicou
                 </div>
                  {% if repost.caption %}
-                    <p style="margin: 4px 0 12px 0; padding-left: 20px; border-left: 2px solid var(--border-color); font-style: italic;">{{ repost.caption }}</p>
+                    <p style="margin: 4px 0 12px 0; padding-left: 20px; border-left: 2px solid var(--border-color);">{{ repost.caption }}</p>
                 {% endif %}
                 
-                <div style="border: 1px solid var(--border-color); border-radius: 16px; margin-top: 8px; overflow: hidden;">
                 {% if repost.original_post %}
                     {% with post=repost.original_post %}
-                        {# We embed a simplified version here to avoid nesting issues #}
-                        <div class="post-card" style="border-bottom: none; padding: 12px 16px; display:flex; gap:12px;">
-                            <div style="width:40px; height:40px; flex-shrink:0;">
-                                {% if post.author.pfp_filename %}<img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="" style="width:40px; height:40px; border-radius:50%; object-fit: cover;">
-                                {% else %}<div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">{{ post.author.username[0]|upper }}</div>{% endif %}
-                            </div>
-                            <div style="flex-grow:1;">
-                                <div><a href="{{ url_for('profile', username=post.author.username) }}" style="color:var(--text-color); font-weight:bold;">{{ post.author.username }}</a> <span style="color:var(--text-muted);">· {{ post.timestamp.strftime('%d de %b') }}</span></div>
-                                <div style="margin: 4px 0 12px 0; white-space: pre-wrap; word-wrap: break-word;">{{ post.text_content }}</div>
-                            </div>
-                        </div>
+                        {% include 'post_card_text.html' %}
                     {% endwith %}
                 {% elif repost.original_comment %}
                     {% with comment=repost.original_comment %}
                         {% include 'comment_card.html' %}
                     {% endwith %}
                 {% endif %}
-                </div>
             </div>
         {% else %}
             <p style="text-align:center; color:var(--text-muted); padding:40px;">Nenhum item republicado ainda.</p>
@@ -1355,7 +1380,7 @@ templates = {
     let hasInteracted = false;
     
     if(videos.length > 0) {
-        volumeToggle.style.display = 'block'; // Show it, but it starts as muted
+        volumeToggle.style.display = 'block';
     }
 
     function setMutedState(isMuted) {
@@ -1409,7 +1434,6 @@ templates = {
 {% endif %}
 {% endblock %}
 """,
-
 "discover.html": """
 {% extends "layout.html" %}
 {% block title %}Descobrir{% endblock %}
@@ -1469,16 +1493,12 @@ templates = {
     <div class="content-spacer"></div>
 {% endblock %}
 """,
-
 "follow_list.html": """
 {% extends "layout.html" %}
 {% block title %}{{ title }}{% endblock %}
 {% block header_title %}{{ title }}{% endblock %}
 {% block content %}
-    <a href="{{ url_for('profile', username=user.username) }}" style="display:flex; align-items: center; padding: 12px 16px; gap: 12px; color: var(--text-color); border-bottom: 1px solid var(--border-color); font-weight: bold;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        <span>{{ user.username }}</span>
-    </a>
+    <a href="{{ url_for('profile', username=user.username) }}" style="display:flex; align-items: center; padding: 12px 16px; gap: 8px; color: var(--text-color); border-bottom: 1px solid var(--border-color);">{{ ICONS.back_arrow|safe }} Voltar para o Perfil</a>
     {% for u in user_list %}
     <div style="border-bottom: 1px solid var(--border-color); padding:12px 16px; display:flex; align-items:center; gap:12px;">
         <div style="width: 40px; height: 40px; flex-shrink:0;">
@@ -1510,7 +1530,6 @@ templates = {
     <div class="content-spacer"></div>
 {% endblock %}
 """,
-
 "auth_form.html": """
 {% extends "layout.html" %}
 {% block title %}{{ title }}{% endblock %}
@@ -1543,28 +1562,6 @@ class DictLoader(BaseLoader):
         raise TemplateNotFound(template)
 app.jinja_loader = DictLoader(templates)
 
-# --- BANCO DE DADOS ---
-followers = db.Table('followers',
-    db.Column('follower_id', db.Integer, db.ForeignKey('user.id')),
-    db.Column('followed_id', db.Integer, db.ForeignKey('user.id'))
-)
-post_likes = db.Table('post_likes',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
-    db.Column('post_id', db.Integer, db.ForeignKey('post.id'))
-)
-comment_likes = db.Table('comment_likes',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
-    db.Column('comment_id', db.Integer, db.ForeignKey('comment.id'))
-)
-seen_sixs_posts = db.Table('seen_sixs_posts',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
-    db.Column('post_id', db.Integer, db.ForeignKey('post.id'), primary_key=True)
-)
-seen_text_posts = db.Table('seen_text_posts',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
-    db.Column('post_id', db.Integer, db.ForeignKey('post.id'), primary_key=True)
-)
-
 class Repost(db.Model):
     __tablename__ = 'repost'
     id = db.Column(db.Integer, primary_key=True)
@@ -1593,9 +1590,8 @@ class User(UserMixin, db.Model):
     liked_posts = db.relationship('Post', secondary=post_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
     liked_comments = db.relationship('Comment', secondary=comment_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
     followed = db.relationship('User', secondary=followers, primaryjoin=(followers.c.follower_id == id), secondaryjoin=(followers.c.followed_id == id), backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
-    
-    seen_sixs = db.relationship('Post', secondary=seen_sixs_posts, backref=db.backref('seen_by_user_six', lazy='dynamic'), lazy='dynamic')
-    seen_texts = db.relationship('Post', secondary=seen_text_posts, backref=db.backref('seen_by_user_text', lazy='dynamic'), lazy='dynamic')
+    seen_sixs = db.relationship('Post', secondary=seen_sixs_posts, backref=db.backref('seen_by_six_users', lazy='dynamic'), foreign_keys=[seen_sixs_posts.c.post_id])
+    seen_texts = db.relationship('Post', secondary=seen_text_posts, backref=db.backref('seen_by_text_users', lazy='dynamic'), foreign_keys=[seen_text_posts.c.post_id])
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
     def check_password(self, pw): return check_password_hash(self.password_hash, pw)
@@ -1611,7 +1607,7 @@ class User(UserMixin, db.Model):
 
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    post_type = db.Column(db.String(10), nullable=False)
+    post_type = db.Column(db.String(10), nullable=False) # 'text' or 'six'
     text_content = db.Column(db.String(150))
     video_filename = db.Column(db.String(120))
     image_filename = db.Column(db.String(120), nullable=True)
@@ -1655,7 +1651,7 @@ def format_comment(comment):
             'pfp_filename': comment.user.pfp_filename
         },
         'like_count': comment.liked_by.count(),
-        'is_liked_by_user': current_user.is_authenticated and current_user in comment.liked_by,
+        'is_liked_by_user': current_user in comment.liked_by,
         'replies_count': comment.replies.count()
     }
     
@@ -1680,28 +1676,26 @@ def home():
     base_query = Post.query.filter(Post.user_id.in_(followed_ids))
     
     if feed_type == 'text':
-        seen_text_ids_subquery = db.session.query(seen_text_posts.c.post_id).filter_by(user_id=current_user.id)
+        query = base_query.filter_by(post_type='text')
+        seen_ids_subquery = db.session.query(seen_text_posts.c.post_id).filter_by(user_id=current_user.id)
         
-        unseen_posts_results = base_query.filter_by(post_type='text').filter(not_(Post.id.in_(seen_text_ids_subquery))).order_by(Post.timestamp.desc()).all()
-        seen_posts_results = base_query.filter_by(post_type='text').filter(Post.id.in_(seen_text_ids_subquery)).order_by(Post.timestamp.desc()).all()
-
-        unseen_posts_results = add_user_flags_to_posts(unseen_posts_results)
-        seen_posts_results = add_user_flags_to_posts(seen_posts_results)
-
-        return render_template('home.html', unseen_posts=unseen_posts_results, seen_posts=seen_posts_results, feed_type=feed_type)
+        unseen_posts = query.filter(not_(Post.id.in_(seen_ids_subquery))).order_by(Post.timestamp.desc()).all()
+        seen_posts = query.filter(Post.id.in_(seen_ids_subquery)).order_by(Post.timestamp.desc()).all()
+        
+        add_user_flags_to_posts(unseen_posts)
+        add_user_flags_to_posts(seen_posts)
+        return render_template('home.html', unseen_posts=unseen_posts, seen_posts=seen_posts, feed_type=feed_type)
     
     else: # feed_type == 'sixs'
-        sixs_query = base_query.filter_by(post_type='six')
+        query = base_query.filter_by(post_type='six')
+        seen_ids_subquery = db.session.query(seen_sixs_posts.c.post_id).filter_by(user_id=current_user.id)
         
-        seen_sixs_ids_subquery = db.session.query(seen_sixs_posts.c.post_id).filter_by(user_id=current_user.id)
-        
-        unseen_posts_results = sixs_query.filter(not_(Post.id.in_(seen_sixs_ids_subquery))).order_by(Post.timestamp.desc()).all()
-        seen_posts_results = sixs_query.filter(Post.id.in_(seen_sixs_ids_subquery)).order_by(Post.timestamp.desc()).all()
+        unseen_posts = query.filter(not_(Post.id.in_(seen_ids_subquery))).order_by(Post.timestamp.desc()).all()
+        seen_posts = query.filter(Post.id.in_(seen_ids_subquery)).order_by(Post.timestamp.desc()).all()
 
-        unseen_posts_results = add_user_flags_to_posts(unseen_posts_results)
-        seen_posts_results = add_user_flags_to_posts(seen_posts_results)
-
-        return render_template('home.html', unseen_posts=unseen_posts_results, seen_posts=seen_posts_results, feed_type=feed_type)
+        add_user_flags_to_posts(unseen_posts)
+        add_user_flags_to_posts(seen_posts)
+        return render_template('home.html', unseen_posts=unseen_posts, seen_posts=seen_posts, feed_type=feed_type)
 
 @app.route('/profile/<username>')
 @login_required
@@ -1720,12 +1714,13 @@ def profile(username):
             add_user_flags_to_posts(original_posts)
     elif active_tab == 'sixs':
         posts = user.posts.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
-        posts = add_user_flags_to_posts(posts)
     else: # Default para 'publicações'
         active_tab = 'publicações'
         posts = user.posts.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
-        posts = add_user_flags_to_posts(posts)
-
+    
+    if posts:
+        add_user_flags_to_posts(posts)
+        
     return render_template('profile.html', user=user, posts=posts, reposts=reposts_data, active_tab=active_tab)
 
 @app.route('/profile/<username>/<list_type>')
@@ -1836,25 +1831,27 @@ def add_comment(post_id):
 @login_required
 def like_post(post_id):
     post = Post.query.get_or_404(post_id)
-    liked = current_user in post.liked_by
-    if liked:
+    if current_user in post.liked_by:
         post.liked_by.remove(current_user)
+        liked = False
     else:
         post.liked_by.append(current_user)
+        liked = True
     db.session.commit()
-    return jsonify({'liked': not liked, 'likes': post.liked_by.count()})
+    return jsonify({'liked': liked, 'likes': post.liked_by.count()})
 
 @app.route('/like/comment/<int:comment_id>', methods=['POST'])
 @login_required
 def like_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
-    liked = current_user in comment.liked_by
-    if liked:
+    if current_user in comment.liked_by:
         comment.liked_by.remove(current_user)
+        liked = False
     else:
         comment.liked_by.append(current_user)
+        liked = True
     db.session.commit()
-    return jsonify({'liked': not liked, 'likes': comment.liked_by.count()})
+    return jsonify({'liked': liked, 'likes': comment.liked_by.count()})
 
 @app.route('/repost/post/<int:post_id>', methods=['POST'])
 @login_required
@@ -1949,10 +1946,12 @@ def delete_account():
     user_id = current_user.id
     logout_user()
     user = User.query.get(user_id)
-    if user.pfp_filename:
-        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], user.pfp_filename))
-        except OSError: pass
-    db.session.delete(user); db.session.commit()
+    if user:
+        if user.pfp_filename:
+            try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], user.pfp_filename))
+            except OSError: pass
+        db.session.delete(user)
+        db.session.commit()
     flash('Sua conta foi permanentemente deletada.', 'success')
     return redirect(url_for('login'))
 
@@ -1968,14 +1967,16 @@ def discover():
         followed_ids = [u.id for u in current_user.followed]
         followed_ids.append(current_user.id)
 
-        popular_posts = Post.query.filter(Post.post_type == 'text')\
-                               .filter(not_(Post.user_id.in_(followed_ids)))\
-                               .join(post_likes)\
-                               .group_by(Post.id)\
-                               .order_by(func.count(post_likes.c.user_id).desc(), Post.timestamp.desc())\
-                               .limit(30).all()
+        popular_posts = Post.query\
+            .join(post_likes, Post.id == post_likes.c.post_id)\
+            .filter(Post.post_type == 'text')\
+            .filter(not_(Post.user_id.in_(followed_ids)))\
+            .group_by(Post.id)\
+            .having(func.count(post_likes.c.user_id) > 0)\
+            .order_by(func.count(post_likes.c.user_id).desc(), Post.timestamp.desc())\
+            .limit(30).all()
         
-        popular_posts = add_user_flags_to_posts(popular_posts)
+        add_user_flags_to_posts(popular_posts)
         return render_template('discover.html', posts=popular_posts)
 
 @app.route('/follow/<username>')
@@ -1999,21 +2000,27 @@ def unfollow(username):
 @app.route('/mark_six_as_seen/<int:post_id>', methods=['POST'])
 @login_required
 def mark_six_as_seen(post_id):
-    post = Post.query.get_or_404(post_id)
-    if post not in current_user.seen_sixs:
-        current_user.seen_sixs.append(post)
-        db.session.commit()
+    # Use raw SQL for performance and to avoid race conditions
+    stmt = text("""
+        INSERT INTO seen_sixs_posts (user_id, post_id)
+        VALUES (:user_id, :post_id)
+        ON CONFLICT(user_id, post_id) DO NOTHING
+    """)
+    db.session.execute(stmt, {'user_id': current_user.id, 'post_id': post_id})
+    db.session.commit()
     return jsonify({'success': True}), 200
 
-@app.route('/mark_text_as_seen/<int:post_id>', methods=['POST'])
+@app.route('/mark_text_post_as_seen/<int:post_id>', methods=['POST'])
 @login_required
-def mark_text_as_seen(post_id):
-    post = Post.query.get_or_404(post_id)
-    if post not in current_user.seen_texts:
-        current_user.seen_texts.append(post)
-        db.session.commit()
+def mark_text_post_as_seen(post_id):
+    stmt = text("""
+        INSERT INTO seen_text_posts (user_id, post_id)
+        VALUES (:user_id, :post_id)
+        ON CONFLICT(user_id, post_id) DO NOTHING
+    """)
+    db.session.execute(stmt, {'user_id': current_user.id, 'post_id': post_id})
+    db.session.commit()
     return jsonify({'success': True}), 200
-
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -2021,7 +2028,8 @@ def login():
     if request.method == 'POST':
         user = User.query.filter(func.lower(User.username) == func.lower(request.form['username'])).first()
         if user and user.check_password(request.form['password']):
-            login_user(user, remember=True); return redirect(url_for('home'))
+            login_user(user, remember=True)
+            return redirect(url_for('home'))
         flash('Nome de usuário ou senha inválidos.', 'error')
     return render_template('auth_form.html', title="Entrar", form_type="login")
 
@@ -2031,11 +2039,13 @@ def signup():
     if request.method == 'POST':
         username = request.form.get('username').strip()
         if User.query.filter(func.lower(User.username) == func.lower(username)).first():
-            flash('Nome de usuário já existe.', 'error'); return redirect(url_for('signup'))
+            flash('Nome de usuário já existe.', 'error')
+            return redirect(url_for('signup'))
         new_user = User(username=username, bio=request.form.get('bio', ''))
         new_user.set_password(request.form['password'])
         db.session.add(new_user); db.session.commit()
-        flash('Conta criada! Por favor, faça login.', 'success'); return redirect(url_for('login'))
+        flash('Conta criada! Por favor, faça login.', 'success')
+        return redirect(url_for('login'))
     return render_template('auth_form.html', title="Cadastrar", form_type="signup")
 
 @app.route('/logout')
@@ -2050,9 +2060,4 @@ if __name__ == '__main__':
     with app.app_context():
         if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
         db.create_all()
-<<<<<<< HEAD
     app.run(debug=True, host='0.0.0.0', port=5000)
-=======
-    app.run(debug=True, host='0.0.0.0', port=8000)
-
->>>>>>> e44fffcfc444ca9f2b6061bc5b43a0602a776c61
