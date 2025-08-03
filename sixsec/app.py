@@ -1025,20 +1025,20 @@ templates = {
     }
     
     function updateUI() {
-        const elements = { recordButton, retakeBtn, pauseResumeBtn, finishBtn, sixForm };
+        const elements = { recordButton, retakeBtn, pauseResumeBtn, finishBtn, sixForm, switchCameraBtn };
         for (const key in elements) {
             elements[key].style.display = 'none';
         }
-        switchCameraBtn.disabled = false;
         
         if (recorderState === 'idle') {
             recorderStatus.textContent = "Toque no botão para gravar";
             recordButton.style.display = 'flex';
+            switchCameraBtn.style.display = 'flex';
+            switchCameraBtn.disabled = false;
         } else if (recorderState === 'recording') {
             recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
             recordButton.style.display = 'flex';
             recordButton.classList.add('recording');
-            switchCameraBtn.disabled = true;
         } else if (recorderState === 'paused') {
             recorderStatus.textContent = 'Pausado. Continue ou finalize.';
             pauseResumeBtn.style.display = 'flex';
@@ -1049,7 +1049,6 @@ templates = {
             recorderStatus.textContent = 'Pré-visualização. Refaça ou publique.';
             retakeBtn.style.display = 'flex';
             sixForm.style.display = 'block';
-            switchCameraBtn.disabled = true;
         }
     }
 
