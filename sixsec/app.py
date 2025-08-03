@@ -5,8 +5,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, f
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required,- \
-    confirm_login, fresh_login_required
+from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required, confirm_login, fresh_login_required
 from jinja2 import BaseLoader, TemplateNotFound
 
 # --- APP CONFIGURATION ---
