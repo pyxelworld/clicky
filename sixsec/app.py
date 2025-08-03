@@ -993,35 +993,42 @@ templates = {
 
     async function initCamera(isSwitching = false) {
         try {
-            // Stop old stream only if it exists
             if (stream) { stream.getTracks().forEach(track => track.stop()); }
-            
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: facingMode } };
             stream = await navigator.mediaDevices.getUserMedia(constraints);
             
-            permissionPrompt.style.display = 'none';
-            sixCreatorUI.style.display = 'flex';
-            if (!sixCreatorUI.classList.contains('visible')) {
-                setTimeout(() => sixCreatorUI.classList.add('visible'), 10);
+            if (!isSwitching) {
+                 permissionPrompt.style.display = 'none';
+                 sixCreatorUI.style.display = 'flex';
+                 if (!sixCreatorUI.classList.contains('visible')) {
+                     setTimeout(() => sixCreatorUI.classList.add('visible'), 10);
+                 }
             }
             
             preview.srcObject = stream;
             preview.classList.toggle('mirrored', facingMode === 'user');
             
-            // Only create a new recorder if we are not switching cameras during a pause
-            if (!isSwitching) {
+            // This is a simple way to manage the recorder. Re-create it for the new stream.
+            if (recorderState !== 'paused') {
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+                mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
+                mediaRecorder.onstop = handleStop;
+            } else {
+                 // When paused and switching, we need to create a new recorder
+                 // that will append to the existing blobs. This is complex.
+                 // A simpler, more robust approach is to restart the MediaRecorder instance for the new stream.
+                 // The old blobs are preserved. The new recorder will add new blobs.
                 mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
                 mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
                 mediaRecorder.onstop = handleStop;
             }
 
-            // If we are just switching cameras, we just need to replace the tracks on the existing recorder.
-            // This is a more complex approach not implemented here for simplicity. 
-            // The current approach re-initializes the stream and lets the UI stay in the 'paused' state.
-            if (recorderState === 'idle' || !isSwitching) {
+
+            // If we are not switching (i.e., initial load), reset everything.
+            if (!isSwitching) {
                 resetRecorder();
             } else {
-                updateUI(); // Keep the paused state UI
+                updateUI(); // Just update the UI if we're switching mid-pause.
             }
 
         } catch (e) {
@@ -1032,41 +1039,47 @@ templates = {
     }
     
     function updateUI() {
-        const elements = { recordButton, retakeBtn, pauseResumeBtn, finishBtn, sixForm };
+        const elements = { recordButton, retakeBtn, pauseResumeBtn, finishBtn, sixForm, switchCameraBtn };
         for (const key in elements) {
             elements[key].style.display = 'none';
         }
-        switchCameraBtn.disabled = false;
         
-        if (recorderState === 'idle') {
-            recorderStatus.textContent = "Toque no botão para gravar";
-            recordButton.style.display = 'flex';
-        } else if (recorderState === 'recording') {
-            recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
-            recordButton.style.display = 'flex';
-            recordButton.classList.add('recording');
-            switchCameraBtn.disabled = true; // Can't switch while actively recording
-        } else if (recorderState === 'paused') {
-            recorderStatus.textContent = 'Pausado. Continue ou finalize.';
-            pauseResumeBtn.style.display = 'flex';
-            retakeBtn.style.display = 'flex';
-            finishBtn.style.display = 'flex';
-            pauseResumeBtn.innerHTML = ICONS.record_circle;
-            switchCameraBtn.disabled = false; // Can switch when paused
-        } else if (recorderState === 'previewing') {
-            recorderStatus.textContent = 'Pré-visualização. Refaça ou publique.';
-            retakeBtn.style.display = 'flex';
-            sixForm.style.display = 'block';
-            switchCameraBtn.disabled = true; // Can't switch in preview
+        switch (recorderState) {
+            case 'idle':
+                recorderStatus.textContent = "Toque no botão para gravar";
+                recordButton.style.display = 'flex';
+                switchCameraBtn.style.display = 'flex';
+                switchCameraBtn.disabled = false;
+                break;
+            case 'recording':
+                recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
+                recordButton.style.display = 'flex';
+                recordButton.classList.add('recording');
+                switchCameraBtn.style.display = 'flex';
+                switchCameraBtn.disabled = true;
+                break;
+            case 'paused':
+                recorderStatus.textContent = 'Pausado. Continue ou finalize.';
+                pauseResumeBtn.style.display = 'flex';
+                retakeBtn.style.display = 'flex';
+                finishBtn.style.display = 'flex';
+                switchCameraBtn.style.display = 'flex';
+                switchCameraBtn.disabled = false; // Allow switching while paused
+                pauseResumeBtn.innerHTML = ICONS.record_circle;
+                break;
+            case 'previewing':
+                recorderStatus.textContent = 'Pré-visualização. Refaça ou publique.';
+                retakeBtn.style.display = 'flex';
+                sixForm.style.display = 'block';
+                switchCameraBtn.style.display = 'flex';
+                switchCameraBtn.disabled = true;
+                break;
         }
     }
 
     function startRecording() {
         if (recorderState !== 'idle') return;
         recordedBlobs = [];
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-        mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
-        mediaRecorder.onstop = handleStop;
         mediaRecorder.start();
         recorderState = 'recording';
         startTimer();
@@ -1083,15 +1096,7 @@ templates = {
     
     function resumeRecording() {
         if (recorderState !== 'paused' || !mediaRecorder) return;
-        // Re-initialize recorder with the new stream if it has been switched
-        if (preview.srcObject !== mediaRecorder.stream) {
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-            mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
-            mediaRecorder.onstop = handleStop;
-            mediaRecorder.start(); // Start the new recorder
-        } else {
-            mediaRecorder.resume();
-        }
+        mediaRecorder.resume();
         recorderState = 'recording';
         startTimer();
         updateUI();
@@ -1106,6 +1111,11 @@ templates = {
     function handleStop() {
         stopTimer();
         recorderState = 'previewing';
+        if (recordedBlobs.length === 0) {
+            // This can happen if stop is called without any data.
+            resetRecorder();
+            return;
+        }
         const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
         preview.srcObject = null;
         preview.src = window.URL.createObjectURL(superBuffer);
@@ -1117,15 +1127,20 @@ templates = {
     }
 
     function resetRecorder() {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
         stopTimer();
         recordedDuration = 0;
+        recordedBlobs = [];
         recorderState = 'idle';
-        if (stream && preview.srcObject !== stream) {
+        if (stream) {
             preview.srcObject = stream;
             preview.play();
         }
         preview.controls = false;
         preview.muted = true;
+        preview.src = '';
         setProgress(0);
         updateUI();
     }
@@ -1148,7 +1163,7 @@ templates = {
     switchCameraBtn.addEventListener('click', () => {
         if (recorderState === 'idle' || recorderState === 'paused') {
             facingMode = (facingMode === 'user') ? 'environment' : 'user';
-            initCamera(true); // Pass true to indicate we are just switching
+            initCamera(true); // Pass true to indicate it's a switch, not initial load
         }
     });
     
@@ -1157,10 +1172,7 @@ templates = {
         else if (recorderState === 'recording') pauseRecording();
     });
     pauseResumeBtn.addEventListener('click', resumeRecording);
-    retakeBtn.addEventListener('click', () => {
-        // We need to re-init camera to get a live feed, not a frozen frame
-        initCamera(false);
-    });
+    retakeBtn.addEventListener('click', resetRecorder);
     finishBtn.addEventListener('click', stopRecording);
     
     sixForm.addEventListener('submit', (event) => {
@@ -1191,6 +1203,7 @@ templates = {
 {% block header_title %}Configurações{% endblock %}
 {% block content %}
 <div style="padding:16px;">
+    <h4>Editar Perfil</h4>
     <form method="POST" action="{{ url_for('edit_profile') }}" enctype="multipart/form-data">
         <div class="form-group" style="text-align: center;">
             <label for="pfp" style="cursor: pointer;">
@@ -1225,11 +1238,10 @@ templates = {
             </select>
             <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
         </div>
-        
-        <button type="submit" class="btn" style="width:100%; height: 40px; margin-top: 16px;">Salvar Alterações</button>
 
+        <button type="submit" class="btn">Salvar Alterações</button>
     </form>
-
+    
 
     <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Alterar Senha</h4>
@@ -1962,7 +1974,6 @@ def repost_comment(comment_id):
 @login_required
 def edit_profile():
     if request.method == 'POST':
-        # This is now a single form, so all data is processed together.
         pfp_file = request.files.get('pfp')
         if pfp_file and pfp_file.filename != '' and allowed_file(pfp_file.filename):
             if current_user.pfp_filename:
@@ -1985,6 +1996,7 @@ def edit_profile():
             current_user.username = new_username
         current_user.bio = new_bio
         
+        # Salvar a nova preferência de feed
         new_feed_style = request.form.get('six_feed_style')
         if new_feed_style in ['circle', 'fullscreen']:
             current_user.six_feed_style = new_feed_style
