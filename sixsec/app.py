@@ -760,4 +760,4 @@ if __name__ == '__main__':
         if not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'profiles')):
             os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'profiles'))
         db.create_all()
-    app.run(debug=True)
+    app.run(debug=False, port=8000)
