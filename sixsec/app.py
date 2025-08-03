@@ -17,7 +17,7 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 16  1024  1024
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 # --- INICIALIZAÇÃO DE EXTENSÕES E HELPERS ---
@@ -205,15 +205,15 @@ templates = {
         {% block style_override %}{% endblock %}
     </style>
 </head>
-<body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}class="sixs-view" style="overflow: hidden;"
+<body {% if (request.endpoint  'home' and feed_type  'sixs') or (request.endpoint  'profile' and active_tab  'sixs') %}class="sixs-view" style="overflow: hidden;"
       {% elif request.endpoint == 'create_post' %}class="creator-view" style="overflow: hidden;"
       {% endif %}>
     
-    {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') or request.endpoint == 'create_post') %}
+    {% if not ((request.endpoint  'home' and feed_type  'sixs') or (request.endpoint  'profile' and active_tab  'sixs') or request.endpoint == 'create_post') %}
     <header class="top-bar">
         <h1 class="logo">{% block header_title %}Início{% endblock %}</h1>
         <div>
-        {% if request.endpoint == 'profile' and current_user == user %}
+        {% if request.endpoint  'profile' and current_user  user %}
             <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }}</a>
         {% elif request.endpoint == 'home' %}
             {# Placeholder for future notification icon #}
@@ -222,7 +222,7 @@ templates = {
     </header>
     {% endif %}
     
-    <main {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs')) %}class="container"{% endif %}>
+    <main {% if not ((request.endpoint  'home' and feed_type  'sixs') or (request.endpoint  'profile' and active_tab  'sixs')) %}class="container"{% endif %}>
         <div class="flash-message-container">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -235,12 +235,12 @@ templates = {
         {% block content %}{% endblock %}
     </main>
 
-    {% if current_user.is_authenticated and not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') or request.endpoint == 'create_post') %}
+    {% if current_user.is_authenticated and not ((request.endpoint  'home' and feed_type  'sixs') or (request.endpoint  'profile' and active_tab  'sixs') or request.endpoint == 'create_post') %}
     <nav class="bottom-nav">
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
         <a href="{{ url_for('discover') }}" class="{{ 'active' if request.endpoint == 'discover' else '' }}">{{ ICONS.discover|safe }}</a>
         <a href="{{ url_for('create_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
-        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' and user and current_user.username == user.username else '' }}">{{ ICONS.profile|safe }}</a>
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint  'profile' and user and current_user.username  user.username else '' }}">{{ ICONS.profile|safe }}</a>
     </nav>
     {% endif %}
 
@@ -279,14 +279,14 @@ templates = {
 
         let repliesButton = '';
         if (comment.replies_count > 0) {
-            repliesButton = `<button class="view-replies-btn" onclick="toggleReplies(this, ${comment.id})">Ver ${comment.replies_count} respostas</button>`;
+            repliesButton = <button class="view-replies-btn" onclick="toggleReplies(this, ${comment.id})">Ver ${comment.replies_count} respostas</button>;
         }
         
         let pfpElement = '';
         if (comment.user.pfp_filename) {
-            pfpElement = `<img src="/static/uploads/${comment.user.pfp_filename}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`;
+            pfpElement = <img src="/static/uploads/${comment.user.pfp_filename}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">;
         } else {
-            pfpElement = `<div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>`;
+            pfpElement = <div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>;
         }
 
         container.innerHTML = `
@@ -327,7 +327,7 @@ templates = {
         if (repliesWrapper.style.display === 'none') {
             if (!repliesWrapper.hasChildNodes()) { // Fetch only if empty
                 repliesWrapper.innerHTML = '<p style="color:var(--text-muted); padding-left:20px;">Carregando respostas...</p>';
-                const response = await fetch(`/comment/${commentId}/replies`);
+                const response = await fetch/comment/${commentId}/replies);
                 const replies = await response.json();
                 repliesWrapper.innerHTML = '';
                 if(replies.length > 0) {
@@ -352,7 +352,7 @@ templates = {
         commentModal.style.display = 'flex';
         document.body.style.overflow = 'hidden';
 
-        const response = await fetch(`/post/${postId}/comments`);
+        const response = await fetch/post/${postId}/comments);
         const comments = await response.json();
         list.innerHTML = '';
 
@@ -375,7 +375,7 @@ templates = {
         const parentIdInput = document.getElementById('comment-parent-id');
         if (parentId) {
             parentIdInput.value = parentId;
-            textInput.placeholder = `Respondendo a @${username}...`;
+            textInput.placeholder = Respondendo a @${username}...;
             textInput.focus();
         } else {
             parentIdInput.value = '';
@@ -390,7 +390,7 @@ templates = {
         const text = document.getElementById('comment-text-input').value;
         if (!text.trim()) return;
 
-        const response = await fetch(`/post/${postId}/comment`, {
+        const response = await fetch/post/${postId}/comment, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: text, parent_id: parentId || null })
         });
@@ -399,7 +399,7 @@ templates = {
             document.getElementById('comment-text-input').value = '';
             prepareReply(null, null);
             openCommentModal(postId); // Refresh comments
-            const countEl = document.querySelector(`#comment-count-${postId}`);
+            const countEl = document.querySelector#comment-count-${postId});
             if(countEl) countEl.innerText = parseInt(countEl.innerText) + 1;
         }
     });
@@ -407,14 +407,14 @@ templates = {
     window.onclick = (event) => { if (event.target == commentModal) closeCommentModal(); };
     
     async function handleLike(button, postId) {
-        const response = await fetch(`/like/post/${postId}`, { method: 'POST' });
+        const response = await fetch/like/post/${postId}, { method: 'POST' });
         const data = await response.json();
         button.querySelector('span').innerText = data.likes;
         button.classList.toggle('liked', data.liked);
     }
 
     async function handleLikeComment(button, commentId) {
-        const response = await fetch(`/like/comment/${commentId}`, { method: 'POST' });
+        const response = await fetch/like/comment/${commentId}, { method: 'POST' });
         const data = await response.json();
         button.querySelector('span').innerText = data.likes;
         button.classList.toggle('liked', data.liked);
@@ -424,7 +424,7 @@ templates = {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
         if (caption === null) return; 
 
-        const response = await fetch(`/repost/post/${postId}`, { 
+        const response = await fetch/repost/post/${postId}, { 
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ caption: caption })
         });
@@ -441,7 +441,7 @@ templates = {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
         if (caption === null) return;
 
-        const response = await fetch(`/repost/comment/${commentId}`, {
+        const response = await fetch/repost/comment/${commentId}, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ caption: caption })
         });
@@ -456,10 +456,10 @@ templates = {
     async function handleDeletePost(button, postId) {
         if (!confirm('Tem certeza que deseja deletar esta publicação? Esta ação é permanente.')) return;
 
-        const response = await fetch(`/delete_post/${postId}`, { method: 'POST' });
+        const response = await fetch/delete_post/${postId}, { method: 'POST' });
         const data = await response.json();
         if(data.success) {
-            const postElement = document.getElementById(`post-${postId}`);
+            const postElement = document.getElementByIdpost-${postId});
             if(postElement) {
                 postElement.style.transition = 'opacity 0.3s ease';
                 postElement.style.opacity = '0';
@@ -474,7 +474,7 @@ templates = {
     function flash(message, category = 'info') {
         const container = document.querySelector('.flash-message-container') || document.body;
         const flashDiv = document.createElement('div');
-        flashDiv.className = `flash-message ${category}`;
+        flashDiv.className = flash-message ${category};
         flashDiv.textContent = message;
         container.appendChild(flashDiv);
         setTimeout(() => {
@@ -561,8 +561,8 @@ templates = {
 {% endblock %}
 {% block content %}
     <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color);">
-        <a href="{{ url_for('home', feed_type='text') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type == 'text' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Texto {% if feed_type == 'text' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
-        <a href="{{ url_for('home', feed_type='sixs') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type == 'sixs' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Sixs {% if feed_type == 'sixs' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
+        <a href="{{ url_for('home', feed_type='text') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type  'text' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Texto {% if feed_type  'text' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
+        <a href="{{ url_for('home', feed_type='sixs') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type  'sixs' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Sixs {% if feed_type  'sixs' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
     </div>
 
     {% if feed_type == 'text' %}
@@ -658,7 +658,7 @@ templates = {
             return;
         }
         seenTextPosts.add(postId);
-        fetch(`/mark_text_post_as_seen/${postId}`, { method: 'POST' });
+        fetch/mark_text_post_as_seen/${postId}, { method: 'POST' });
     }
     const textObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
@@ -713,7 +713,7 @@ templates = {
             return;
         }
         seenSixs.add(postId);
-        fetch(`/mark_six_as_seen/${postId}`, { method: 'POST' });
+        fetch/mark_six_as_seen/${postId}, { method: 'POST' });
     }
 
     const sixObserver = new IntersectionObserver((entries) => {
@@ -983,8 +983,8 @@ templates = {
     
     const progressCircle = document.querySelector('.progress-ring__circle');
     const radius = progressCircle.r.baseVal.value;
-    const circumference = radius * 2 * Math.PI;
-    progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
+    const circumference = radius  2  Math.PI;
+    progressCircle.style.strokeDasharray = ${circumference} ${circumference};
     
     function setProgress(duration) {
         const percent = (duration / MAX_DURATION);
@@ -992,78 +992,74 @@ templates = {
         progressCircle.style.strokeDashoffset = offset;
     }
 
-    function stopCurrentStream() {
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-        }
-        stream = null;
-    }
-
-    async function setupStream() {
-        stopCurrentStream();
+    async function initCamera() {
         try {
+            if (stream) { stream.getTracks().forEach(track => track.stop()); }
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: facingMode } };
             stream = await navigator.mediaDevices.getUserMedia(constraints);
             
+            permissionPrompt.style.display = 'none';
+            sixCreatorUI.style.display = 'flex';
+            if (!sixCreatorUI.classList.contains('visible')) {
+                setTimeout(() => sixCreatorUI.classList.add('visible'), 10);
+            }
+            
             preview.srcObject = stream;
-            preview.src = null; // Clear any old blob src
-            preview.muted = true; // Always mute live preview
             preview.classList.toggle('mirrored', facingMode === 'user');
             
+            // Re-create the recorder for the new stream, but only reset if idle
             mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
             mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
             mediaRecorder.onstop = handleStop;
+
+            if (recorderState === 'idle') {
+                resetRecorder(); // This will also call updateUI()
+            } else {
+                updateUI(); // Manually update UI if not resetting
+            }
+
         } catch (e) {
-            console.error("Error setting up stream:", e);
+            console.error(e);
             document.getElementById('permission-status').textContent = "Permissão de Câmera/Mic negada. Por favor, habilite nas configurações do seu navegador e atualize a página.";
             enableCameraBtn.disabled = true;
-            stopCurrentStream();
         }
     }
     
     function updateUI() {
-        const elements = { recordButton, retakeBtn, pauseResumeBtn, finishBtn, sixForm, switchCameraBtn };
+        const elements = { recordButton, retakeBtn, pauseResumeBtn, finishBtn, sixForm };
         for (const key in elements) {
             elements[key].style.display = 'none';
         }
-        recordButton.classList.remove('recording');
-
-        switch (recorderState) {
-            case 'idle':
-                recorderStatus.textContent = "Toque no botão para gravar";
-                recordButton.style.display = 'flex';
-                switchCameraBtn.style.display = 'flex';
-                switchCameraBtn.disabled = false;
-                break;
-            case 'recording':
-                recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
-                recordButton.style.display = 'flex';
-                recordButton.classList.add('recording');
-                switchCameraBtn.style.display = 'flex';
-                switchCameraBtn.disabled = true;
-                break;
-            case 'paused':
-                recorderStatus.textContent = 'Pausado. Continue ou finalize.';
-                pauseResumeBtn.style.display = 'flex';
-                retakeBtn.style.display = 'flex';
-                finishBtn.style.display = 'flex';
-                switchCameraBtn.style.display = 'flex';
-                switchCameraBtn.disabled = false;
-                pauseResumeBtn.innerHTML = ICONS.record_circle;
-                break;
-            case 'previewing':
-                recorderStatus.textContent = 'Pré-visualização. Refaça ou publique.';
-                retakeBtn.style.display = 'flex';
-                sixForm.style.display = 'block';
-                switchCameraBtn.style.display = 'flex';
-                switchCameraBtn.disabled = true;
-                break;
+        switchCameraBtn.disabled = false;
+        
+        if (recorderState === 'idle') {
+            recorderStatus.textContent = "Toque no botão para gravar";
+            recordButton.style.display = 'flex';
+        } else if (recorderState === 'recording') {
+            recorderStatus.textContent = Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s;
+            recordButton.style.display = 'flex';
+            recordButton.classList.add('recording');
+            switchCameraBtn.disabled = true;
+        } else if (recorderState === 'paused') {
+            recorderStatus.textContent = 'Pausado. Continue ou finalize.';
+            pauseResumeBtn.style.display = 'flex';
+            retakeBtn.style.display = 'flex';
+            finishBtn.style.display = 'flex';
+            pauseResumeBtn.innerHTML = ICONS.record_circle;
+        } else if (recorderState === 'previewing') {
+            recorderStatus.textContent = 'Pré-visualização. Refaça ou publique.';
+            retakeBtn.style.display = 'flex';
+            sixForm.style.display = 'block';
+            switchCameraBtn.disabled = true;
         }
     }
 
     function startRecording() {
-        if (recorderState !== 'idle' || !mediaRecorder) return;
+        if (recorderState !== 'idle') return;
         recordedBlobs = [];
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+        mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
+        mediaRecorder.onstop = handleStop;
         mediaRecorder.start();
         recorderState = 'recording';
         startTimer();
@@ -1095,32 +1091,27 @@ templates = {
     function handleStop() {
         stopTimer();
         recorderState = 'previewing';
-        
-        if (recordedBlobs.length === 0) {
-            resetRecorder();
-            return;
-        }
-        
-        stopCurrentStream(); // Stop live feed before showing recorded blob
         const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
         preview.srcObject = null;
         preview.src = window.URL.createObjectURL(superBuffer);
         preview.muted = false;
+        preview.controls = false;
         preview.loop = true;
         preview.play();
         updateUI();
     }
 
-    async function resetRecorder() {
+    function resetRecorder() {
         stopTimer();
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-            mediaRecorder.stop();
-        }
         recordedDuration = 0;
-        recordedBlobs = [];
         recorderState = 'idle';
+        if (stream) {
+            preview.srcObject = stream;
+            preview.play();
+        }
+        preview.controls = false;
+        preview.muted = true;
         setProgress(0);
-        await setupStream();
         updateUI();
     }
 
@@ -1128,7 +1119,7 @@ templates = {
         timerInterval = setInterval(() => {
             recordedDuration += 100;
             setProgress(recordedDuration);
-            recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
+            recorderStatus.textContent = Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s;
             if (recordedDuration >= MAX_DURATION) {
                 stopRecording();
             }
@@ -1136,21 +1127,22 @@ templates = {
     }
     
     function stopTimer() { clearInterval(timerInterval); }
-    
-    enableCameraBtn.addEventListener('click', async () => {
-        permissionPrompt.style.display = 'none';
-        sixCreatorUI.style.display = 'flex';
-        if (!sixCreatorUI.classList.contains('visible')) {
-            setTimeout(() => sixCreatorUI.classList.add('visible'), 10);
-        }
-        await resetRecorder();
-    });
-    
+
+    enableCameraBtn.addEventListener('click', initCamera);
     switchCameraBtn.addEventListener('click', async () => {
         if (recorderState === 'idle' || recorderState === 'paused') {
+            if (recorderState === 'paused') {
+                await new Promise(resolve => {
+                    mediaRecorder.onstop = () => {
+                        stopTimer();
+                        resolve();
+                    };
+                    mediaRecorder.stop();
+                });
+                recorderState = 'paused';
+            }
             facingMode = (facingMode === 'user') ? 'environment' : 'user';
-            await setupStream();
-            updateUI(); // The UI state remains the same (idle or paused)
+            initCamera();
         }
     });
     
@@ -1225,7 +1217,7 @@ templates = {
             </select>
             <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
         </div>
-
+        
         <button type="submit" class="btn">Salvar Alterações</button>
     </form>
     
@@ -1355,7 +1347,7 @@ templates = {
     <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color); {% if active_tab == 'sixs' %} position: fixed; top:0; left:0; right:0; z-index:100; background:rgba(0,0,0,0.65); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); {% endif %}">
         {% set tabs = [('Publicações', 'publicações', url_for('profile', username=user.username, tab='publicações')), ('Sixs', 'sixs', url_for('profile', username=user.username, tab='sixs')), ('Republicações', 'republicações', url_for('profile', username=user.username, tab='republicações'))] %}
         {% for name, tab_id, url in tabs %}
-        <a href="{{ url }}" style="flex:1; text-align:center; padding: 15px; color: {% if active_tab == tab_id %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">{{ name }} {% if active_tab == tab_id %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
+        <a href="{{ url }}" style="flex:1; text-align:center; padding: 15px; color: {% if active_tab  tab_id %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">{{ name }} {% if active_tab  tab_id %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
         {% endfor %}
     </div>
 
@@ -1600,7 +1592,7 @@ templates = {
 
 # --- JINJA2 LOADER ---
 class DictLoader(BaseLoader):
-    def __init__(self, templates_dict): self.templates = templates_dict
+    def init(self, templates_dict): self.templates = templates_dict
     def get_source(self, environment, template):
         if template in self.templates: return self.templates[template], None, lambda: True
         raise TemplateNotFound(template)
@@ -1679,7 +1671,7 @@ class Comment(db.Model):
     reposts = db.relationship('CommentRepost', backref='original_comment', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.comment_id')
 
 class Repost(db.Model):
-    __tablename__ = 'repost'
+    tablename = 'repost'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
@@ -1687,7 +1679,7 @@ class Repost(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
 class CommentRepost(db.Model):
-    __tablename__ = 'comment_repost'
+    tablename = 'comment_repost'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=False)
@@ -2156,7 +2148,7 @@ def check_and_upgrade_db():
 
 
 # --- EXECUÇÃO PRINCIPAL ---
-if __name__ == '__main__':
+if name == '__main__':
     with app.app_context():
         if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
         db.create_all()
