@@ -1,9 +1,12 @@
 import os
 import datetime
-from flask import Flask, render_template_string, request, redirect, url_for, jsonify, flash, session
+import random
+from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
+from jinja2 import BaseLoader, TemplateNotFound
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
@@ -21,98 +24,8 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login' # Redirect to login page if user is not authenticated
 
-# --- DATABASE MODELS ---
-# Association table for the many-to-many relationship (followers)
-followers = db.Table('followers',
-    db.Column('follower_id', db.Integer, db.ForeignKey('user.id')),
-    db.Column('followed_id', db.Integer, db.ForeignKey('user.id'))
-)
-
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(200), nullable=False)
-    bio = db.Column(db.String(150))
-    profile_pic = db.Column(db.String(120), default='default.png')
-    
-    posts = db.relationship('Post', backref='author', lazy='dynamic', foreign_keys='Post.user_id')
-    reposts = db.relationship('Post', secondary='reposts', backref=db.backref('reposted_by', lazy='dynamic'), lazy='dynamic')
-    
-    followed = db.relationship(
-        'User', secondary=followers,
-        primaryjoin=(followers.c.follower_id == id),
-        secondaryjoin=(followers.c.followed_id == id),
-        backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-    def follow(self, user):
-        if not self.is_following(user):
-            self.followed.append(user)
-
-    def unfollow(self, user):
-        if self.is_following(user):
-            self.followed.remove(user)
-
-    def is_following(self, user):
-        return self.followed.filter(
-            followers.c.followed_id == user.id).count() > 0
-            
-    def followed_posts(self, post_type):
-        followed = Post.query.join(
-            followers, (followers.c.followed_id == Post.user_id)).filter(
-                followers.c.follower_id == self.id)
-        own = Post.query.filter_by(user_id=self.id)
-        all_posts = followed.union(own)
-        if post_type:
-            all_posts = all_posts.filter_by(post_type=post_type)
-        return all_posts.order_by(Post.timestamp.desc())
-
-reposts = db.Table('reposts',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
-    db.Column('post_id', db.Integer, db.ForeignKey('post.id'))
-)
-
-likes = db.Table('likes',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
-    db.Column('post_id', db.Integer, db.ForeignKey('post.id'))
-)
-
-class Post(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    post_type = db.Column(db.String(10), nullable=False) # 'text' or 'six'
-    text_content = db.Column(db.String(150)) # For text posts or video captions
-    video_filename = db.Column(db.String(120))
-    timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
-    
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    original_post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=True) # For reposts
-    
-    comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
-    liked_by = db.relationship('User', secondary=likes, backref=db.backref('liked_posts', lazy='dynamic'), lazy='dynamic')
-
-class Comment(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    text = db.Column(db.String(150), nullable=False)
-    timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    post_id = db.Column(db.Integer, db.ForeignKey('post.id'))
-
-
-# --- LOGIN MANAGER ---
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
-
-
-# --- TEMPLATES ---
-# We store HTML templates as strings in a dictionary
-# This keeps everything in one file, as requested.
-
+# --- TEMPLATES (as a dictionary) ---
+# All HTML templates are stored here.
 templates = {
 "layout.html": """
 <!doctype html>
@@ -144,17 +57,18 @@ templates = {
         .btn:hover { background-color: var(--hover-color); }
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; margin-bottom: .5rem; }
-        .form-group input, .form-group textarea { width: 100%; padding: .5rem; border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: .5rem; border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box; }
         /* Mobile specific styles */
         @media (max-width: 600px) { body { margin-bottom: 60px; } .mobile-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--white); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; padding: 10px 0; z-index: 1000; } .mobile-nav a { color: var(--primary-color); font-size: 1.5em; } }
-        @media (min-width: 601px) { .mobile-nav { display: none; } }
+        @media (min-width: 601px) { .desktop-nav { display: flex; } .mobile-nav { display: none; } }
+        @media (max-width: 600px) { .desktop-nav { display: none; } }
     </style>
     {% block head %}{% endblock %}
 </head>
 <body>
     <nav>
         <a href="{{ url_for('home') }}" class="logo">Sixsec</a>
-        <div>
+        <div class="desktop-nav">
         {% if current_user.is_authenticated %}
             <a href="{{ url_for('home') }}">Home</a>
             <a href="{{ url_for('discover') }}">Discover</a>
@@ -191,7 +105,12 @@ templates = {
     <script>
     // Simple script for handling likes without page reload
     function handleLike(postId) {
-        fetch(`/like/${postId}`, { method: 'POST' })
+        fetch(`/like/${postId}`, { 
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
             .then(response => response.json())
             .then(data => {
                 const likeButton = document.getElementById(`like-btn-${postId}`);
@@ -205,6 +124,7 @@ templates = {
             });
     }
     </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>
 """,
@@ -217,21 +137,19 @@ templates = {
     .feed-nav { display: flex; justify-content: center; margin-bottom: 20px; background: #fff; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); }
     .feed-nav a { padding: 10px 20px; text-decoration: none; color: var(--primary-color); font-weight: bold; border-radius: 20px; }
     .feed-nav a.active { background-color: var(--primary-color); color: var(--white); }
-    /* TikTok-like feed for Sixs */
-    .sixs-feed-container { display: none; flex-direction: column; align-items: center; }
+    .sixs-feed-container { display: flex; flex-direction: column; align-items: center; }
     .six-video-card { width: 100%; height: 80vh; max-height: 700px; background: #000; border-radius: 12px; margin-bottom: 20px; position: relative; scroll-snap-align: start; }
     .six-video { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; clip-path: circle(40% at 50% 50%); }
     .six-info { position: absolute; bottom: 20px; left: 20px; color: white; text-shadow: 1px 1px 3px rgba(0,0,0,0.7); }
-    @media (max-width: 600px) {
-        .feed-container { padding-bottom: 60px; }
-        #text-feed-container { display: {% if feed_type == 'text' %}block{% else %}none{% endif %}; }
-        #sixs-feed-container { display: {% if feed_type == 'six' %}flex{% else %}none{% endif %}; scroll-snap-type: y mandatory; overflow-y: scroll; height: calc(100vh - 120px); }
-    }
-    @media (min-width: 601px) {
-        .feed-container { display: block; }
-        #sixs-feed-container { display: {% if feed_type == 'six' %}flex{% else %}none{% endif %}; }
-    }
     .end-of-feed { text-align: center; padding: 40px; color: #777; }
+    
+    #text-feed { display: {% if feed_type != 'text' %}none{% else %}block{% endif %}; }
+    #sixs-feed { display: {% if feed_type != 'six' %}none{% else %}flex{% endif %}; flex-direction: column; }
+
+    @media (max-width: 600px) {
+        .container { padding-bottom: 60px; }
+        #sixs-feed { scroll-snap-type: y mandatory; overflow-y: scroll; height: calc(100vh - 120px); }
+    }
 </style>
 {% endblock %}
 {% block content %}
@@ -241,7 +159,7 @@ templates = {
         <a href="{{ url_for('home', feed_type='six') }}" class="{% if feed_type == 'six' %}active{% endif %}">Sixs</a>
     </div>
 
-    <div id="text-feed-container" class="feed-container">
+    <div id="text-feed">
         {% if feed_type == 'text' %}
             {% for post in posts %}
                 {% include 'post_card.html' %}
@@ -251,11 +169,11 @@ templates = {
         {% endif %}
     </div>
 
-    <div id="sixs-feed-container" class="sixs-feed-container">
+    <div id="sixs-feed" class="sixs-feed-container">
         {% if feed_type == 'six' %}
             {% for post in posts %}
                 <div class="six-video-card">
-                    <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop autoplay muted playsinline></video>
+                    <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) if post.video_filename else '' }}" loop autoplay muted playsinline></video>
                     <div class="six-info">
                         <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white; text-decoration: none;"><strong>@{{ post.author.username }}</strong></a>
                         <p>{{ post.text_content }}</p>
@@ -267,7 +185,7 @@ templates = {
                     <p>Follow more creators or <a href="{{ url_for('create_post') }}">create something new!</a></p>
                 </div>
             {% endfor %}
-            {% if posts %}
+            {% if posts|length > 0 %}
             <div class="end-of-feed">
                 <h3>You've seen all new Sixs!</h3>
                 <p>Scroll up to re-watch or create your own.</p>
@@ -285,7 +203,7 @@ templates = {
         <div>
             <a href="{{ url_for('profile', username=post.author.username) }}">{{ post.author.username }}</a>
             <small style="color:#888;">· {{ post.timestamp.strftime('%b %d') }}</small>
-            {% if post.original_post_id %}
+            {% if post.original_post_id and post.reposted_by.first() %}
                 <small style="color:#888;"><i>(reposted by {{ post.reposted_by.first().username }})</i></small>
             {% endif %}
         </div>
@@ -304,7 +222,9 @@ templates = {
             ❤️ <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
         </button>
         <button title="Comment">💬 {{ post.comments.count() }}</button>
-        <a href="{{ url_for('repost', post_id=post.id) }}" title="Repost">🔁</a>
+        <form action="{{ url_for('repost', post_id=post.id) }}" method="POST" style="display:inline;">
+            <button type="submit" title="Repost">🔁</button>
+        </form>
     </div>
 </div>
 """,
@@ -388,7 +308,8 @@ templates = {
         
         <button type="submit" class="btn">Post</button>
     </form>
-
+{% endblock %}
+{% block scripts %}
 <script>
     function toggleForm() {
         const postType = document.getElementById('post_type').value;
@@ -423,7 +344,9 @@ templates = {
         }
     }
     // Initial call
-    toggleForm();
+    document.addEventListener('DOMContentLoaded', function() {
+        toggleForm();
+    });
 </script>
 {% endblock %}
 """,
@@ -433,11 +356,16 @@ templates = {
 {% block title %}{{ user.username }}'s Profile{% endblock %}
 {% block head %}
 <style>
-    .profile-header { display: flex; align-items: flex-start; margin-bottom: 20px; }
+    .profile-header { display: flex; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; }
     .profile-pic { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-right: 20px; }
     .profile-info { flex-grow: 1; }
-    .profile-stats { display: flex; gap: 20px; margin-top: 10px; }
-    .profile-actions { margin-left: auto; }
+    .profile-stats { display: flex; gap: 20px; margin-top: 10px; flex-wrap: wrap; }
+    .profile-actions { margin-left: auto; align-self: flex-start; }
+    @media (max-width: 480px) {
+        .profile-header { flex-direction: column; align-items: center; text-align: center; }
+        .profile-pic { margin-right: 0; margin-bottom: 15px; }
+        .profile-actions { margin-left: 0; margin-top: 15px; }
+    }
 </style>
 {% endblock %}
 {% block content %}
@@ -521,76 +449,155 @@ templates = {
 """
 }
 
+# --- JINJA2 CUSTOM LOADER (THE FIX) ---
+class DictLoader(BaseLoader):
+    def __init__(self, templates_dict):
+        self.templates = templates_dict
+
+    def get_source(self, environment, template):
+        if template in self.templates:
+            source = self.templates[template]
+            return source, None, lambda: True
+        raise TemplateNotFound(template)
+
+# Assign the custom loader to the Flask app's Jinja environment
+app.jinja_loader = DictLoader(templates)
+
+
+# --- DATABASE MODELS ---
+followers = db.Table('followers',
+    db.Column('follower_id', db.Integer, db.ForeignKey('user.id')),
+    db.Column('followed_id', db.Integer, db.ForeignKey('user.id'))
+)
+
+reposts = db.Table('reposts',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
+    db.Column('post_id', db.Integer, db.ForeignKey('post.id'))
+)
+
+likes = db.Table('likes',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
+    db.Column('post_id', db.Integer, db.ForeignKey('post.id'))
+)
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    bio = db.Column(db.String(150))
+    profile_pic = db.Column(db.String(120), default='default.png')
+    
+    posts = db.relationship('Post', backref='author', lazy='dynamic', foreign_keys='Post.user_id')
+    reposts = db.relationship('Post', secondary=reposts, backref=db.backref('reposted_by', lazy='dynamic'), lazy='dynamic')
+    
+    followed = db.relationship(
+        'User', secondary=followers,
+        primaryjoin=(followers.c.follower_id == id),
+        secondaryjoin=(followers.c.followed_id == id),
+        backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    def follow(self, user):
+        if not self.is_following(user):
+            self.followed.append(user)
+
+    def unfollow(self, user):
+        if self.is_following(user):
+            self.followed.remove(user)
+
+    def is_following(self, user):
+        return self.followed.filter(followers.c.followed_id == user.id).count() > 0
+            
+    def followed_posts(self, post_type=None):
+        followed_ids = [u.id for u in self.followed]
+        followed_ids.append(self.id)
+        
+        query = Post.query.filter(Post.user_id.in_(followed_ids))
+        if post_type:
+            query = query.filter_by(post_type=post_type)
+        return query.order_by(Post.timestamp.desc()).all()
+
+
+class Post(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    post_type = db.Column(db.String(10), nullable=False)
+    text_content = db.Column(db.String(150))
+    video_filename = db.Column(db.String(120))
+    timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    original_post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=True)
+    comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
+    liked_by = db.relationship('User', secondary=likes, backref=db.backref('liked_posts', lazy='dynamic'), lazy='dynamic')
+
+class Comment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(150), nullable=False)
+    timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'))
+
+# --- LOGIN MANAGER ---
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
 # --- ROUTES ---
 
 @app.route('/')
 @login_required
 def home():
     feed_type = request.args.get('feed_type', 'text')
+    posts = []
     if feed_type == 'text':
-        posts = current_user.followed_posts('text').all()
+        posts = current_user.followed_posts('text')
     elif feed_type == 'six':
-        posts = current_user.followed_posts('six').all()
-    else:
-        posts = []
+        posts = current_user.followed_posts('six')
     
-    session['last_seen_posts'] = [p.id for p in posts] # Store seen posts
-    
-    return render_template_string(templates['home.html'], posts=posts, feed_type=feed_type)
+    return render_template('home.html', posts=posts, feed_type=feed_type)
 
 @app.route('/discover')
 @login_required
 def discover():
-    # A simple discovery algorithm: recent posts from users you don't follow, plus some random users
     followed_ids = [u.id for u in current_user.followed]
     followed_ids.append(current_user.id)
     
     recent_posts = Post.query.filter(Post.user_id.notin_(followed_ids)).order_by(Post.timestamp.desc()).limit(10).all()
     random_users = User.query.filter(User.id.notin_(followed_ids)).order_by(db.func.random()).limit(5).all()
     
-    discover_items = []
-    for post in recent_posts:
-        discover_items.append({'type': 'post', 'content': post})
-    for user in random_users:
-        discover_items.append({'type': 'user', 'content': user})
+    discover_items = [{'type': 'post', 'content': p} for p in recent_posts] + \
+                     [{'type': 'user', 'content': u} for u in random_users]
     
-    # Simple shuffle
-    import random
     random.shuffle(discover_items)
-
-    return render_template_string(templates['discover.html'], discover_items=discover_items)
+    return render_template('discover.html', discover_items=discover_items)
 
 @app.route('/create', methods=['GET', 'POST'])
 @login_required
 def create_post():
     if request.method == 'POST':
         post_type = request.form.get('post_type')
-
         if post_type == 'text':
             content = request.form.get('text_content')
             if not content or len(content) > 150:
                 flash('Text must be between 1 and 150 characters.', 'error')
                 return redirect(url_for('create_post'))
             post = Post(post_type='text', text_content=content, author=current_user)
-        
         elif post_type == 'six':
             video_file = request.files.get('video_file')
-            caption = request.form.get('caption')
-            if not video_file:
+            caption = request.form.get('caption', '')
+            if not video_file or video_file.filename == '':
                 flash('You must upload a video for a Six post.', 'error')
                 return redirect(url_for('create_post'))
             
-            # Simple security check for filename
-            from werkzeug.utils import secure_filename
-            filename = secure_filename(video_file.filename)
+            filename = secure_filename(f"{current_user.id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{video_file.filename}")
             video_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             video_file.save(video_path)
             
-            # Here you would add server-side validation for video length (requires a library like moviepy or ffmpeg-python)
-            # For this demo, we rely on the client-side check.
-
             post = Post(post_type='six', text_content=caption, video_filename=filename, author=current_user)
-        
         else:
             flash('Invalid post type.', 'error')
             return redirect(url_for('create_post'))
@@ -600,7 +607,7 @@ def create_post():
         flash('Your post has been created!', 'success')
         return redirect(url_for('home'))
 
-    return render_template_string(templates['create_post.html'])
+    return render_template('create_post.html')
 
 @app.route('/profile/<username>')
 @login_required
@@ -614,10 +621,12 @@ def profile(username):
         posts = user.posts.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
     elif feed_type == 'reposts':
         posts = user.reposts.order_by(Post.timestamp.desc()).all()
-    else: # 'all'
-        posts = user.posts.order_by(Post.timestamp.desc()).all() # This shows original posts and reposts made by the user
+    else:
+        all_user_posts = user.posts.order_by(Post.timestamp.desc()).all()
+        all_reposts = user.reposts.order_by(Post.timestamp.desc()).all()
+        posts = sorted(all_user_posts + all_reposts, key=lambda p: p.timestamp, reverse=True)
     
-    return render_template_string(templates['profile.html'], user=user, posts=posts, feed_type=feed_type)
+    return render_template('profile.html', user=user, posts=posts, feed_type=feed_type)
     
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
@@ -625,50 +634,39 @@ def edit_profile():
     if request.method == 'POST':
         current_user.bio = request.form.get('bio', current_user.bio)
         profile_pic = request.files.get('profile_pic')
-        if profile_pic:
-            from werkzeug.utils import secure_filename
-            filename = secure_filename(profile_pic.filename)
+        if profile_pic and profile_pic.filename != '':
+            filename = secure_filename(f"pfp_{current_user.id}_{profile_pic.filename}")
             pic_path = os.path.join(app.config['UPLOAD_FOLDER'], 'profiles', filename)
             profile_pic.save(pic_path)
             current_user.profile_pic = filename
         db.session.commit()
         flash('Profile updated successfully!', 'success')
         return redirect(url_for('profile', username=current_user.username))
-
-    return render_template_string(templates['auth_form.html'], title="Edit Profile", form_type='signup', user=current_user)
-
-
-# --- ACTIONS (Follow, Like, Repost) ---
+    return render_template('auth_form.html', title="Edit Profile", form_type='signup', user=current_user)
 
 @app.route('/follow/<username>')
 @login_required
 def follow(username):
-    user = User.query.filter_by(username=username).first()
-    if user is None:
-        flash(f'User {username} not found.', 'error')
-        return redirect(url_for('home'))
+    user = User.query.filter_by(username=username).first_or_404()
     if user == current_user:
         flash('You cannot follow yourself!', 'error')
-        return redirect(url_for('profile', username=username))
-    current_user.follow(user)
-    db.session.commit()
-    flash(f'You are now following {username}!', 'success')
-    return redirect(url_for('profile', username=username))
+    else:
+        current_user.follow(user)
+        db.session.commit()
+        flash(f'You are now following {username}!', 'success')
+    return redirect(request.referrer or url_for('profile', username=username))
 
 @app.route('/unfollow/<username>')
 @login_required
 def unfollow(username):
-    user = User.query.filter_by(username=username).first()
-    if user is None:
-        flash(f'User {username} not found.', 'error')
-        return redirect(url_for('home'))
+    user = User.query.filter_by(username=username).first_or_404()
     if user == current_user:
         flash('You cannot unfollow yourself!', 'error')
-        return redirect(url_for('profile', username=username))
-    current_user.unfollow(user)
-    db.session.commit()
-    flash(f'You have unfollowed {username}.', 'success')
-    return redirect(url_for('profile', username=username))
+    else:
+        current_user.unfollow(user)
+        db.session.commit()
+        flash(f'You have unfollowed {username}.', 'success')
+    return redirect(request.referrer or url_for('profile', username=username))
 
 @app.route('/like/<int:post_id>', methods=['POST'])
 @login_required
@@ -683,7 +681,7 @@ def like(post_id):
     db.session.commit()
     return jsonify({'liked': liked, 'likes': post.liked_by.count()})
 
-@app.route('/repost/<int:post_id>')
+@app.route('/repost/<int:post_id>', methods=['POST'])
 @login_required
 def repost(post_id):
     post_to_repost = Post.query.get_or_404(post_id)
@@ -691,15 +689,13 @@ def repost(post_id):
         flash("You can't repost your own post.", "error")
         return redirect(request.referrer or url_for('home'))
     
-    # To keep it simple, we just link to the user's reposts.
-    # A more complex system might create a new 'post' entry of type 'repost'
-    current_user.reposts.append(post_to_repost)
-    db.session.commit()
-    flash("Post reposted!", "success")
+    if post_to_repost in current_user.reposts:
+         flash("You have already reposted this.", "info")
+    else:
+        current_user.reposts.append(post_to_repost)
+        db.session.commit()
+        flash("Post reposted!", "success")
     return redirect(request.referrer or url_for('home'))
-
-
-# --- AUTHENTICATION ---
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -714,7 +710,7 @@ def login():
             return redirect(url_for('login'))
         login_user(user, remember=True)
         return redirect(url_for('home'))
-    return render_template_string(templates['auth_form.html'], title="Login", form_type="login")
+    return render_template('auth_form.html', title="Login", form_type="login")
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
@@ -723,18 +719,16 @@ def signup():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        bio = request.form.get('bio')
         if User.query.filter_by(username=username).first():
             flash('Username already taken.', 'error')
             return redirect(url_for('signup'))
         
-        new_user = User(username=username, bio=bio)
+        new_user = User(username=username, bio=request.form.get('bio', ''))
         new_user.set_password(password)
 
         profile_pic = request.files.get('profile_pic')
-        if profile_pic:
-            from werkzeug.utils import secure_filename
-            filename = secure_filename(profile_pic.filename)
+        if profile_pic and profile_pic.filename != '':
+            filename = secure_filename(f"pfp_{new_user.username}_{profile_pic.filename}")
             pic_path = os.path.join(app.config['UPLOAD_FOLDER'], 'profiles', filename)
             profile_pic.save(pic_path)
             new_user.profile_pic = filename
@@ -743,21 +737,19 @@ def signup():
         db.session.commit()
         flash('Account created! Please log in.', 'success')
         return redirect(url_for('login'))
-    return render_template_string(templates['auth_form.html'], title="Sign Up", form_type="signup")
+    return render_template('auth_form.html', title="Sign Up", form_type="signup")
 
 @app.route('/logout')
 def logout():
     logout_user()
     return redirect(url_for('login'))
 
-
 # --- MAIN EXECUTION ---
 if __name__ == '__main__':
-    # Create necessary folders and the database if they don't exist
     with app.app_context():
         if not os.path.exists(app.config['UPLOAD_FOLDER']):
             os.makedirs(app.config['UPLOAD_FOLDER'])
         if not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'profiles')):
             os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'profiles'))
         db.create_all()
-    app.run(debug=False, port=8000)
+    app.run(debug=True, host='0.0.0.0', port=8000)
