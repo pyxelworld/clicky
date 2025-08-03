@@ -10,9 +10,9 @@ from jinja2 import BaseLoader, TemplateNotFound
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v4-fixes'
+app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v5-reposts-and-ui'
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec_v4.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec_v5.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -32,7 +32,7 @@ ICONS = {
     'comment': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
     'repost': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>',
     'send': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>',
-    'settings': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
+    'settings': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
     'back_arrow': '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
     'stop_square': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>',
     'redo': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>',
@@ -138,6 +138,31 @@ templates = {
         .action-button.reposted { color: var(--accent-color); }
         .action-button.reposted svg { stroke: var(--accent-color); }
         
+        .comment-thread {
+            position: relative;
+            padding-left: 20px;
+            margin-left: 20px;
+            margin-top: 10px;
+        }
+        .comment-thread::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: var(--border-color);
+        }
+        .view-replies-btn {
+            font-size: 14px;
+            color: var(--accent-color);
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px 0;
+            margin-top: 8px;
+        }
+        
         {% block style_override %}{% endblock %}
     </style>
 </head>
@@ -193,7 +218,6 @@ templates = {
     </div>
     
     <script>
-        // Make ICONS dictionary available to client-side scripts
         const ICONS = {{ ICONS|tojson|safe }};
     </script>
     <script>
@@ -201,27 +225,72 @@ templates = {
     
     function buildCommentNode(comment) {
         const container = document.createElement('div');
-        container.classList.add('comment-container');
-        container.style = `display:flex; gap:12px; margin-top:16px; margin-left: ${20 * (comment.depth || 0)}px`;
+        container.className = 'comment-container';
+        container.dataset.commentId = comment.id;
+        container.style.marginTop = '16px';
 
         const likeIcon = ICONS.like.replace('width="24"','width="18"').replace('height="24"','height="18"');
+        const repostIcon = ICONS.repost.replace('width="24"','width="18"').replace('height="24"','height="18"');
+
+        let repliesButton = '';
+        if (comment.replies_count > 0) {
+            repliesButton = `<button class="view-replies-btn" onclick="toggleReplies(this, ${comment.id})">View ${comment.replies_count} replies</button>`;
+        }
 
         container.innerHTML = `
-            <div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>
-            <div style="flex-grow:1">
-                <div><strong style="color:var(--text-color);">${comment.user.username}</strong> <span style="color:var(--text-muted);">${comment.timestamp}</span></div>
-                <div style="color:var(--text-color); margin: 4px 0;">${comment.text}</div>
-                <div class="comment-actions" style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
-                    <button id="like-comment-${comment.id}" onclick="handleLikeComment(this, ${comment.id})" class="action-button ${comment.is_liked_by_user ? 'liked' : ''}">
-                        ${likeIcon}
-                        <span>${comment.like_count}</span>
-                    </button>
-                    <button onclick="prepareReply(${comment.id}, '${comment.user.username}')" class="action-button">
-                        ${ICONS.reply} <span>Reply</span>
-                    </button>
+            <div style="display: flex; gap: 12px;">
+                <div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>
+                <div style="flex-grow:1">
+                    <div><strong style="color:var(--text-color);">${comment.user.username}</strong> <span style="color:var(--text-muted);">${comment.timestamp}</span></div>
+                    <div style="color:var(--text-color); margin: 4px 0;">${comment.text}</div>
+                    <div class="comment-actions" style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
+                        <button onclick="handleLikeComment(this, ${comment.id})" class="action-button ${comment.is_liked_by_user ? 'liked' : ''}">${likeIcon}<span>${comment.like_count}</span></button>
+                        <button onclick="prepareReply(${comment.id}, '${comment.user.username}')" class="action-button">${ICONS.reply}<span>Reply</span></button>
+                        <button onclick="handleCommentRepost(this, ${comment.id})" class="action-button">${repostIcon}<span>Repost</span></button>
+                    </div>
+                    ${repliesButton}
                 </div>
-            </div>`;
+            </div>
+            <div class="replies-wrapper" style="display: none;"></div>
+        `;
         return container;
+    }
+    
+    function appendComments(container, comments) {
+        comments.forEach(c => {
+            const node = buildCommentNode(c);
+            container.appendChild(node);
+            if (c.replies && c.replies.length > 0) {
+                const repliesWrapper = node.querySelector('.replies-wrapper');
+                repliesWrapper.classList.add('comment-thread');
+                appendComments(repliesWrapper, c.replies);
+            }
+        });
+    }
+
+    async function toggleReplies(button, commentId) {
+        const commentNode = button.closest('.comment-container');
+        const repliesWrapper = commentNode.querySelector('.replies-wrapper');
+
+        if (repliesWrapper.style.display === 'none') {
+            if (!repliesWrapper.hasChildNodes()) { // Fetch only if empty
+                repliesWrapper.innerHTML = '<p style="color:var(--text-muted); padding-left:20px;">Loading replies...</p>';
+                const response = await fetch(`/comment/${commentId}/replies`);
+                const replies = await response.json();
+                repliesWrapper.innerHTML = '';
+                if(replies.length > 0) {
+                    repliesWrapper.classList.add('comment-thread');
+                    appendComments(repliesWrapper, replies);
+                } else {
+                    repliesWrapper.innerHTML = '<p style="color:var(--text-muted); padding-left:20px;">No replies found.</p>';
+                }
+            }
+            repliesWrapper.style.display = 'block';
+            button.textContent = 'Hide replies';
+        } else {
+            repliesWrapper.style.display = 'none';
+            button.textContent = button.textContent.replace('Hide', 'View');
+        }
     }
 
     async function openCommentModal(postId) {
@@ -238,15 +307,6 @@ templates = {
         if (comments.length === 0) {
             list.innerHTML = '<p style="text-align:center; color: var(--text-muted);">No comments yet.</p>';
         } else {
-            function appendComments(container, commentList) {
-                commentList.forEach(c => {
-                    const node = buildCommentNode(c);
-                    container.appendChild(node);
-                    if (c.replies && c.replies.length > 0) {
-                        appendComments(node, c.replies); // Append replies to the current comment node
-                    }
-                });
-            }
             appendComments(list, comments);
         }
     }
@@ -255,7 +315,6 @@ templates = {
         commentModal.style.display = 'none';
         const isSixsView = document.querySelector('#sixs-feed-container');
         if (!isSixsView) document.body.style.overflow = 'auto';
-        // Reset reply form
         prepareReply(null, null);
     }
     
@@ -286,8 +345,8 @@ templates = {
 
         if (response.ok) {
             document.getElementById('comment-text-input').value = '';
-            prepareReply(null, null); // Reset reply state
-            openCommentModal(postId); // Refresh comment list
+            prepareReply(null, null);
+            openCommentModal(postId);
             const countEl = document.querySelector(`#comment-count-${postId}`);
             if(countEl) countEl.innerText = parseInt(countEl.innerText) + 1;
         }
@@ -310,12 +369,11 @@ templates = {
     }
 
     async function handleRepost(button, postId) {
-        const caption = prompt("Add an optional caption (or leave blank for a simple repost):", "");
-        if (caption === null) return; // User pressed cancel
+        const caption = prompt("Add an optional caption:", "");
+        if (caption === null) return; 
 
-        const response = await fetch(`/repost/${postId}`, { 
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+        const response = await fetch(`/repost/post/${postId}`, { 
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ caption: caption })
         });
         const data = await response.json();
@@ -326,8 +384,23 @@ templates = {
             flash(data.message, 'error');
         }
     }
+    
+    async function handleCommentRepost(button, commentId) {
+        const caption = prompt("Add an optional caption:", "");
+        if (caption === null) return;
 
-    // A simple flash message function
+        const response = await fetch(`/repost/comment/${commentId}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ caption: caption })
+        });
+        const data = await response.json();
+        if(data.success) {
+            flash(data.message, 'success');
+        } else {
+            flash(data.message, 'error');
+        }
+    }
+
     function flash(message, category = 'info') {
         const flashDiv = document.createElement('div');
         flashDiv.style = `position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index: 9999; max-width: 90%; padding: 12px 16px; border-radius: 8px; background-color: ${category === 'error' ? 'var(--red-color)' : 'var(--accent-color)'}; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center;`;
@@ -475,7 +548,7 @@ templates = {
 """,
 
 "post_card_text.html": """
-<div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
+<div class="post-card" style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
     <div style="width:40px; flex-shrink:0;">
         <div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">
             {{ post.author.username[0]|upper }}
@@ -504,6 +577,24 @@ templates = {
     </div>
 </div>
 """,
+
+"comment_card.html": """
+<div class="comment-card" style="border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
+    <div style="display:flex; gap:12px;">
+        <div style="width:30px; height:30px; border-radius:50%; flex-shrink:0; background:{{ comment.user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size: 14px;">
+            {{ comment.user.username[0]|upper }}
+        </div>
+        <div style="flex-grow:1;">
+            <div>
+                <a href="{{ url_for('profile', username=comment.user.username) }}" style="color:var(--text-color); font-weight:bold;">{{ comment.user.username }}</a>
+                <span style="color:var(--text-muted); font-size: 0.9em;">· {{ comment.timestamp.strftime('%b %d') }}</span>
+            </div>
+            <p style="margin: 4px 0 0 0; font-size: 0.95em;">{{ comment.text }}</p>
+        </div>
+    </div>
+</div>
+""",
+
 "create_post.html": """
 {% extends "layout.html" %}
 {% block header_title %}Create{% endblock %}
@@ -810,12 +901,19 @@ templates = {
                  {% if repost.caption %}
                     <p style="margin: 4px 0 12px 0; padding-left: 20px; border-left: 2px solid var(--border-color);">{{ repost.caption }}</p>
                 {% endif %}
-                {% with post=repost.original_post %}
-                    {% include 'post_card_text.html' %}
-                {% endwith %}
+                
+                {% if repost.original_post %}
+                    {% with post=repost.original_post %}
+                        {% include 'post_card_text.html' %}
+                    {% endwith %}
+                {% elif repost.original_comment %}
+                    {% with comment=repost.original_comment %}
+                        {% include 'comment_card.html' %}
+                    {% endwith %}
+                {% endif %}
             </div>
         {% else %}
-            <p style="text-align:center; color:var(--text-muted); padding:40px;">No posts in this section.</p>
+            <p style="text-align:center; color:var(--text-muted); padding:40px;">No items reposted yet.</p>
         {% endfor %}
     {% else %}
         {% for post in posts %}
@@ -935,9 +1033,18 @@ comment_likes = db.Table('comment_likes',
 )
 
 class Repost(db.Model):
+    __tablename__ = 'repost'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+    caption = db.Column(db.String(150), nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+
+class CommentRepost(db.Model):
+    __tablename__ = 'comment_repost'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=False)
     caption = db.Column(db.String(150), nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
@@ -948,6 +1055,7 @@ class User(UserMixin, db.Model):
     bio = db.Column(db.String(150))
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Post.user_id')
     reposts = db.relationship('Repost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.user_id')
+    comment_reposts = db.relationship('CommentRepost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.user_id')
     liked_posts = db.relationship('Post', secondary=post_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
     liked_comments = db.relationship('Comment', secondary=comment_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
     followed = db.relationship('User', secondary=followers, primaryjoin=(followers.c.follower_id == id), secondaryjoin=(followers.c.followed_id == id), backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
@@ -983,6 +1091,7 @@ class Comment(db.Model):
     user = db.relationship('User')
     parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy='dynamic', cascade="all, delete-orphan")
+    reposts = db.relationship('CommentRepost', backref='original_comment', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.comment_id')
 
 # --- Helper function to add user interaction flags to posts ---
 def add_user_flags_to_posts(posts):
@@ -994,6 +1103,17 @@ def add_user_flags_to_posts(posts):
             p.liked_by_current_user = p.id in liked_post_ids
             p.reposted_by_current_user = p.id in reposted_post_ids
     return posts
+
+def format_comment(comment):
+    return {
+        'id': comment.id,
+        'text': comment.text,
+        'timestamp': comment.timestamp.strftime('%b %d'),
+        'user': {'username': comment.user.username, 'pfp_gradient': comment.user.pfp_gradient, 'initial': comment.user.username[0].upper()},
+        'like_count': comment.liked_by.count(),
+        'is_liked_by_user': current_user in comment.liked_by,
+        'replies_count': comment.replies.count()
+    }
 
 # --- ROUTES ---
 @login_manager.user_loader
@@ -1009,7 +1129,7 @@ def home():
     query = Post.query.filter(Post.user_id.in_(followed_ids))
     if feed_type == 'text':
         posts = query.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
-    else: # sixs
+    else:
         posts = query.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
 
     posts = add_user_flags_to_posts(posts)
@@ -1024,14 +1144,15 @@ def profile(username):
     reposts_data = []
 
     if active_tab == 'reposts':
-        reposts_data = user.reposts.order_by(Repost.timestamp.desc()).all()
-        # Preload flags for the original posts inside the reposts
+        post_reposts = user.reposts.all()
+        comment_reposts = user.comment_reposts.all()
+        reposts_data = sorted(post_reposts + comment_reposts, key=lambda r: r.timestamp, reverse=True)
         if reposts_data:
-            original_posts = [r.original_post for r in reposts_data]
+            original_posts = [r.original_post for r in post_reposts]
             add_user_flags_to_posts(original_posts)
     elif active_tab == 'sixs':
         posts = user.posts.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
-    else: # Default to 'posts' (text posts)
+    else: # Default to 'posts'
         active_tab = 'posts'
         posts = user.posts.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
 
@@ -1045,9 +1166,7 @@ def profile(username):
 def create_post():
     if request.method == 'POST':
         post_type = request.form.get('post_type')
-        if post_type == 'text':
-            flash('Text posts can be made from the home feed.', 'info'); return redirect(url_for('home'))
-        elif post_type == 'six':
+        if post_type == 'six':
             video_file = request.files.get('video_file')
             if not video_file: flash('Video data not received.', 'error'); return redirect(url_for('create_post'))
             filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
@@ -1074,27 +1193,19 @@ def create_text_post():
     flash('Post created!', 'success')
     return redirect(url_for('home', feed_type='text'))
 
-def format_comment(comment, depth=0):
-    """Recursively formats a comment and its replies."""
-    return {
-        'id': comment.id,
-        'text': comment.text,
-        'timestamp': comment.timestamp.strftime('%b %d'),
-        'user': {'username': comment.user.username, 'pfp_gradient': comment.user.pfp_gradient, 'initial': comment.user.username[0].upper()},
-        'like_count': comment.liked_by.count(),
-        'is_liked_by_user': current_user in comment.liked_by,
-        'depth': depth,
-        'replies': [format_comment(reply, depth + 1) for reply in comment.replies.order_by(Comment.timestamp.asc()).all()]
-    }
-
 @app.route('/post/<int:post_id>/comments')
 @login_required
 def get_comments(post_id):
     post = Post.query.get_or_404(post_id)
-    # Fetch only top-level comments
     top_level_comments = post.comments.filter_by(parent_id=None).order_by(Comment.timestamp.asc()).all()
-    comments_data = [format_comment(c) for c in top_level_comments]
-    return jsonify(comments_data)
+    return jsonify([format_comment(c) for c in top_level_comments])
+
+@app.route('/comment/<int:comment_id>/replies')
+@login_required
+def get_replies(comment_id):
+    parent_comment = Comment.query.get_or_404(comment_id)
+    replies = parent_comment.replies.order_by(Comment.timestamp.asc()).all()
+    return jsonify([format_comment(r) for r in replies])
 
 @app.route('/post/<int:post_id>/comment', methods=['POST'])
 @login_required
@@ -1102,7 +1213,6 @@ def add_comment(post_id):
     data = request.get_json()
     text = data.get('text', '').strip()
     parent_id = data.get('parent_id') if data.get('parent_id') else None
-
     if not text: return jsonify({'error': 'Comment text is required'}), 400
     
     parent_comment = None
@@ -1111,12 +1221,7 @@ def add_comment(post_id):
         if not parent_comment or parent_comment.post_id != post_id:
             return jsonify({'error': 'Invalid parent comment'}), 400
             
-    comment = Comment(
-        text=text, 
-        user_id=current_user.id, 
-        post_id=post_id,
-        parent_id=parent_comment.id if parent_comment else None
-    )
+    comment = Comment(text=text, user_id=current_user.id, post_id=post_id, parent_id=parent_id)
     db.session.add(comment); db.session.commit()
     return jsonify({'success': True}), 201
 
@@ -1124,47 +1229,68 @@ def add_comment(post_id):
 @login_required
 def like_post(post_id):
     post = Post.query.get_or_404(post_id)
-    liked = False
-    if current_user in post.liked_by:
+    liked = current_user in post.liked_by
+    if liked:
         post.liked_by.remove(current_user)
     else:
         post.liked_by.append(current_user)
-        liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': post.liked_by.count()})
+    return jsonify({'liked': not liked, 'likes': post.liked_by.count()})
 
 @app.route('/like/comment/<int:comment_id>', methods=['POST'])
 @login_required
 def like_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
-    liked = False
-    if current_user in comment.liked_by:
+    liked = current_user in comment.liked_by
+    if liked:
         comment.liked_by.remove(current_user)
     else:
         comment.liked_by.append(current_user)
-        liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': comment.liked_by.count()})
+    return jsonify({'liked': not liked, 'likes': comment.liked_by.count()})
 
-@app.route('/repost/<int:post_id>', methods=['POST'])
+@app.route('/repost/post/<int:post_id>', methods=['POST'])
 @login_required
-def repost(post_id):
+def repost_post(post_id):
     post = Post.query.get_or_404(post_id)
     if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
     
     caption = request.json.get('caption', '').strip() or None
     existing_repost = Repost.query.filter_by(user_id=current_user.id, post_id=post.id).first()
     
-    reposted = False
     if existing_repost:
         db.session.delete(existing_repost)
         message = "Repost removed."
+        reposted = False
     else:
         new_repost = Repost(user_id=current_user.id, post_id=post.id, caption=caption)
         db.session.add(new_repost)
         reposted = True
         message = "Post reposted!"
 
+    db.session.commit()
+    return jsonify({'success': True, 'reposted': reposted, 'message': message})
+
+@app.route('/repost/comment/<int:comment_id>', methods=['POST'])
+@login_required
+def repost_comment(comment_id):
+    comment = Comment.query.get_or_404(comment_id)
+    if comment.user == current_user:
+        return jsonify({'success': False, 'message': "You can't repost your own comment."})
+
+    caption = request.json.get('caption', '').strip() or None
+    existing_repost = CommentRepost.query.filter_by(user_id=current_user.id, comment_id=comment.id).first()
+
+    if existing_repost:
+        db.session.delete(existing_repost)
+        message = "Comment repost removed."
+        reposted = False
+    else:
+        new_repost = CommentRepost(user_id=current_user.id, comment_id=comment.id, caption=caption)
+        db.session.add(new_repost)
+        message = "Comment reposted!"
+        reposted = True
+        
     db.session.commit()
     return jsonify({'success': True, 'reposted': reposted, 'message': message})
 
@@ -1175,7 +1301,7 @@ def edit_profile():
         new_username = request.form.get('username', '').strip()
         new_bio = request.form.get('bio', current_user.bio).strip()
         if new_username and new_username != current_user.username:
-            existing_user = User.query.filter(User.username.ilike(new_username)).first()
+            existing_user = User.query.filter(User.username.ilike(new_username), User.id != current_user.id).first()
             if existing_user:
                 flash('Username is already taken.', 'error')
                 return redirect(url_for('edit_profile'))
