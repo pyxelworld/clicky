@@ -1562,47 +1562,39 @@ class DictLoader(BaseLoader):
         raise TemplateNotFound(template)
 app.jinja_loader = DictLoader(templates)
 
-class Repost(db.Model):
-    __tablename__ = 'repost'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
-    caption = db.Column(db.String(150), nullable=True)
-    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
-
-class CommentRepost(db.Model):
-    __tablename__ = 'comment_repost'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=False)
-    caption = db.Column(db.String(150), nullable=True)
-    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
-
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     bio = db.Column(db.String(150))
     pfp_filename = db.Column(db.String(120), nullable=True)
+    
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Post.user_id')
     reposts = db.relationship('Repost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.user_id')
     comment_reposts = db.relationship('CommentRepost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.user_id')
     liked_posts = db.relationship('Post', secondary=post_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
     liked_comments = db.relationship('Comment', secondary=comment_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
-    followed = db.relationship('User', secondary=followers, primaryjoin=(followers.c.follower_id == id), secondaryjoin=(followers.c.followed_id == id), backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
+    
+    followed = db.relationship(
+        'User', 
+        secondary=followers, 
+        primaryjoin=(followers.c.follower_id == id), 
+        secondaryjoin=(followers.c.followed_id == id), 
+        backref=db.backref('followers', lazy='dynamic'), 
+        lazy='dynamic'
+    )
+    
     seen_sixs = db.relationship(
         'Post',
         secondary=seen_sixs_posts,
-        primaryjoin=(seen_sixs_posts.c.user_id == id),
-        secondaryjoin=(seen_sixs_posts.c.post_id == Post.id),
+        primaryjoin=f"and_(User.id==seen_sixs_posts.c.user_id, Post.id==seen_sixs_posts.c.post_id)",
         backref=db.backref('seen_by_six_users', lazy='dynamic'),
         lazy='dynamic'
     )
     seen_texts = db.relationship(
         'Post',
         secondary=seen_text_posts,
-        primaryjoin=(seen_text_posts.c.user_id == id),
-        secondaryjoin=(seen_text_posts.c.post_id == Post.id),
+        primaryjoin=f"and_(User.id==seen_text_posts.c.user_id, Post.id==seen_text_posts.c.post_id)",
         backref=db.backref('seen_by_text_users', lazy='dynamic'),
         lazy='dynamic'
     )
@@ -1636,10 +1628,26 @@ class Comment(db.Model):
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
-    user = db.relationship('User')
+    user = db.relationship('User', back_populates='liked_comments')
     parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy='dynamic', cascade="all, delete-orphan")
     reposts = db.relationship('CommentRepost', backref='original_comment', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.comment_id')
+
+class Repost(db.Model):
+    __tablename__ = 'repost'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+    caption = db.Column(db.String(150), nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+
+class CommentRepost(db.Model):
+    __tablename__ = 'comment_repost'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=False)
+    caption = db.Column(db.String(150), nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
 # --- Funções Helper ---
 def add_user_flags_to_posts(posts):
