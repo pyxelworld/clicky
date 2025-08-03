@@ -1170,8 +1170,8 @@ templates = {
 {% block header_title %}Configurações{% endblock %}
 {% block content %}
 <div style="padding:16px;">
-    <h4>Editar Perfil</h4>
     <form method="POST" action="{{ url_for('edit_profile') }}" enctype="multipart/form-data">
+        <h4>Editar Perfil</h4>
         <div class="form-group" style="text-align: center;">
             <label for="pfp" style="cursor: pointer;">
                 {% if current_user.pfp_filename %}
@@ -1194,19 +1194,20 @@ templates = {
             <label for="bio">Bio</label>
             <textarea id="bio" name="bio" rows="3" maxlength="150">{{ current_user.bio or '' }}</textarea>
         </div>
-        <button type="submit" class="btn">Salvar Alterações</button>
+
+        <hr style="border-color: var(--border-color); margin: 30px 0;">
+        <h4>Preferências</h4>
+        <div class="form-group">
+            <label for="six_feed_style">Estilo do Feed de Sixs</label>
+            <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none; background-color: var(--primary-color); border: 1px solid var(--border-color);">
+                <option value="circle" {% if current_user.six_feed_style == 'circle' %}selected{% endif %}>Círculo</option>
+                <option value="fullscreen" {% if current_user.six_feed_style == 'fullscreen' %}selected{% endif %}>Tela Cheia</option>
+            </select>
+            <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
+        </div>
+        
+        <button type="submit" class="btn" style="width:100%; margin-top: 10px;">Salvar Alterações</button>
     </form>
-    
-    <hr style="border-color: var(--border-color); margin: 30px 0;">
-    <h4>Preferências</h4>
-    <div class="form-group">
-        <label for="six_feed_style">Estilo do Feed de Sixs</label>
-        <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none;">
-            <option value="circle" {% if current_user.six_feed_style == 'circle' %}selected{% endif %}>Círculo</option>
-            <option value="fullscreen" {% if current_user.six_feed_style == 'fullscreen' %}selected{% endif %}>Tela Cheia</option>
-        </select>
-        <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
-    </div>
 
 
     <hr style="border-color: var(--border-color); margin: 30px 0;">
