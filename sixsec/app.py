@@ -32,7 +32,10 @@ ICONS = {
     'comment': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
     'repost': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>',
     'send': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>',
-    'settings': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'
+    'settings': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
+    'back_arrow': '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
+    'stop_square': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>',
+    'redo': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>'
 }
 app.jinja_env.globals.update(ICONS=ICONS)
 
@@ -282,7 +285,7 @@ templates = {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
         color: white; display: flex; justify-content: space-between; align-items: flex-end;
         padding: 16px; padding-bottom: 53px; pointer-events: none;
-        background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%);
+        background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%), linear-gradient(to bottom, rgba(0,0,0,0.3), transparent 20%);
         text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
     }
     .six-info { pointer-events: auto; }
@@ -334,6 +337,9 @@ templates = {
                     <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
                 </div>
                 <div class="six-ui-overlay">
+                    <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
+                        {{ ICONS.back_arrow|safe }}
+                    </a>
                     <div class="six-info">
                         <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white;"><strong class="username">@{{ post.author.username }}</strong></a>
                         <p>{{ post.text_content }}</p>
@@ -350,6 +356,9 @@ templates = {
             </section>
             {% else %}
             <section class="six-video-slide" style="flex-direction:column; text-align:center; color:white;">
+                <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white;">
+                    {{ ICONS.back_arrow|safe }}
+                </a>
                 <h4>No Sixs to show!</h4>
                 <p style="color:#aaa;">Follow accounts or create your own.</p>
                 <a href="{{ url_for('create_post') }}" class="btn" style="margin-top:20px;">Create a Six</a>
@@ -418,14 +427,33 @@ templates = {
 "create_post.html": """
 {% extends "layout.html" %}
 {% block header_title %}Create{% endblock %}
+{% block style_override %}
+    #record-button {
+        width: 80px; height: 80px; border-radius: 50%;
+        transition: all 0.2s ease-in-out;
+        display: flex; align-items: center; justify-content: center;
+        padding: 0;
+    }
+    #record-button.recording {
+        background-color: #dc2626; /* A slightly different red for recording state */
+    }
+    #record-button svg {
+        color: white;
+    }
+{% endblock %}
 {% block content %}
-    <div style="padding:16px;">
-        <div id="six-creator" style="text-align: center;">
-            <p id="recorder-status" style="color:var(--text-muted); min-height: 20px;">Allow camera access to start</p>
-            <div style="width:100%; max-width: 400px; margin: 15px auto; aspect-ratio: 1/1; border-radius:50%; overflow:hidden; background:#111;">
+    <div style="padding:16px; text-align: center;">
+        <div id="permission-prompt">
+            <p id="permission-status" style="color:var(--text-muted); min-height: 20px; margin: 20px 0;">Tap to enable your camera and microphone to record a Six.</p>
+            <button id="enable-camera-btn" class="btn">Enable Camera</button>
+        </div>
+
+        <div id="six-creator" style="display: none;">
+            <p id="recorder-status" style="color:var(--text-muted); min-height: 20px;">Tap the button to record</p>
+            <div style="width:100%; max-width: 400px; margin: 15px auto; aspect-ratio: 1/1; border-radius:50%; overflow:hidden; background:#111; border: 2px solid var(--border-color);">
                 <video id="video-preview" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover;"></video>
             </div>
-            <button id="record-button" class="btn btn-danger" style="width: 80px; height: 80px; border-radius: 50%;" disabled></button>
+            <button id="record-button" class="btn btn-danger" disabled></button>
             <form id="six-form-element" method="POST" enctype="multipart/form-data" style="display: none; margin-top: 20px;">
                  <input type="hidden" name="post_type" value="six">
                  <div class="form-group"> <input type="text" name="caption" maxlength="50" placeholder="Add a caption... (optional)"> </div>
@@ -436,23 +464,37 @@ templates = {
 {% endblock %}
 {% block scripts %}
 <script>
-    let mediaRecorder; let recordedBlobs; let stream;
+    let mediaRecorder; 
+    let recordedBlobs; 
+    let stream;
     const recordButton = document.getElementById('record-button');
     const preview = document.getElementById('video-preview');
     const sixForm = document.getElementById('six-form-element');
     const recorderStatus = document.getElementById('recorder-status');
+    const sixCreator = document.getElementById('six-creator');
+    const permissionPrompt = document.getElementById('permission-prompt');
+    const permissionStatus = document.getElementById('permission-status');
+    const enableCameraBtn = document.getElementById('enable-camera-btn');
 
     async function initCamera() {
         try {
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: "user" } };
             stream = await navigator.mediaDevices.getUserMedia(constraints);
+            
+            permissionPrompt.style.display = 'none';
+            sixCreator.style.display = 'block';
+
             preview.srcObject = stream;
-            recorderStatus.textContent = "Tap the button to record";
+            resetRecorder();
             recordButton.disabled = false;
-        } catch (e) { recorderStatus.textContent = "Camera/Mic permission denied."; }
+        } catch (e) {
+            console.error(e);
+            permissionStatus.textContent = "Camera/Mic permission denied. Please enable it in your browser settings and refresh the page.";
+            enableCameraBtn.disabled = true;
+        }
     }
     
-    document.addEventListener('DOMContentLoaded', initCamera);
+    enableCameraBtn.addEventListener('click', initCamera);
 
     recordButton.addEventListener('click', () => {
         if (recordButton.classList.contains('recording')) {
@@ -470,27 +512,45 @@ templates = {
         mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
         mediaRecorder.onstop = handleStop;
         mediaRecorder.start();
+        
+        recordButton.innerHTML = `{{ ICONS.stop_square|safe }}`;
         recordButton.classList.add('recording');
-        recorderStatus.textContent = 'Recording...';
-        setTimeout(() => { if (mediaRecorder.state === "recording") mediaRecorder.stop(); }, 6000);
+        recorderStatus.textContent = 'Recording... (max 6 seconds)';
+        
+        setTimeout(() => { 
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop(); 
+            }
+        }, 6000);
     }
     
     function handleStop() {
         recordButton.classList.remove('recording');
         recordButton.classList.add('previewing');
-        recorderStatus.textContent = 'Previewing... Tap to re-record.';
+        recordButton.innerHTML = `{{ ICONS.redo|safe }}`;
+        
+        recorderStatus.textContent = 'Previewing... Tap icon to re-record.';
+        
         const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
         preview.srcObject = null;
         preview.src = window.URL.createObjectURL(superBuffer);
-        preview.muted = false; preview.controls = true;
+        preview.muted = false;
+        preview.controls = true;
+        
         sixForm.style.display = 'block';
     }
 
     function resetRecorder() {
         sixForm.style.display = 'none';
         recordButton.classList.remove('previewing');
-        preview.srcObject = stream;
-        preview.controls = false; preview.muted = true;
+        recordButton.classList.remove('recording');
+        recordButton.innerHTML = '';
+        
+        if (stream) { preview.srcObject = stream; }
+        
+        preview.controls = false;
+        preview.muted = true;
+        
         recorderStatus.textContent = "Tap the button to record";
     }
 
@@ -503,7 +563,12 @@ templates = {
         submitBtn.disabled = true; submitBtn.textContent = "Uploading...";
         fetch("{{ url_for('create_post') }}", { method: 'POST', body: formData })
         .then(response => { if (response.redirected) window.location.href = response.url; })
-        .catch(error => console.error('Error:', error));
+        .catch(error => {
+            console.error('Error:', error);
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Post Six";
+            recorderStatus.textContent = "Upload failed. Please try again.";
+        });
     });
 </script>
 {% endblock %}
@@ -566,7 +631,7 @@ templates = {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
         color: white; display: flex; justify-content: space-between; align-items: flex-end;
         padding: 16px; padding-bottom: 53px; pointer-events: none;
-        background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%);
+        background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%), linear-gradient(to bottom, rgba(0,0,0,0.3), transparent 20%);
         text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
     }
     .six-info { pointer-events: auto; }
@@ -620,6 +685,9 @@ templates = {
                     <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
                 </div>
                 <div class="six-ui-overlay">
+                    <a href="{{ url_for('profile', username=user.username, tab='posts') }}" style="position: absolute; top: 73px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
+                        {{ ICONS.back_arrow|safe }}
+                    </a>
                     <div class="six-info">
                         <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white;"><strong class="username">@{{ post.author.username }}</strong></a>
                         <p>{{ post.text_content }}</p>
@@ -636,6 +704,9 @@ templates = {
             </section>
             {% else %}
             <section class="six-video-slide" style="flex-direction:column; text-align:center; color:white;">
+                <a href="{{ url_for('profile', username=user.username, tab='posts') }}" style="position: absolute; top: 73px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
+                        {{ ICONS.back_arrow|safe }}
+                </a>
                 <div style="padding-top: 53px;">
                     <h4>No Sixs yet.</h4>
                     <p style="color:#aaa;">This user hasn't posted any Sixs.</p>
