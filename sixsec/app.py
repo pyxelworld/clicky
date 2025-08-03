@@ -10,7 +10,7 @@ from jinja2 import BaseLoader, TemplateNotFound
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v6-pfp-sound'
+app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v7-delete-posts'
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -40,7 +40,8 @@ ICONS = {
     'reply': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>',
     'logout': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>',
     'volume_on': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
-    'volume_off': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>'
+    'volume_off': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>',
+    'trash': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>'
 }
 app.jinja_env.globals.update(ICONS=ICONS)
 
@@ -143,6 +144,8 @@ templates = {
         .action-button.liked svg { fill: var(--red-color); stroke: var(--red-color); }
         .action-button.reposted { color: var(--accent-color); }
         .action-button.reposted svg { stroke: var(--accent-color); }
+        .action-button.delete-btn { color: var(--red-color); }
+        .action-button.delete-btn:hover { color: #d60a6a; }
         
         .comment-thread {
             position: relative;
@@ -414,6 +417,20 @@ templates = {
         }
     }
 
+    async function handleDeletePost(button, postId) {
+        if (!confirm('Are you sure you want to delete this post? This action is permanent.')) return;
+
+        const response = await fetch(`/delete_post/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        if(data.success) {
+            const postElement = document.getElementById(`post-${postId}`);
+            if(postElement) postElement.remove();
+            flash(data.message, 'success');
+        } else {
+            flash(data.message, 'error');
+        }
+    }
+
     function flash(message, category = 'info') {
         const flashDiv = document.createElement('div');
         flashDiv.style = `position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index: 9999; max-width: 90%; padding: 12px 16px; border-radius: 8px; background-color: ${category === 'error' ? 'var(--red-color)' : 'var(--accent-color)'}; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center;`;
@@ -512,7 +529,7 @@ templates = {
             <div id="unmute-prompt">Tap to unmute</div>
             <button id="volume-toggle">{{ ICONS.volume_off|safe }}</button>
             {% for post in posts %}
-            <section class="six-video-slide" data-post-id="{{ post.id }}">
+            <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
                 <div class="six-video-wrapper">
                     <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
                 </div>
@@ -531,6 +548,9 @@ templates = {
                         </button>
                         <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
                         <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
+                        {% if post.author == current_user %}
+                        <button onclick="handleDeletePost(this, {{ post.id }})" class="delete-btn">{{ ICONS.trash|safe }}</button>
+                        {% endif %}
                     </div>
                 </div>
             </section>
@@ -562,36 +582,42 @@ templates = {
         isSoundOn = !isMuted;
         videos.forEach(v => v.muted = isMuted);
         volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
-        const currentVideo = document.querySelector('.six-video-slide[style*="visible"] video, .six-video-slide.is-visible video');
+        const currentVideo = document.querySelector('.is-visible video');
         if (currentVideo) {
             currentVideo.muted = isMuted;
         }
     }
 
-    volumeToggle.addEventListener('click', () => setMutedState(isSoundOn));
-    
-    container.addEventListener('click', () => {
-        if (!hasInteracted) {
-            hasInteracted = true;
-            unmutePrompt.style.display = 'none';
-            volumeToggle.style.display = 'block';
-            setMutedState(false);
-        }
-    }, { once: true });
-
+    if (videos.length > 0) {
+        volumeToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            setMutedState(isSoundOn);
+        });
+        
+        container.addEventListener('click', () => {
+            if (!hasInteracted) {
+                hasInteracted = true;
+                unmutePrompt.style.display = 'none';
+                volumeToggle.style.display = 'block';
+                setMutedState(false);
+            }
+        }, { once: true });
+    }
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const video = entry.target.querySelector('video');
+            const slide = entry.target;
+            const video = slide.querySelector('video');
+            if (!video) return;
+
             if (entry.isIntersecting) {
-                entry.target.classList.add('is-visible');
+                slide.classList.add('is-visible');
                 video.muted = !isSoundOn;
                 video.play().catch(e => {
-                    console.log("Autoplay was prevented. A user gesture is required.");
-                    if (!hasInteracted) unmutePrompt.style.display = 'block';
+                    if (!hasInteracted && videos.length > 0) unmutePrompt.style.display = 'block';
                 });
             } else { 
-                entry.target.classList.remove('is-visible');
+                slide.classList.remove('is-visible');
                 video.pause(); 
                 video.currentTime = 0;
             }
@@ -607,7 +633,7 @@ templates = {
 """,
 
 "post_card_text.html": """
-<div class="post-card" style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
+<div class="post-card" id="post-{{ post.id }}" style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
     <div style="width:40px; height:40px; flex-shrink:0;">
         {% if post.author.pfp_filename %}
             <img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="{{ post.author.username }}'s profile picture" style="width:40px; height:40px; border-radius:50%; object-fit: cover;">
@@ -627,15 +653,20 @@ templates = {
             <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color);">
         {% endif %}
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
-            <button onclick="openCommentModal({{ post.id }})" class="action-button">
-                {{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span>
-            </button>
-            <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">
-                {{ ICONS.repost|safe }} <span>{{ post.reposts.count() }}</span>
-            </button>
-            <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}">
-                {{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
-            </button>
+            <div style="display: flex; gap: 8px;">
+                <button onclick="openCommentModal({{ post.id }})" class="action-button">
+                    {{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span>
+                </button>
+                <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">
+                    {{ ICONS.repost|safe }} <span>{{ post.reposts.count() }}</span>
+                </button>
+                <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}">
+                    {{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
+                </button>
+            </div>
+            {% if post.author == current_user %}
+            <button onclick="handleDeletePost(this, {{ post.id }})" class="action-button delete-btn">{{ ICONS.trash|safe }}</button>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -906,6 +937,18 @@ templates = {
         gap: 5px; cursor: pointer; font-size: 13px;
     }
     .six-actions svg { width: 32px; height: 32px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
+    #volume-toggle {
+        position: absolute; top: 73px; right: 20px; z-index: 100;
+        background: rgba(0,0,0,0.3); border-radius: 50%; padding: 8px;
+        cursor: pointer; pointer-events: auto; border: none; color: white;
+        display: none; /* Initially hidden */
+    }
+    #unmute-prompt {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 20px;
+        font-weight: bold; pointer-events: none; z-index: 100;
+        display: none; /* Initially hidden */
+    }
     {% endif %}
 {% endblock %}
 
@@ -947,8 +990,10 @@ templates = {
 
     {% if active_tab == 'sixs' %}
         <div id="sixs-feed-container">
+            <div id="unmute-prompt">Tap to unmute</div>
+            <button id="volume-toggle">{{ ICONS.volume_off|safe }}</button>
             {% for post in posts %}
-            <section class="six-video-slide" data-post-id="{{ post.id }}">
+            <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
                 <div class="six-video-wrapper">
                     <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
                 </div>
@@ -967,6 +1012,9 @@ templates = {
                         </button>
                         <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
                         <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
+                        {% if post.author == current_user %}
+                        <button onclick="handleDeletePost(this, {{ post.id }})" class="delete-btn">{{ ICONS.trash|safe }}</button>
+                        {% endif %}
                     </div>
                 </div>
             </section>
@@ -1074,7 +1122,7 @@ templates = {
                 entry.target.classList.add('is-visible');
                 video.muted = !isSoundOn;
                 video.play().catch(e => {
-                    if (!hasInteracted) {
+                    if (!hasInteracted && videos.length > 0) {
                         document.getElementById('unmute-prompt').style.display = 'block';
                     }
                 });
@@ -1348,6 +1396,26 @@ def create_text_post():
     flash('Post created!', 'success')
     return redirect(url_for('home', feed_type='text'))
 
+@app.route('/delete_post/<int:post_id>', methods=['POST'])
+@login_required
+def delete_post(post_id):
+    post = Post.query.get_or_404(post_id)
+    if post.author != current_user:
+        return jsonify({'success': False, 'message': 'Permission denied.'}), 403
+
+    # Delete associated files
+    if post.image_filename:
+        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.image_filename))
+        except OSError: pass
+    if post.video_filename:
+        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.video_filename))
+        except OSError: pass
+
+    db.session.delete(post)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Post deleted successfully.'})
+
+
 @app.route('/post/<int:post_id>/comments')
 @login_required
 def get_comments(post_id):
@@ -1407,8 +1475,6 @@ def like_comment(comment_id):
 @app.route('/repost/post/<int:post_id>', methods=['POST'])
 @login_required
 def repost_post(post_id):
-    post = Post.query.get_or_404(post_id)
-    if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
     
     caption = request.json.get('caption', '').strip() or None
     existing_repost = Repost.query.filter_by(user_id=current_user.id, post_id=post.id).first()
@@ -1430,9 +1496,7 @@ def repost_post(post_id):
 @login_required
 def repost_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
-    if comment.user == current_user:
-        return jsonify({'success': False, 'message': "You can't repost your own comment."})
-
+    
     caption = request.json.get('caption', '').strip() or None
     existing_repost = CommentRepost.query.filter_by(user_id=current_user.id, comment_id=comment.id).first()
 
@@ -1453,10 +1517,9 @@ def repost_comment(comment_id):
 @login_required
 def edit_profile():
     if request.method == 'POST':
-        # Handle PFP Upload
         pfp_file = request.files.get('pfp')
         if pfp_file and pfp_file.filename != '' and allowed_file(pfp_file.filename):
-            if current_user.pfp_filename: # Delete old PFP
+            if current_user.pfp_filename:
                 old_path = os.path.join(app.config['UPLOAD_FOLDER'], current_user.pfp_filename)
                 if os.path.exists(old_path):
                     os.remove(old_path)
@@ -1466,7 +1529,6 @@ def edit_profile():
             pfp_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
             current_user.pfp_filename = filename
 
-        # Handle other profile info
         new_username = request.form.get('username', '').strip()
         new_bio = request.form.get('bio', current_user.bio).strip()
         if new_username and new_username != current_user.username:
@@ -1492,6 +1554,9 @@ def delete_account():
     user_id = current_user.id
     logout_user()
     user = User.query.get(user_id)
+    if user.pfp_filename:
+        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], user.pfp_filename))
+        except OSError: pass
     db.session.delete(user); db.session.commit()
     flash('Your account has been permanently deleted.', 'success')
     return redirect(url_for('login'))
