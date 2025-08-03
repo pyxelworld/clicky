@@ -991,7 +991,7 @@ templates = {
         const offset = circumference - percent * circumference;
         progressCircle.style.strokeDashoffset = offset;
     }
-    
+
     function stopCurrentStream() {
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
@@ -999,20 +999,22 @@ templates = {
         stream = null;
     }
 
-    async function initCamera() {
+    async function setupStream() {
+        stopCurrentStream();
         try {
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: facingMode } };
             stream = await navigator.mediaDevices.getUserMedia(constraints);
             
             preview.srcObject = stream;
+            preview.src = null; // Clear any old blob src
+            preview.muted = true; // Always mute live preview
             preview.classList.toggle('mirrored', facingMode === 'user');
             
             mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
             mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
             mediaRecorder.onstop = handleStop;
-            
         } catch (e) {
-            console.error("Error initializing camera:", e);
+            console.error("Error setting up stream:", e);
             document.getElementById('permission-status').textContent = "Permissão de Câmera/Mic negada. Por favor, habilite nas configurações do seu navegador e atualize a página.";
             enableCameraBtn.disabled = true;
             stopCurrentStream();
@@ -1092,7 +1094,6 @@ templates = {
 
     function handleStop() {
         stopTimer();
-        stopCurrentStream();
         recorderState = 'previewing';
         
         if (recordedBlobs.length === 0) {
@@ -1100,6 +1101,7 @@ templates = {
             return;
         }
         
+        stopCurrentStream(); // Stop live feed before showing recorded blob
         const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
         preview.srcObject = null;
         preview.src = window.URL.createObjectURL(superBuffer);
@@ -1110,19 +1112,15 @@ templates = {
     }
 
     async function resetRecorder() {
+        stopTimer();
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop();
         }
-        stopTimer();
-        stopCurrentStream();
         recordedDuration = 0;
         recordedBlobs = [];
         recorderState = 'idle';
-        preview.src = '';
-        preview.srcObject = null;
         setProgress(0);
-        
-        await initCamera();
+        await setupStream();
         updateUI();
     }
 
@@ -1151,13 +1149,8 @@ templates = {
     switchCameraBtn.addEventListener('click', async () => {
         if (recorderState === 'idle' || recorderState === 'paused') {
             facingMode = (facingMode === 'user') ? 'environment' : 'user';
-            stopCurrentStream();
-            await initCamera();
-            // We need to re-attach the preview if we were paused
-            if (recorderState === 'paused') {
-                preview.srcObject = stream;
-            }
-            updateUI();
+            await setupStream();
+            updateUI(); // The UI state remains the same (idle or paused)
         }
     });
     
