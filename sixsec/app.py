@@ -502,13 +502,21 @@ templates = {
     }
     .six-video-wrapper {
         position: relative;
-        width: 100%; height: 100%;
         display:flex; justify-content:center; align-items:center;
+        transition: all 0.3s ease;
+        {% if current_user.six_feed_style == 'fullscreen' %}
+        width: 100%; height: 100%;
+        {% else %}
+        width: min(100vw, 100dvh); height: min(100vw, 100dvh);
+        clip-path: circle(50% at 50% 50%);
+        {% endif %}
     }
     .six-video { 
-        width: 100%; height: 100%; object-fit: cover; 
-        aspect-ratio: 9/16; /* Common mobile aspect ratio */
+        width: 100%; height: 100%; object-fit: cover;
+        {% if current_user.six_feed_style == 'fullscreen' %}
+        aspect-ratio: 9/16;
         max-width: 100vw; max-height: 100dvh;
+        {% endif %}
     }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
@@ -992,19 +1000,24 @@ templates = {
             
             permissionPrompt.style.display = 'none';
             sixCreatorUI.style.display = 'flex';
-            setTimeout(() => sixCreatorUI.classList.add('visible'), 10);
+            if (!sixCreatorUI.classList.contains('visible')) {
+                setTimeout(() => sixCreatorUI.classList.add('visible'), 10);
+            }
             
             preview.srcObject = stream;
             preview.classList.toggle('mirrored', facingMode === 'user');
             
+            // Re-create the recorder for the new stream, but only reset if idle
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+            mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
+            mediaRecorder.onstop = handleStop;
+
             if (recorderState === 'idle') {
-                resetRecorder();
-            } else if (recorderState === 'paused') {
-                // Re-create the recorder with the new stream but don't reset blobs
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-                mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
-                mediaRecorder.onstop = handleStop;
+                resetRecorder(); // This will also call updateUI()
+            } else {
+                updateUI(); // Manually update UI if not resetting
             }
+
         } catch (e) {
             console.error(e);
             document.getElementById('permission-status').textContent = "Permissão de Câmera/Mic negada. Por favor, habilite nas configurações do seu navegador e atualize a página.";
@@ -1186,6 +1199,18 @@ templates = {
         <button type="submit" class="btn">Salvar Alterações</button>
     </form>
     
+    <hr style="border-color: var(--border-color); margin: 30px 0;">
+    <h4>Preferências</h4>
+    <div class="form-group">
+        <label for="six_feed_style">Estilo do Feed de Sixs</label>
+        <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none;">
+            <option value="circle" {% if current_user.six_feed_style == 'circle' %}selected{% endif %}>Círculo</option>
+            <option value="fullscreen" {% if current_user.six_feed_style == 'fullscreen' %}selected{% endif %}>Tela Cheia</option>
+        </select>
+        <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
+    </div>
+
+
     <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Alterar Senha</h4>
     <form method="POST" action="{{ url_for('change_password') }}">
@@ -1568,6 +1593,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(200), nullable=False)
     bio = db.Column(db.String(150))
     pfp_filename = db.Column(db.String(120), nullable=True)
+    six_feed_style = db.Column(db.String(20), nullable=False, default='circle') # 'circle' or 'fullscreen'
     
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Post.user_id')
     reposts = db.relationship('Repost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.user_id')
@@ -1938,6 +1964,11 @@ def edit_profile():
             current_user.username = new_username
         current_user.bio = new_bio
         
+        # Salvar a nova preferência de feed
+        new_feed_style = request.form.get('six_feed_style')
+        if new_feed_style in ['circle', 'fullscreen']:
+            current_user.six_feed_style = new_feed_style
+
         db.session.commit()
         flash('Perfil atualizado!', 'success')
         return redirect(url_for('profile', username=current_user.username))
