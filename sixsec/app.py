@@ -43,7 +43,7 @@ ICONS = {
 }
 app.jinja_env.globals.update(ICONS=ICONS)
 
-# --- TEMPLATES DICTIONARY ---
+# --- TEMPLATES DICTIONARY (with .count() -> |length fixes) ---
 templates = {
 "layout.html": """
 <!doctype html>
@@ -298,7 +298,10 @@ templates = {
         });
         const data = await response.json();
         alert(data.message);
-        if(data.success) closeRepostModal();
+        if(data.success) {
+            closeRepostModal();
+            location.reload(); // Reload to see the new repost
+        }
     });
 
     window.onclick = (event) => { 
@@ -353,8 +356,8 @@ templates = {
                         <p>{{ post.text_content }}</p>
                     </div>
                     <div class="six-actions">
-                        <button onclick="handleLike(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}">{{ ICONS.like|safe }}<span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span></button>
-                        <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
+                        <button onclick="handleLike(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}">{{ ICONS.like|safe }}<span id="like-count-{{ post.id }}">{{ post.liked_by|length }}</span></button>
+                        <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments|length }}</span></button>
                         <button onclick="handleRepost(this, {{ post.id }})" class="{{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
                     </div>
                 </div>
@@ -387,7 +390,11 @@ templates = {
         if (isReposted) {
              const response = await fetch(`/unrepost/${postId}`, { method: 'POST' });
              const data = await response.json();
-             if(data.success) button.classList.remove('reposted');
+             if(data.success) {
+                button.classList.remove('reposted');
+                button.querySelector('svg').style.fill = 'none';
+                button.querySelector('svg').style.color = 'white';
+             }
              flashMessage(data.message);
         } else {
             openRepostModal(postId);
@@ -457,11 +464,11 @@ templates = {
             </div>
             <p style="margin: 4px 0 12px 0;">{{ original_post.text_content }}</p>
             <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
-                <button onclick="openCommentModal({{ original_post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;">{{ ICONS.comment|safe }} <span id="comment-count-{{ original_post.id }}">{{ original_post.comments.count() }}</span></button>
+                <button onclick="openCommentModal({{ original_post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;">{{ ICONS.comment|safe }} <span id="comment-count-{{ original_post.id }}">{{ original_post.comments|length }}</span></button>
                 <button onclick="handleRepostText(this, {{ original_post.id }})" class="{{ 'reposted' if original_post.reposted_by_current_user else '' }}" style="background:none; border:none; color:{{ 'var(--accent-color)' if original_post.reposted_by_current_user else 'var(--text-muted)' }}; display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;">{{ ICONS.repost|safe }}</button>
                 <button onclick="handleLike(this, {{ original_post.id }})" class="{{ 'liked' if original_post.liked_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="{{ 'var(--red-color)' if original_post.liked_by_current_user else 'none' }}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: {{ 'var(--red-color)' if original_post.liked_by_current_user else 'var(--text-muted)' }}"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                    <span id="like-count-{{ original_post.id }}">{{ original_post.liked_by.count() }}</span>
+                    <span id="like-count-{{ original_post.id }}">{{ original_post.liked_by|length }}</span>
                 </button>
             </div>
         </div>
@@ -639,8 +646,8 @@ templates = {
         <h2 style="margin: 12px 0 0 0;">{{ user.username }}</h2>
         <p style="color: var(--text-muted); margin: 4px 0 12px 0;">{{ user.bio or "No bio yet." }}</p>
         <div style="display:flex; gap: 16px; color:var(--text-muted);">
-            <span style="cursor:pointer;" onclick="openFollowModal('{{ user.username }}', 'followers')"><strong style="color:var(--text-color)">{{ user.followers.count() }}</strong> Followers</span>
-            <span style="cursor:pointer;" onclick="openFollowModal('{{ user.username }}', 'following')"><strong style="color:var(--text-color)">{{ user.followed.count() }}</strong> Following</span>
+            <span style="cursor:pointer;" onclick="openFollowModal('{{ user.username }}', 'followers')"><strong style="color:var(--text-color)">{{ user.followers|length }}</strong> Followers</span>
+            <span style="cursor:pointer;" onclick="openFollowModal('{{ user.username }}', 'following')"><strong style="color:var(--text-color)">{{ user.followed|length }}</strong> Following</span>
         </div>
     </div>
     <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color);">
@@ -766,7 +773,7 @@ class User(UserMixin, db.Model):
     def unfollow(self, u):
         if self.is_following(u): self.followed.remove(u)
     def is_reposting(self, post):
-        return Post.query.filter_by(author=self, repost_of=post).count() > 0
+        return Post.query.filter_by(user_id=self.id, repost_of_id=post.id).count() > 0
     @property
     def pfp_gradient(self):
         colors = [("#ef4444", "#fb923c"), ("#a855f7", "#ec4899"), ("#84cc16", "#22c55e"), ("#0ea5e9", "#6366f1")]
@@ -804,7 +811,7 @@ def load_user(user_id): return User.query.get(int(user_id))
 @login_required
 def home():
     feed_type = request.args.get('feed_type', 'text')
-    followed_ids = [u.id for u in current_user.followed]
+    followed_ids = [u.id for u in current_user.followed.all()]
     followed_ids.append(current_user.id)
     
     if feed_type == 'text':
@@ -862,11 +869,12 @@ def get_post_json(post_id):
     if post_type == 'comment':
         item = Comment.query.get_or_404(post_id)
         content = item.text
+        author = item.user
     else:
         item = Post.query.get_or_404(post_id)
         content = item.text_content
+        author = item.author
     
-    author = item.user if post_type == 'comment' else item.author
     return jsonify({
         'author': {
             'username': author.username, 
@@ -909,7 +917,7 @@ def like(post_id):
     if current_user in post.liked_by: post.liked_by.remove(current_user); liked = False
     else: post.liked_by.append(current_user); liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': len(post.liked_by)})
+    return jsonify({'liked': liked, 'likes': post.liked_by.count()})
 
 @app.route('/repost/<int:post_id>', methods=['POST'])
 @login_required
@@ -928,7 +936,7 @@ def repost(post_id):
 @login_required
 def unrepost(post_id):
     original_post = Post.query.get_or_404(post_id)
-    repost_to_delete = Post.query.filter_by(author=current_user, repost_of=original_post).first()
+    repost_to_delete = Post.query.filter_by(user_id=current_user.id, repost_of_id=original_post.id).first()
     if repost_to_delete:
         db.session.delete(repost_to_delete)
         db.session.commit()
@@ -970,13 +978,13 @@ def get_follows(username):
         'username': u.username, 'bio': u.bio or '', 
         'pfp_filename': u.pfp_filename, 'pfp_gradient': u.pfp_gradient, 
         'initial': u.username[0].upper()
-    } for u in users]
+    } for u in users.all()]
     return jsonify(user_list)
 
 @app.route('/discover')
 @login_required
 def discover():
-    followed_ids = [u.id for u in current_user.followed]
+    followed_ids = [u.id for u in current_user.followed.all()]
     followed_ids.append(current_user.id)
     users = User.query.filter(User.id.notin_(followed_ids)).order_by(db.func.random()).limit(15).all()
     return render_template('discover.html', users=users)
