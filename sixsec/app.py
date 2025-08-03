@@ -10,12 +10,13 @@ from jinja2 import BaseLoader, TemplateNotFound
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v5-reposts-and-ui'
+app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v6-pfp-sound'
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec_v5.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec_v6.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 # --- INITIALIZE EXTENSIONS & HELPERS ---
 db = SQLAlchemy(app)
@@ -37,9 +38,14 @@ ICONS = {
     'stop_square': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>',
     'redo': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>',
     'reply': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>',
-    'logout': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>'
+    'logout': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>',
+    'volume_on': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
+    'volume_off': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>'
 }
 app.jinja_env.globals.update(ICONS=ICONS)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- TEMPLATES DICTIONARY ---
 templates = {
@@ -236,10 +242,17 @@ templates = {
         if (comment.replies_count > 0) {
             repliesButton = `<button class="view-replies-btn" onclick="toggleReplies(this, ${comment.id})">View ${comment.replies_count} replies</button>`;
         }
+        
+        let pfpElement = '';
+        if (comment.user.pfp_filename) {
+            pfpElement = `<img src="/static/uploads/${comment.user.pfp_filename}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`;
+        } else {
+            pfpElement = `<div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>`;
+        }
 
         container.innerHTML = `
             <div style="display: flex; gap: 12px;">
-                <div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>
+                <div style="flex-shrink:0;">${pfpElement}</div>
                 <div style="flex-grow:1">
                     <div><strong style="color:var(--text-color);">${comment.user.username}</strong> <span style="color:var(--text-muted);">${comment.timestamp}</span></div>
                     <div style="color:var(--text-color); margin: 4px 0;">${comment.text}</div>
@@ -453,6 +466,18 @@ templates = {
         gap: 5px; cursor: pointer; font-size: 13px;
     }
     .six-actions svg { width: 32px; height: 32px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
+    #volume-toggle {
+        position: absolute; top: 20px; right: 20px; z-index: 100;
+        background: rgba(0,0,0,0.3); border-radius: 50%; padding: 8px;
+        cursor: pointer; pointer-events: auto; border: none; color: white;
+        display: none; /* Initially hidden */
+    }
+    #unmute-prompt {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 20px;
+        font-weight: bold; pointer-events: none; z-index: 100;
+        display: none; /* Initially hidden */
+    }
     {% endif %}
 {% endblock %}
 {% block content %}
@@ -484,6 +509,8 @@ templates = {
 
     {% elif feed_type == 'sixs' %}
         <div id="sixs-feed-container">
+            <div id="unmute-prompt">Tap to unmute</div>
+            <button id="volume-toggle">{{ ICONS.volume_off|safe }}</button>
             {% for post in posts %}
             <section class="six-video-slide" data-post-id="{{ post.id }}">
                 <div class="six-video-wrapper">
@@ -525,22 +552,54 @@ templates = {
 <script>
     const container = document.getElementById('sixs-feed-container');
     const videos = container.querySelectorAll('.six-video');
+    const volumeToggle = document.getElementById('volume-toggle');
+    const unmutePrompt = document.getElementById('unmute-prompt');
+
+    let isSoundOn = false;
+    let hasInteracted = false;
+
+    function setMutedState(isMuted) {
+        isSoundOn = !isMuted;
+        videos.forEach(v => v.muted = isMuted);
+        volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
+        const currentVideo = document.querySelector('.six-video-slide[style*="visible"] video, .six-video-slide.is-visible video');
+        if (currentVideo) {
+            currentVideo.muted = isMuted;
+        }
+    }
+
+    volumeToggle.addEventListener('click', () => setMutedState(isSoundOn));
+    
+    container.addEventListener('click', () => {
+        if (!hasInteracted) {
+            hasInteracted = true;
+            unmutePrompt.style.display = 'none';
+            volumeToggle.style.display = 'block';
+            setMutedState(false);
+        }
+    }, { once: true });
+
+
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const video = entry.target;
-            if (entry.isIntersecting) { 
-                video.play().catch(e => console.log("Play failed, user interaction needed."));
+            const video = entry.target.querySelector('video');
+            if (entry.isIntersecting) {
+                entry.target.classList.add('is-visible');
+                video.muted = !isSoundOn;
+                video.play().catch(e => {
+                    console.log("Autoplay was prevented. A user gesture is required.");
+                    if (!hasInteracted) unmutePrompt.style.display = 'block';
+                });
             } else { 
+                entry.target.classList.remove('is-visible');
                 video.pause(); 
                 video.currentTime = 0;
             }
         });
     }, { threshold: 0.5 });
-    videos.forEach(video => {
-      observer.observe(video)
-      video.addEventListener('click', () => {
-         if (video.paused) { video.play(); } else { video.pause(); }
-      });
+
+    document.querySelectorAll('.six-video-slide').forEach(slide => {
+      observer.observe(slide);
     });
 </script>
 {% endif %}
@@ -549,10 +608,14 @@ templates = {
 
 "post_card_text.html": """
 <div class="post-card" style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
-    <div style="width:40px; flex-shrink:0;">
-        <div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">
-            {{ post.author.username[0]|upper }}
-        </div>
+    <div style="width:40px; height:40px; flex-shrink:0;">
+        {% if post.author.pfp_filename %}
+            <img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="{{ post.author.username }}'s profile picture" style="width:40px; height:40px; border-radius:50%; object-fit: cover;">
+        {% else %}
+            <div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">
+                {{ post.author.username[0]|upper }}
+            </div>
+        {% endif %}
     </div>
     <div style="flex-grow:1;">
         <div>
@@ -581,8 +644,14 @@ templates = {
 "comment_card.html": """
 <div class="comment-card" style="border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
     <div style="display:flex; gap:12px;">
-        <div style="width:30px; height:30px; border-radius:50%; flex-shrink:0; background:{{ comment.user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size: 14px;">
-            {{ comment.user.username[0]|upper }}
+        <div style="width:30px; height:30px; flex-shrink:0;">
+            {% if comment.user.pfp_filename %}
+                <img src="{{ url_for('static', filename='uploads/' + comment.user.pfp_filename) }}" alt="{{ comment.user.username }}'s profile picture" style="width:30px; height:30px; border-radius:50%; object-fit: cover;">
+            {% else %}
+                <div style="width:30px; height:30px; border-radius:50%; background:{{ comment.user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size: 14px;">
+                    {{ comment.user.username[0]|upper }}
+                </div>
+            {% endif %}
         </div>
         <div style="flex-grow:1;">
             <div>
@@ -754,7 +823,21 @@ templates = {
 {% block content %}
 <div style="padding:16px;">
     <h4>Edit Profile</h4>
-    <form method="POST" action="{{ url_for('edit_profile') }}">
+    <form method="POST" action="{{ url_for('edit_profile') }}" enctype="multipart/form-data">
+        <div class="form-group" style="text-align: center;">
+            <label for="pfp" style="cursor: pointer;">
+                {% if current_user.pfp_filename %}
+                    <img src="{{ url_for('static', filename='uploads/' + current_user.pfp_filename) }}" alt="Your profile picture" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-color); margin-bottom: 8px;">
+                {% else %}
+                    <div style="width: 100px; height: 100px; border-radius:50%; background: {{ current_user.pfp_gradient }}; display:inline-flex; align-items:center; justify-content:center; font-size: 3rem; font-weight:bold; margin-bottom: 8px;">
+                        {{ current_user.username[0]|upper }}
+                    </div>
+                {% endif %}
+                <div style="color: var(--accent-color);">Change Profile Picture</div>
+            </label>
+            <input type="file" id="pfp" name="pfp" accept="image/png, image/jpeg, image/gif" style="display: none;">
+        </div>
+
         <div class="form-group">
             <label for="username">Username</label>
             <input type="text" id="username" name="username" value="{{ current_user.username }}" required minlength="3" maxlength="80">
@@ -830,7 +913,15 @@ templates = {
     {% if active_tab != 'sixs' %}
     <div style="padding: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div style="width: 80px; height: 80px; border-radius:50%; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-size: 2.5rem; font-weight:bold;">{{ user.username[0]|upper }}</div>
+            <div style="width: 80px; height: 80px; flex-shrink: 0;">
+                {% if user.pfp_filename %}
+                    <img src="{{ url_for('static', filename='uploads/' + user.pfp_filename) }}" alt="{{ user.username }}'s profile picture" style="width:80px; height:80px; border-radius:50%; object-fit: cover;">
+                {% else %}
+                    <div style="width: 80px; height: 80px; border-radius:50%; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-size: 2.5rem; font-weight:bold;">
+                        {{ user.username[0]|upper }}
+                    </div>
+                {% endif %}
+            </div>
             <div style="text-align: right;">
             {% if current_user != user %}
                 {% if not current_user.is_following(user) %} <a href="{{ url_for('follow', username=user.username) }}" class="btn">Follow</a>
@@ -929,22 +1020,74 @@ templates = {
 <script>
     const container = document.getElementById('sixs-feed-container');
     const videos = container.querySelectorAll('.six-video');
+    
+    let isSoundOn = false;
+    let hasInteracted = false;
+    
+    function createVolumeControls() {
+        const controls = document.createElement('div');
+        controls.innerHTML = `
+            <div id="unmute-prompt">Tap to unmute</div>
+            <button id="volume-toggle">${ICONS.volume_off}</button>
+        `;
+        container.prepend(controls);
+
+        const volumeToggle = document.getElementById('volume-toggle');
+        const unmutePrompt = document.getElementById('unmute-prompt');
+
+        function setMutedState(isMuted) {
+            isSoundOn = !isMuted;
+            videos.forEach(v => v.muted = isMuted);
+            volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
+            const currentSlide = document.querySelector('.six-video-slide.is-visible');
+            if (currentSlide) {
+                const currentVideo = currentSlide.querySelector('video');
+                if (currentVideo) currentVideo.muted = isMuted;
+            }
+        }
+
+        volumeToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            setMutedState(isSoundOn);
+        });
+        
+        container.addEventListener('click', () => {
+            if (!hasInteracted) {
+                hasInteracted = true;
+                unmutePrompt.style.display = 'none';
+                volumeToggle.style.display = 'block';
+                setMutedState(false);
+            }
+        }, { once: true });
+    }
+
+    if(videos.length > 0) {
+        createVolumeControls();
+    }
+
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const video = entry.target;
-            if (entry.isIntersecting) { 
-                video.play().catch(e => console.log("Play failed, user interaction needed."));
+            const video = entry.target.querySelector('video');
+            if (!video) return;
+            
+            if (entry.isIntersecting) {
+                entry.target.classList.add('is-visible');
+                video.muted = !isSoundOn;
+                video.play().catch(e => {
+                    if (!hasInteracted) {
+                        document.getElementById('unmute-prompt').style.display = 'block';
+                    }
+                });
             } else { 
+                entry.target.classList.remove('is-visible');
                 video.pause(); 
                 video.currentTime = 0;
             }
         });
     }, { threshold: 0.5 });
-    videos.forEach(video => {
-      observer.observe(video)
-      video.addEventListener('click', () => {
-         if (video.paused) { video.play(); } else { video.pause(); }
-      });
+
+    document.querySelectorAll('.six-video-slide').forEach(slide => {
+      observer.observe(slide);
     });
 </script>
 {% endif %}
@@ -965,7 +1108,13 @@ templates = {
     </div>
     {% for user in users %}
     <div style="border-bottom: 1px solid var(--border-color); padding:12px 16px; display:flex; align-items:center; gap:12px;">
-        <div style="width: 40px; height: 40px; border-radius:50%; flex-shrink:0; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">{{ user.username[0]|upper }}</div>
+        <div style="width: 40px; height: 40px; flex-shrink:0;">
+            {% if user.pfp_filename %}
+                <img src="{{ url_for('static', filename='uploads/' + user.pfp_filename) }}" alt="{{ user.username }}'s profile picture" style="width:40px; height:40px; border-radius:50%; object-fit: cover;">
+            {% else %}
+                <div style="width: 40px; height: 40px; border-radius:50%; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">{{ user.username[0]|upper }}</div>
+            {% endif %}
+        </div>
         <div style="flex-grow:1;">
             <a href="{{ url_for('profile', username=user.username) }}" style="color:var(--text-color); font-weight:bold;">{{ user.username }}</a>
             <p style="font-size: 0.9em; color: var(--text-muted); margin: 2px 0;">{{ user.bio|truncate(50) if user.bio else 'No bio yet.' }}</p>
@@ -1053,6 +1202,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     bio = db.Column(db.String(150))
+    pfp_filename = db.Column(db.String(120), nullable=True)
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Post.user_id')
     reposts = db.relationship('Repost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.user_id')
     comment_reposts = db.relationship('CommentRepost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.user_id')
@@ -1109,7 +1259,12 @@ def format_comment(comment):
         'id': comment.id,
         'text': comment.text,
         'timestamp': comment.timestamp.strftime('%b %d'),
-        'user': {'username': comment.user.username, 'pfp_gradient': comment.user.pfp_gradient, 'initial': comment.user.username[0].upper()},
+        'user': {
+            'username': comment.user.username,
+            'pfp_gradient': comment.user.pfp_gradient,
+            'initial': comment.user.username[0].upper(),
+            'pfp_filename': comment.user.pfp_filename
+        },
         'like_count': comment.liked_by.count(),
         'is_liked_by_user': current_user in comment.liked_by,
         'replies_count': comment.replies.count()
@@ -1252,6 +1407,8 @@ def like_comment(comment_id):
 @app.route('/repost/post/<int:post_id>', methods=['POST'])
 @login_required
 def repost_post(post_id):
+    post = Post.query.get_or_404(post_id)
+    if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
     
     caption = request.json.get('caption', '').strip() or None
     existing_repost = Repost.query.filter_by(user_id=current_user.id, post_id=post.id).first()
@@ -1273,6 +1430,8 @@ def repost_post(post_id):
 @login_required
 def repost_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
+    if comment.user == current_user:
+        return jsonify({'success': False, 'message': "You can't repost your own comment."})
 
     caption = request.json.get('caption', '').strip() or None
     existing_repost = CommentRepost.query.filter_by(user_id=current_user.id, comment_id=comment.id).first()
@@ -1294,6 +1453,20 @@ def repost_comment(comment_id):
 @login_required
 def edit_profile():
     if request.method == 'POST':
+        # Handle PFP Upload
+        pfp_file = request.files.get('pfp')
+        if pfp_file and pfp_file.filename != '' and allowed_file(pfp_file.filename):
+            if current_user.pfp_filename: # Delete old PFP
+                old_path = os.path.join(app.config['UPLOAD_FOLDER'], current_user.pfp_filename)
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+            
+            ext = pfp_file.filename.rsplit('.', 1)[1].lower()
+            filename = secure_filename(f"pfp_{current_user.id}_{int(datetime.datetime.now().timestamp())}.{ext}")
+            pfp_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            current_user.pfp_filename = filename
+
+        # Handle other profile info
         new_username = request.form.get('username', '').strip()
         new_bio = request.form.get('bio', current_user.bio).strip()
         if new_username and new_username != current_user.username:
@@ -1303,9 +1476,11 @@ def edit_profile():
                 return redirect(url_for('edit_profile'))
             current_user.username = new_username
         current_user.bio = new_bio
+        
         db.session.commit()
         flash('Profile updated!', 'success')
         return redirect(url_for('profile', username=current_user.username))
+        
     return render_template('edit_profile.html')
 
 @app.route('/delete_account', methods=['POST'])
