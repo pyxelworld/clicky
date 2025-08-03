@@ -3,6 +3,7 @@ import datetime
 import random
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
@@ -10,7 +11,7 @@ from jinja2 import BaseLoader, TemplateNotFound
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v7-delete-posts'
+app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v8-final'
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -41,7 +42,11 @@ ICONS = {
     'logout': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>',
     'volume_on': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
     'volume_off': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>',
-    'trash': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>'
+    'trash': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>',
+    'notifications': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>',
+    'camera_switch': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"></path><path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"></path><path d="m18 19-3-3 3-3"></path><path d="m6 5 3 3-3 3"></path></svg>',
+    'flip': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-2"></path><path d="M8 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M12 4v16"></path></svg>',
+    'pause': '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg>'
 }
 app.jinja_env.globals.update(ICONS=ICONS)
 
@@ -71,11 +76,13 @@ templates = {
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             margin: 0; 
+            padding-bottom: 70px; /* Space for bottom nav */
             background-color: var(--bg-color); 
             color: var(--text-color); 
             font-size: 15px;
             overscroll-behavior-y: contain;
         }
+        body.sixs-view { padding-bottom: 0; }
         .container { max-width: 600px; margin: 0 auto; }
         a { color: var(--accent-color); text-decoration: none; }
         .top-bar {
@@ -88,6 +95,15 @@ templates = {
             display: flex; justify-content: space-between; align-items: center;
         }
         .top-bar .logo { font-weight: bold; font-size: 1.7em; }
+        .notification-icon { position: relative; }
+        .notification-badge {
+            position: absolute; top: -5px; right: -8px;
+            background-color: var(--red-color); color: white;
+            border-radius: 50%; width: 18px; height: 18px;
+            font-size: 11px; font-weight: bold;
+            display: flex; align-items: center; justify-content: center;
+            border: 2px solid var(--bg-color);
+        }
         .bottom-nav { 
             position: fixed; bottom: 0; left: 0; right: 0;
             background: rgba(0, 0, 0, 0.65);
@@ -175,14 +191,16 @@ templates = {
         {% block style_override %}{% endblock %}
     </style>
 </head>
-<body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}style="overflow: hidden;"{% endif %}>
+<body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}class="sixs-view" style="overflow: hidden;"{% endif %}>
     
     {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs')) %}
     <header class="top-bar">
         <h1 class="logo">{% block header_title %}Home{% endblock %}</h1>
+        <div>
         {% if request.endpoint == 'profile' and current_user == user %}
-        <a href="{{ url_for('edit_profile') }}">{{ ICONS.settings|safe }}</a>
+            <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }}</a>
         {% endif %}
+        </div>
     </header>
     {% endif %}
     
@@ -329,7 +347,7 @@ templates = {
 
     function closeCommentModal() {
         commentModal.style.display = 'none';
-        const isSixsView = document.querySelector('#sixs-feed-container');
+        const isSixsView = document.querySelector('.sixs-view');
         if (!isSixsView) document.body.style.overflow = 'auto';
         prepareReply(null, null);
     }
@@ -1475,6 +1493,8 @@ def like_comment(comment_id):
 @app.route('/repost/post/<int:post_id>', methods=['POST'])
 @login_required
 def repost_post(post_id):
+    post = Post.query.get_or_404(post_id)
+    # if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
     
     caption = request.json.get('caption', '').strip() or None
     existing_repost = Repost.query.filter_by(user_id=current_user.id, post_id=post.id).first()
@@ -1496,7 +1516,9 @@ def repost_post(post_id):
 @login_required
 def repost_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
-    
+    # if comment.user == current_user:
+    #     return jsonify({'success': False, 'message': "You can't repost your own comment."})
+
     caption = request.json.get('caption', '').strip() or None
     existing_repost = CommentRepost.query.filter_by(user_id=current_user.id, comment_id=comment.id).first()
 
