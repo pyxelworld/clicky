@@ -7,6 +7,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from jinja2 import BaseLoader, TemplateNotFound
+from sqlalchemy import or_
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
@@ -227,7 +228,14 @@ templates = {
         const response = await fetch(url);
         content.innerHTML = await response.text();
     }
-
+    
+    function flashMessage(message, isError = false) {
+        let flashDiv = document.createElement('div');
+        flashDiv.textContent = message;
+        flashDiv.style.cssText = `position:fixed; bottom:80px; left:50%; transform:translateX(-50%); padding:12px 20px; border-radius:20px; background:${isError ? 'var(--red-color)' : 'var(--accent-color)'}; color:white; z-index:9999; box-shadow:0 4px 10px rgba(0,0,0,0.3);`;
+        document.body.appendChild(flashDiv);
+        setTimeout(() => flashDiv.remove(), 3000);
+    }
     </script>
     {% block scripts %}{% endblock %}
 </body>
@@ -305,9 +313,6 @@ templates = {
                     <div class="six-info">
                         <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white;"><strong class="username">@{{ post.author.username }}</strong></a>
                         <p>{{ post.text_content }}</p>
-                        {% if post.repost_of %}
-                            <div style="font-size: 0.9em; color: #ccc; margin-top: 8px;">Reposting @{{ post.repost_of.author.username }}: <em>"{{ post.repost_of.text_content|truncate(50) }}"</em></div>
-                        {% endif %}
                     </div>
                     <div class="six-actions">
                         <button onclick="handleLike(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}">
@@ -315,7 +320,7 @@ templates = {
                             <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
                         </button>
                         <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
-                        <button onclick="handleRepost(this, {{ post.id }})" class="{{ 'reposted' if post.is_reposted_by_current_user else '' }}">{{ ICONS.repost|safe }} <span id="repost-count-{{ post.id }}">{{ post.reposted_by.count() }}</span></button>
+                        <button onclick="handleRepost(this, {{ post.id }})" class="{{ 'reposted' if post.is_reposted_by_current_user else '' }}">{{ ICONS.repost|safe }} <span id="repost-count-{{ post.id }}">{{ post.reposted_by|length }}</span></button>
                     </div>
                 </div>
             </section>
@@ -343,18 +348,28 @@ templates = {
         button.querySelector('span').innerText = data.likes;
         button.classList.toggle('liked', data.liked);
         const icon = button.querySelector('svg');
-        icon.style.fill = data.liked ? 'var(--red-color)' : 'none';
-        icon.style.stroke = data.liked ? 'var(--red-color)' : 'white';
+        const isSixFeed = document.body.style.overflow === 'hidden';
+        if (data.liked) {
+            icon.style.fill = 'var(--red-color)';
+            icon.style.stroke = 'var(--red-color)';
+            if (!isSixFeed) button.style.color = 'var(--red-color)';
+        } else {
+            icon.style.fill = 'none';
+            icon.style.stroke = isSixFeed ? 'white' : 'currentColor';
+            if (!isSixFeed) button.style.color = 'var(--text-muted)';
+        }
     }
 
     async function handleRepost(button, postId) {
-        // If already reposted, unrepost. Otherwise, open modal.
         if (button.classList.contains('reposted')) {
              const response = await fetch(`/unrepost/${postId}`, { method: 'POST' });
              const data = await response.json();
              if (data.success) {
                 button.classList.remove('reposted');
-                button.querySelector('svg').style.stroke = 'white';
+                const icon = button.querySelector('svg');
+                const isSixFeed = document.body.style.overflow === 'hidden';
+                icon.style.stroke = isSixFeed ? 'white' : 'currentColor';
+                if (!isSixFeed) button.style.color = 'var(--text-muted)';
                 const countEl = document.getElementById(`repost-count-${postId}`);
                 countEl.innerText = parseInt(countEl.innerText) - 1;
                 flashMessage('Repost removed.');
@@ -364,7 +379,6 @@ templates = {
         }
     }
 
-    // This handles the form submission from the repost modal
     async function submitRepost(form, event) {
         event.preventDefault();
         const formData = new FormData(form);
@@ -373,18 +387,10 @@ templates = {
         if (data.success) {
             closeModal('repostModal');
             flashMessage('Post reposted!');
-            setTimeout(() => window.location.reload(), 1500); // Reload to show the new post
+            setTimeout(() => window.location.reload(), 1500);
         } else {
             alert(data.message);
         }
-    }
-
-    function flashMessage(message, isError = false) {
-        let flashDiv = document.createElement('div');
-        flashDiv.textContent = message;
-        flashDiv.style.cssText = `position:fixed; bottom:80px; left:50%; transform:translateX(-50%); padding:12px 20px; border-radius:20px; background:${isError ? 'var(--red-color)' : 'var(--accent-color)'}; color:white; z-index:9999; box-shadow:0 4px 10px rgba(0,0,0,0.3);`;
-        document.body.appendChild(flashDiv);
-        setTimeout(() => flashDiv.remove(), 3000);
     }
 </script>
 {% if feed_type == 'sixs' %}
@@ -394,7 +400,7 @@ templates = {
         entries.forEach(entry => {
             const video = entry.target;
             if (entry.isIntersecting) {
-                video.play().catch(e => console.log("Play interrupted"));
+                video.play().catch(e => {});
                 video.muted = video.dataset.muted === 'true' || typeof video.dataset.muted === 'undefined';
             } else {
                 video.pause();
@@ -420,7 +426,7 @@ templates = {
         <a href="{{ url_for('profile', username=post.author.username) }}">
             <div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; font-size:1.4rem;">
                 {% if post.author.pfp_filename %}
-                    <img src="{{ url_for('static', filename='uploads/pfp/' + post.author.pfp_filename) }}" class="pfp-image">
+                    <img src="{{ url_for('static', filename='uploads/pfp/' + post.author.pfp_filename) }}" class="pfp-image" alt="{{ post.author.username }}'s profile picture">
                 {% else %}
                     <div class="pfp-initials">{{ post.author.username[0]|upper }}</div>
                 {% endif %}
@@ -433,11 +439,11 @@ templates = {
             <span style="color:var(--text-muted);">· {{ post.timestamp.strftime('%b %d') }}</span>
         </div>
         
-        {% if post.repost_of_id %}
+        {% if post.repost_of %}
             <p style="margin: 4px 0 8px 0;">{{ post.text_content }}</p>
-            <div style="border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+            <div style="border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 12px; cursor:pointer;" onclick="window.location.href='{{ url_for('home') }}#post-{{ post.repost_of.id }}'">
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom: 4px;">
-                    <div style="width:20px; height:20px; border-radius:50%; background:{{ post.repost_of.author.pfp_gradient }}; font-size:0.8rem;">
+                    <div style="width:20px; height:20px; border-radius:50%; background:{{ post.repost_of.author.pfp_gradient }}; font-size:0.8rem; flex-shrink:0;">
                         {% if post.repost_of.author.pfp_filename %}<img src="{{ url_for('static', filename='uploads/pfp/' + post.repost_of.author.pfp_filename) }}" class="pfp-image">{% else %}<div class="pfp-initials">{{ post.repost_of.author.username[0]|upper }}</div>{% endif %}
                     </div>
                     <a href="{{ url_for('profile', username=post.repost_of.author.username) }}" style="color:var(--text-color); font-weight:bold; font-size:0.9em;">{{ post.repost_of.author.username }}</a>
@@ -450,8 +456,8 @@ templates = {
 
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
             <button onclick="openCommentModal({{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
-            <button onclick="handleRepost(this, {{ post.id }})" class="{{ 'reposted' if post.is_reposted_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="{{ 'var(--green-color)' if post.is_reposted_by_current_user else 'currentColor' }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg> <span id="repost-count-{{ post.id }}">{{ post.reposted_by.count() }}</span></button>
-            <button onclick="handleLike(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="{{ 'var(--red-color)' if post.liked_by_current_user else 'none' }}" stroke="{{ 'var(--red-color)' if post.liked_by_current_user else 'currentColor' }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg> <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span></button>
+            <button onclick="handleRepost(this, {{ post.id }})" class="{{ 'reposted' if post.is_reposted_by_current_user else '' }}" style="background:none; border:none; color: {{ 'var(--green-color)' if post.is_reposted_by_current_user else 'var(--text-muted)' }}; display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg> <span id="repost-count-{{ post.id }}">{{ post.reposted_by|length }}</span></button>
+            <button onclick="handleLike(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:{{ 'var(--red-color)' if post.liked_by_current_user else 'var(--text-muted)' }}; display:flex; align-items:center; gap:8px; cursor:pointer; padding:0;"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="{{ 'var(--red-color)' if post.liked_by_current_user else 'none' }}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg> <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span></button>
         </div>
     </div>
 </article>
@@ -708,7 +714,7 @@ templates = {
         </div>
         <div style="border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
             <div style="display:flex; align-items:center; gap:8px; margin-bottom: 4px;">
-                <div style="width:20px; height:20px; border-radius:50%; background:{{ post.author.pfp_gradient }}; font-size:0.8rem;">
+                <div style="width:20px; height:20px; border-radius:50%; background:{{ post.author.pfp_gradient }}; font-size:0.8rem; flex-shrink:0;">
                     {% if post.author.pfp_filename %}<img src="{{ url_for('static', filename='uploads/pfp/' + post.author.pfp_filename) }}" class="pfp-image">{% else %}<div class="pfp-initials">{{ post.author.username[0]|upper }}</div>{% endif %}
                 </div>
                 <strong style="font-size:0.9em;">{{ post.author.username }}</strong>
@@ -734,7 +740,7 @@ templates = {
              {% if c.user.pfp_filename %}<img src="{{ url_for('static', filename='uploads/pfp/' + c.user.pfp_filename) }}" class="pfp-image">{% else %}<div class="pfp-initials">{{ c.user.username[0]|upper }}</div>{% endif %}
         </div>
         <div>
-            <strong style="color:var(--text-color);">{{ c.user.username }}</strong> <span style="color:var(--text-muted);">${c.timestamp.strftime('%b %d')}</span>
+            <strong style="color:var(--text-color);">{{ c.user.username }}</strong> <span style="color:var(--text-muted);">{{ c.timestamp.strftime('%b %d') }}</span>
             <div style="color:var(--text-color);">{{ c.text }}</div>
         </div>
     </div>
@@ -767,8 +773,8 @@ templates = {
         </div>
         {% if current_user.is_authenticated and current_user != user %}
         <div>
-            {% if not current_user.is_following(user) %}<a href="{{ url_for('follow', username=user.username, next=request.path) }}" class="btn">Follow</a>
-            {% else %}<a href="{{ url_for('unfollow', username=user.username, next=request.path) }}" class="btn btn-outline">Following</a>{% endif %}
+            {% if not current_user.is_following(user) %}<a href="{{ url_for('follow', username=user.username, next=request.url) }}" class="btn">Follow</a>
+            {% else %}<a href="{{ url_for('unfollow', username=user.username, next=request.url) }}" class="btn btn-outline">Following</a>{% endif %}
         </div>
         {% endif %}
     </div>
@@ -791,6 +797,9 @@ app.jinja_loader = DictLoader(templates)
 followers = db.Table('followers',
     db.Column('follower_id', db.Integer, db.ForeignKey('user.id')), db.Column('followed_id', db.Integer, db.ForeignKey('user.id')))
 
+likes = db.Table('likes',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id')), db.Column('post_id', db.Integer, db.ForeignKey('post.id')))
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -798,8 +807,9 @@ class User(UserMixin, db.Model):
     bio = db.Column(db.String(150))
     pfp_filename = db.Column(db.String(120))
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Post.user_id')
-    liked_posts = db.relationship('Post', secondary='likes', backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
+    liked_posts = db.relationship('Post', secondary=likes, lazy='dynamic', backref=db.backref('liked_by', lazy='dynamic'))
     followed = db.relationship('User', secondary=followers, primaryjoin=(followers.c.follower_id == id), secondaryjoin=(followers.c.followed_id == id), backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
+    
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
     def check_password(self, pw): return check_password_hash(self.password_hash, pw)
     def is_following(self, u): return self.followed.filter(followers.c.followed_id == u.id).count() > 0
@@ -807,40 +817,42 @@ class User(UserMixin, db.Model):
         if not self.is_following(u): self.followed.append(u)
     def unfollow(self, u):
         if self.is_following(u): self.followed.remove(u)
-    def get_reposts(self):
-        return Post.query.filter_by(author=self, repost_of_id.isnot(None))
-    def is_reposting(self, post):
-        return Post.query.filter_by(author=self, repost_of_id=post.id).count() > 0
+        
     @property
     def pfp_gradient(self):
         colors = [("#ef4444", "#fb923c"), ("#a855f7", "#ec4899"), ("#84cc16", "#22c55e"), ("#0ea5e9", "#6366f1")]
         c1, c2 = colors[hash(self.username) % len(colors)]; return f"linear-gradient(45deg, {c1}, {c2})"
 
-likes = db.Table('likes',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id')), db.Column('post_id', db.Integer, db.ForeignKey('post.id')))
-
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    post_type = db.Column(db.String(10), nullable=False) # 'text' or 'six'
-    text_content = db.Column(db.String(280)) # Increased for text posts, also caption
+    post_type = db.Column(db.String(10), nullable=False) # 'text', 'six', or 'repost'
+    text_content = db.Column(db.String(280))
     video_filename = db.Column(db.String(120))
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
+    
     # For reposts ("quote tweets")
     repost_of_id = db.Column(db.Integer, db.ForeignKey('post.id'))
-    repost_of = db.relationship('Post', remote_side=[id])
-    reposted_by = db.relationship('Post', backref='reposted_post', remote_side=[repost_of_id])
-
+    reposted_by = db.relationship('Post', backref=db.backref('repost_of', remote_side=[id]), lazy='dynamic', cascade="all, delete-orphan")
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     text = db.Column(db.String(150), nullable=False)
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    post_id = db.Column(db.Integer, db.ForeignKey('post.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
     user = db.relationship('User', backref='comments')
 
+
+# --- CONTEXT PROCESSOR ---
+@app.context_processor
+def inject_user_status():
+    def is_reposted_by_current_user(post):
+        if not current_user.is_authenticated:
+            return False
+        return Post.query.filter_by(author=current_user, repost_of_id=post.id).count() > 0
+    return dict(is_reposted_by_current_user=is_reposted_by_current_user)
 
 # --- ROUTES ---
 @login_manager.user_loader
@@ -852,15 +864,17 @@ def home():
     feed_type = request.args.get('feed_type', 'text')
     followed_ids = [u.id for u in current_user.followed]
     followed_ids.append(current_user.id)
-    query = Post.query.filter(Post.user_id.in_(followed_ids))
+    
+    posts_query = Post.query.filter(Post.user_id.in_(followed_ids))
+    
     if feed_type == 'text':
-        posts = query.filter(Post.post_type.in_(['text', 'repost'])).order_by(Post.timestamp.desc()).all()
+        posts = posts_query.filter(or_(Post.post_type == 'text', Post.post_type == 'repost')).order_by(Post.timestamp.desc()).all()
     else: # sixs
-        posts = query.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
+        posts = posts_query.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
     
     for p in posts:
         p.liked_by_current_user = current_user in p.liked_by
-        p.is_reposted_by_current_user = Post.query.filter_by(author=current_user, repost_of_id=p.id).count() > 0
+        p.is_reposted_by_current_user = is_reposted_by_current_user(p)
     return render_template('home.html', posts=posts, feed_type=feed_type)
 
 @app.route('/profile/<username>')
@@ -868,11 +882,14 @@ def home():
 def profile(username):
     user = User.query.filter_by(username=username).first_or_404()
     active_tab = request.args.get('tab', 'posts')
-    if active_tab == 'likes': posts = user.liked_posts.order_by(likes.c.post_id.desc()).all()
-    else: posts = user.posts.order_by(Post.timestamp.desc()).all()
+    if active_tab == 'likes': 
+        posts = user.liked_posts.order_by(likes.c.post_id.desc()).all()
+    else: 
+        posts = user.posts.order_by(Post.timestamp.desc()).all()
+        
     for p in posts:
         p.liked_by_current_user = current_user in p.liked_by
-        p.is_reposted_by_current_user = Post.query.filter_by(author=current_user, repost_of_id=p.id).count() > 0
+        p.is_reposted_by_current_user = is_reposted_by_current_user(p)
     return render_template('profile.html', user=user, posts=posts, active_tab=active_tab)
 
 @app.route('/create', methods=['GET', 'POST'])
@@ -883,12 +900,10 @@ def create_post():
         if post_type == 'text':
             content = request.form.get('text_content', '').strip()
             if not content:
-                flash('Post cannot be empty.', 'error')
-                return redirect(url_for('create_post', type='text'))
+                flash('Post cannot be empty.', 'error'); return redirect(url_for('create_post', type='text'))
             post = Post(post_type='text', text_content=content, author=current_user)
             db.session.add(post); db.session.commit()
-            flash('Post created!', 'success')
-            return redirect(url_for('home'))
+            flash('Post created!', 'success'); return redirect(url_for('home'))
         elif post_type == 'six':
             video_file = request.files.get('video_file')
             if not video_file:
@@ -937,13 +952,12 @@ def repost(post_id):
     original_post = Post.query.get_or_404(post_id)
     if original_post.author == current_user:
         return jsonify({'success': False, 'message': "You can't repost your own post."})
-    if Post.query.filter_by(author=current_user, repost_of_id=original_post.id).count() > 0:
+    if is_reposted_by_current_user(original_post):
         return jsonify({'success': False, 'message': "You've already reposted this."})
     
     caption = request.form.get('caption', '').strip()
     repost = Post(post_type='repost', text_content=caption, author=current_user, repost_of_id=original_post.id)
-    db.session.add(repost)
-    db.session.commit()
+    db.session.add(repost); db.session.commit()
     return jsonify({'success': True, 'message': 'Post reposted!'})
 
 @app.route('/unrepost/<int:post_id>', methods=['POST'])
@@ -951,8 +965,7 @@ def repost(post_id):
 def unrepost(post_id):
     repost_to_delete = Post.query.filter_by(author=current_user, repost_of_id=post_id).first()
     if repost_to_delete:
-        db.session.delete(repost_to_delete)
-        db.session.commit()
+        db.session.delete(repost_to_delete); db.session.commit()
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': 'Repost not found.'}), 404
 
@@ -974,19 +987,16 @@ def edit_profile():
 @login_required
 def delete_account():
     if not current_user.check_password(request.form.get('password')):
-        flash('Incorrect password. Account not deleted.', 'error')
-        return redirect(url_for('edit_profile'))
+        flash('Incorrect password. Account not deleted.', 'error'); return redirect(url_for('edit_profile'))
     user = User.query.get(current_user.id)
     logout_user()
     db.session.delete(user); db.session.commit()
-    flash('Your account has been permanently deleted.', 'success')
-    return redirect(url_for('login'))
+    flash('Your account has been permanently deleted.', 'success'); return redirect(url_for('login'))
 
 @app.route('/discover')
 @login_required
 def discover():
-    followed_ids = [u.id for u in current_user.followed]
-    followed_ids.append(current_user.id)
+    followed_ids = [u.id for u in current_user.followed]; followed_ids.append(current_user.id)
     users = User.query.filter(User.id.notin_(followed_ids)).order_by(db.func.random()).limit(15).all()
     return render_template('discover.html', users=users)
 
@@ -995,11 +1005,9 @@ def discover():
 def user_list(username, list_type):
     user = User.query.filter_by(username=username).first_or_404()
     if list_type == 'followers':
-        users = user.followers.all()
-        title = "Followers"
+        users = user.followers.all(); title = "Followers"
     elif list_type == 'following':
-        users = user.followed.all()
-        title = "Following"
+        users = user.followed.all(); title = "Following"
     else:
         return "Invalid list type", 404
     return render_template('_user_list_modal.html', users=users, title=title)
