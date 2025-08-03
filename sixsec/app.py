@@ -1,4 +1,3 @@
-
 import os
 import datetime
 import random
@@ -205,15 +204,15 @@ templates = {
         {% block style_override %}{% endblock %}
     </style>
 </head>
-<body {% if (request.endpoint  'home' and feed_type  'sixs') or (request.endpoint  'profile' and active_tab  'sixs') %}class="sixs-view" style="overflow: hidden;"
+<body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}class="sixs-view" style="overflow: hidden;"
       {% elif request.endpoint == 'create_post' %}class="creator-view" style="overflow: hidden;"
       {% endif %}>
     
-    {% if not ((request.endpoint  'home' and feed_type  'sixs') or (request.endpoint  'profile' and active_tab  'sixs') or request.endpoint == 'create_post') %}
+    {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') or request.endpoint == 'create_post') %}
     <header class="top-bar">
         <h1 class="logo">{% block header_title %}Início{% endblock %}</h1>
         <div>
-        {% if request.endpoint  'profile' and current_user  user %}
+        {% if request.endpoint == 'profile' and current_user == user %}
             <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }}</a>
         {% elif request.endpoint == 'home' %}
             {# Placeholder for future notification icon #}
@@ -222,7 +221,7 @@ templates = {
     </header>
     {% endif %}
     
-    <main {% if not ((request.endpoint  'home' and feed_type  'sixs') or (request.endpoint  'profile' and active_tab  'sixs')) %}class="container"{% endif %}>
+    <main {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs')) %}class="container"{% endif %}>
         <div class="flash-message-container">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -235,12 +234,12 @@ templates = {
         {% block content %}{% endblock %}
     </main>
 
-    {% if current_user.is_authenticated and not ((request.endpoint  'home' and feed_type  'sixs') or (request.endpoint  'profile' and active_tab  'sixs') or request.endpoint == 'create_post') %}
+    {% if current_user.is_authenticated and not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') or request.endpoint == 'create_post') %}
     <nav class="bottom-nav">
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
         <a href="{{ url_for('discover') }}" class="{{ 'active' if request.endpoint == 'discover' else '' }}">{{ ICONS.discover|safe }}</a>
         <a href="{{ url_for('create_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
-        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint  'profile' and user and current_user.username  user.username else '' }}">{{ ICONS.profile|safe }}</a>
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' and user and current_user.username == user.username else '' }}">{{ ICONS.profile|safe }}</a>
     </nav>
     {% endif %}
 
@@ -279,14 +278,14 @@ templates = {
 
         let repliesButton = '';
         if (comment.replies_count > 0) {
-            repliesButton = <button class="view-replies-btn" onclick="toggleReplies(this, ${comment.id})">Ver ${comment.replies_count} respostas</button>;
+            repliesButton = `<button class="view-replies-btn" onclick="toggleReplies(this, ${comment.id})">Ver ${comment.replies_count} respostas</button>`;
         }
         
         let pfpElement = '';
         if (comment.user.pfp_filename) {
-            pfpElement = <img src="/static/uploads/${comment.user.pfp_filename}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">;
+            pfpElement = `<img src="/static/uploads/${comment.user.pfp_filename}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`;
         } else {
-            pfpElement = <div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>;
+            pfpElement = `<div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>`;
         }
 
         container.innerHTML = `
@@ -327,7 +326,7 @@ templates = {
         if (repliesWrapper.style.display === 'none') {
             if (!repliesWrapper.hasChildNodes()) { // Fetch only if empty
                 repliesWrapper.innerHTML = '<p style="color:var(--text-muted); padding-left:20px;">Carregando respostas...</p>';
-                const response = await fetch/comment/${commentId}/replies);
+                const response = await fetch(`/comment/${commentId}/replies`);
                 const replies = await response.json();
                 repliesWrapper.innerHTML = '';
                 if(replies.length > 0) {
@@ -352,7 +351,7 @@ templates = {
         commentModal.style.display = 'flex';
         document.body.style.overflow = 'hidden';
 
-        const response = await fetch/post/${postId}/comments);
+        const response = await fetch(`/post/${postId}/comments`);
         const comments = await response.json();
         list.innerHTML = '';
 
@@ -375,7 +374,7 @@ templates = {
         const parentIdInput = document.getElementById('comment-parent-id');
         if (parentId) {
             parentIdInput.value = parentId;
-            textInput.placeholder = Respondendo a @${username}...;
+            textInput.placeholder = `Respondendo a @${username}...`;
             textInput.focus();
         } else {
             parentIdInput.value = '';
@@ -390,7 +389,7 @@ templates = {
         const text = document.getElementById('comment-text-input').value;
         if (!text.trim()) return;
 
-        const response = await fetch/post/${postId}/comment, {
+        const response = await fetch(`/post/${postId}/comment`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: text, parent_id: parentId || null })
         });
@@ -399,7 +398,7 @@ templates = {
             document.getElementById('comment-text-input').value = '';
             prepareReply(null, null);
             openCommentModal(postId); // Refresh comments
-            const countEl = document.querySelector#comment-count-${postId});
+            const countEl = document.querySelector(`#comment-count-${postId}`);
             if(countEl) countEl.innerText = parseInt(countEl.innerText) + 1;
         }
     });
@@ -407,14 +406,14 @@ templates = {
     window.onclick = (event) => { if (event.target == commentModal) closeCommentModal(); };
     
     async function handleLike(button, postId) {
-        const response = await fetch/like/post/${postId}, { method: 'POST' });
+        const response = await fetch(`/like/post/${postId}`, { method: 'POST' });
         const data = await response.json();
         button.querySelector('span').innerText = data.likes;
         button.classList.toggle('liked', data.liked);
     }
 
     async function handleLikeComment(button, commentId) {
-        const response = await fetch/like/comment/${commentId}, { method: 'POST' });
+        const response = await fetch(`/like/comment/${commentId}`, { method: 'POST' });
         const data = await response.json();
         button.querySelector('span').innerText = data.likes;
         button.classList.toggle('liked', data.liked);
@@ -424,7 +423,7 @@ templates = {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
         if (caption === null) return; 
 
-        const response = await fetch/repost/post/${postId}, { 
+        const response = await fetch(`/repost/post/${postId}`, { 
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ caption: caption })
         });
@@ -441,7 +440,7 @@ templates = {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
         if (caption === null) return;
 
-        const response = await fetch/repost/comment/${commentId}, {
+        const response = await fetch(`/repost/comment/${commentId}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ caption: caption })
         });
@@ -456,10 +455,10 @@ templates = {
     async function handleDeletePost(button, postId) {
         if (!confirm('Tem certeza que deseja deletar esta publicação? Esta ação é permanente.')) return;
 
-        const response = await fetch/delete_post/${postId}, { method: 'POST' });
+        const response = await fetch(`/delete_post/${postId}`, { method: 'POST' });
         const data = await response.json();
         if(data.success) {
-            const postElement = document.getElementByIdpost-${postId});
+            const postElement = document.getElementById(`post-${postId}`);
             if(postElement) {
                 postElement.style.transition = 'opacity 0.3s ease';
                 postElement.style.opacity = '0';
@@ -474,7 +473,7 @@ templates = {
     function flash(message, category = 'info') {
         const container = document.querySelector('.flash-message-container') || document.body;
         const flashDiv = document.createElement('div');
-        flashDiv.className = flash-message ${category};
+        flashDiv.className = `flash-message ${category}`;
         flashDiv.textContent = message;
         container.appendChild(flashDiv);
         setTimeout(() => {
@@ -561,8 +560,8 @@ templates = {
 {% endblock %}
 {% block content %}
     <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color);">
-        <a href="{{ url_for('home', feed_type='text') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type  'text' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Texto {% if feed_type  'text' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
-        <a href="{{ url_for('home', feed_type='sixs') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type  'sixs' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Sixs {% if feed_type  'sixs' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
+        <a href="{{ url_for('home', feed_type='text') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type == 'text' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Texto {% if feed_type == 'text' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
+        <a href="{{ url_for('home', feed_type='sixs') }}" style="flex:1; text-align:center; padding: 15px; color: {% if feed_type == 'sixs' %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">Sixs {% if feed_type == 'sixs' %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
     </div>
 
     {% if feed_type == 'text' %}
@@ -658,7 +657,7 @@ templates = {
             return;
         }
         seenTextPosts.add(postId);
-        fetch/mark_text_post_as_seen/${postId}, { method: 'POST' });
+        fetch(`/mark_text_post_as_seen/${postId}`, { method: 'POST' });
     }
     const textObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
@@ -713,7 +712,7 @@ templates = {
             return;
         }
         seenSixs.add(postId);
-        fetch/mark_six_as_seen/${postId}, { method: 'POST' });
+        fetch(`/mark_six_as_seen/${postId}`, { method: 'POST' });
     }
 
     const sixObserver = new IntersectionObserver((entries) => {
@@ -983,8 +982,8 @@ templates = {
     
     const progressCircle = document.querySelector('.progress-ring__circle');
     const radius = progressCircle.r.baseVal.value;
-    const circumference = radius  2  Math.PI;
-    progressCircle.style.strokeDasharray = ${circumference} ${circumference};
+    const circumference = radius * 2 * Math.PI;
+    progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
     
     function setProgress(duration) {
         const percent = (duration / MAX_DURATION);
@@ -1036,7 +1035,7 @@ templates = {
             recorderStatus.textContent = "Toque no botão para gravar";
             recordButton.style.display = 'flex';
         } else if (recorderState === 'recording') {
-            recorderStatus.textContent = Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s;
+            recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
             recordButton.style.display = 'flex';
             recordButton.classList.add('recording');
             switchCameraBtn.disabled = true;
@@ -1119,7 +1118,7 @@ templates = {
         timerInterval = setInterval(() => {
             recordedDuration += 100;
             setProgress(recordedDuration);
-            recorderStatus.textContent = Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s;
+            recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
             if (recordedDuration >= MAX_DURATION) {
                 stopRecording();
             }
@@ -1129,18 +1128,8 @@ templates = {
     function stopTimer() { clearInterval(timerInterval); }
 
     enableCameraBtn.addEventListener('click', initCamera);
-    switchCameraBtn.addEventListener('click', async () => {
+    switchCameraBtn.addEventListener('click', () => {
         if (recorderState === 'idle' || recorderState === 'paused') {
-            if (recorderState === 'paused') {
-                await new Promise(resolve => {
-                    mediaRecorder.onstop = () => {
-                        stopTimer();
-                        resolve();
-                    };
-                    mediaRecorder.stop();
-                });
-                recorderState = 'paused';
-            }
             facingMode = (facingMode === 'user') ? 'environment' : 'user';
             initCamera();
         }
@@ -1206,21 +1195,20 @@ templates = {
             <label for="bio">Bio</label>
             <textarea id="bio" name="bio" rows="3" maxlength="150">{{ current_user.bio or '' }}</textarea>
         </div>
-        
-        <hr style="border-color: var(--border-color); margin: 30px 0;">
-        <h4>Preferências</h4>
-        <div class="form-group">
-            <label for="six_feed_style">Estilo do Feed de Sixs</label>
-            <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none;">
-                <option value="circle" {% if current_user.six_feed_style == 'circle' %}selected{% endif %}>Círculo</option>
-                <option value="fullscreen" {% if current_user.six_feed_style == 'fullscreen' %}selected{% endif %}>Tela Cheia</option>
-            </select>
-            <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
-        </div>
-        
         <button type="submit" class="btn">Salvar Alterações</button>
     </form>
     
+    <hr style="border-color: var(--border-color); margin: 30px 0;">
+    <h4>Preferências</h4>
+    <div class="form-group">
+        <label for="six_feed_style">Estilo do Feed de Sixs</label>
+        <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none;">
+            <option value="circle" {% if current_user.six_feed_style == 'circle' %}selected{% endif %}>Círculo</option>
+            <option value="fullscreen" {% if current_user.six_feed_style == 'fullscreen' %}selected{% endif %}>Tela Cheia</option>
+        </select>
+        <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
+    </div>
+
 
     <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Alterar Senha</h4>
@@ -1347,7 +1335,7 @@ templates = {
     <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color); {% if active_tab == 'sixs' %} position: fixed; top:0; left:0; right:0; z-index:100; background:rgba(0,0,0,0.65); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); {% endif %}">
         {% set tabs = [('Publicações', 'publicações', url_for('profile', username=user.username, tab='publicações')), ('Sixs', 'sixs', url_for('profile', username=user.username, tab='sixs')), ('Republicações', 'republicações', url_for('profile', username=user.username, tab='republicações'))] %}
         {% for name, tab_id, url in tabs %}
-        <a href="{{ url }}" style="flex:1; text-align:center; padding: 15px; color: {% if active_tab  tab_id %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">{{ name }} {% if active_tab  tab_id %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
+        <a href="{{ url }}" style="flex:1; text-align:center; padding: 15px; color: {% if active_tab == tab_id %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">{{ name }} {% if active_tab == tab_id %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
         {% endfor %}
     </div>
 
@@ -1671,7 +1659,7 @@ class Comment(db.Model):
     reposts = db.relationship('CommentRepost', backref='original_comment', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.comment_id')
 
 class Repost(db.Model):
-    tablename = 'repost'
+    __tablename__ = 'repost'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
@@ -1679,7 +1667,7 @@ class Repost(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
 class CommentRepost(db.Model):
-    tablename = 'comment_repost'
+    __tablename__ = 'comment_repost'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=False)
