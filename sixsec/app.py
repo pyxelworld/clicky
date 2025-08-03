@@ -288,6 +288,11 @@ templates = {
             pfpElement = `<div style="width:40px; height:40px; border-radius:50%; flex-shrink:0; background:${comment.user.pfp_gradient}; display:flex; align-items:center; justify-content:center; font-weight:bold;">${comment.user.initial}</div>`;
         }
 
+        let deleteButton = '';
+        if(comment.is_owned_by_user) {
+            deleteButton = `<button onclick="handleDeleteComment(this, ${comment.id})" class="action-button delete-btn">${ICONS.trash}</button>`;
+        }
+
         container.innerHTML = `
             <div style="display: flex; gap: 12px;">
                 <div style="flex-shrink:0;">${pfpElement}</div>
@@ -298,6 +303,7 @@ templates = {
                         <button onclick="handleLikeComment(this, ${comment.id})" class="action-button ${comment.is_liked_by_user ? 'liked' : ''}">${likeIcon}<span>${comment.like_count}</span></button>
                         <button onclick="prepareReply(${comment.id}, '${comment.user.username}')" class="action-button">${ICONS.reply}<span>Responder</span></button>
                         <button onclick="handleCommentRepost(this, ${comment.id})" class="action-button">${repostIcon}<span>Republicar</span></button>
+                        ${deleteButton}
                     </div>
                     ${repliesButton}
                 </div>
@@ -464,6 +470,30 @@ templates = {
                 postElement.style.opacity = '0';
                 setTimeout(() => postElement.remove(), 300);
             }
+            flash(data.message, 'success');
+        } else {
+            flash(data.message, 'error');
+        }
+    }
+
+    async function handleDeleteComment(button, commentId) {
+        if (!confirm('Tem certeza que deseja deletar este comentário?')) return;
+        
+        const response = await fetch(`/delete_comment/${commentId}`, { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            const commentElement = button.closest('.comment-container');
+            if (commentElement) {
+                commentElement.style.transition = 'opacity 0.3s ease';
+                commentElement.style.opacity = '0';
+                setTimeout(() => commentElement.remove(), 300);
+            }
+            // Update the main post's comment count on the page if it exists
+            const postId = document.getElementById('comment-post-id').value;
+            const countEl = document.querySelector(`#comment-count-${postId}`);
+            if(countEl) countEl.innerText = Math.max(0, parseInt(countEl.innerText) - 1);
+            
             flash(data.message, 'success');
         } else {
             flash(data.message, 'error');
@@ -1699,6 +1729,7 @@ def format_comment(comment):
         },
         'like_count': comment.liked_by.count(),
         'is_liked_by_user': current_user in comment.liked_by,
+        'is_owned_by_user': current_user.is_authenticated and comment.user_id == current_user.id,
         'replies_count': comment.replies.count()
     }
     
@@ -1841,6 +1872,17 @@ def delete_post(post_id):
     db.session.delete(post)
     db.session.commit()
     return jsonify({'success': True, 'message': 'Publicação deletada com sucesso.'})
+
+@app.route('/delete_comment/<int:comment_id>', methods=['POST'])
+@login_required
+def delete_comment(comment_id):
+    comment = Comment.query.get_or_404(comment_id)
+    if comment.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Permissão negada.'}), 403
+    
+    db.session.delete(comment)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Comentário deletado.'})
 
 @app.route('/post/<int:post_id>/comments')
 @login_required
