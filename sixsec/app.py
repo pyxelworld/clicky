@@ -28,9 +28,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# --- THE FIX: SETUP SQLITE PRAGMA FOR FOREIGN KEYS ---
-# This ensures that for every connection to the DB, foreign key support is enabled.
-# This is the modern and correct way to handle this with SQLAlchemy.
+# --- SETUP SQLITE PRAGMA FOR FOREIGN KEYS ---
 if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
     def _fk_pragma_on_connect(dbapi_con, con_record):
         dbapi_con.execute('PRAGMA foreign_keys=ON')
@@ -39,7 +37,6 @@ if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
         event.listen(db.engine, 'connect', _fk_pragma_on_connect)
 
 # --- SVG ICONS DICTIONARY ---
-# (This section is unchanged, keeping it for completeness)
 ICONS = {
     'home': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>',
     'discover': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
@@ -55,14 +52,7 @@ app.jinja_env.globals.update(ICONS=ICONS)
 
 
 # --- TEMPLATES DICTIONARY ---
-# (This huge block is unchanged. It's correct as it is.)
 templates = {
-"layout.html": """...""", "home.html": """...""", "sixs_feed.html": """...""", 
-"text_post_card.html": """...""", "create_post.html": """...""", "edit_profile.html": """...""",
-"profile.html": """...""", "auth_form.html": """...""", "discover.html": """..."""
-# NOTE: To keep the response readable, the giant unchanged template block is collapsed.
-# The code from the previous response is correct and will be used here.
-# For example:
 "layout.html": """
 <!doctype html>
 <html lang="en">
@@ -151,7 +141,6 @@ templates = {
 </body>
 </html>
 """,
-# ... and so on for all the other templates from the previous answer.
 "home.html": """
 {% extends "layout.html" %}
 {% block head %}
@@ -304,7 +293,10 @@ templates = {
 
         videos.forEach(video => {
             observer.observe(video);
-            video.parentElement.parentElement.addEventListener('click', () => {
+            video.parentElement.parentElement.addEventListener('click', (e) => {
+                // Prevent click on action buttons from toggling play/pause
+                if (e.target.closest('.six-actions') || e.target.closest('.six-overlay a')) return;
+                
                 if(video.paused) video.play().catch(e => console.error("Video play failed:", e));
                 else video.pause();
             });
@@ -348,7 +340,7 @@ templates = {
             <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
         </button>
         <button>{{ ICONS.comment|safe }} <span>{{ post.comments.count() }}</span></button>
-        <button disabled>{{ ICONS.repost|safe }}</button>
+        <button disabled title="Reposts are disabled">{{ ICONS.repost|safe }}</button>
     </div>
 </div>
 <script>
@@ -422,7 +414,7 @@ templates = {
     });
 
     function startRecording() {
-        if (!window.stream) return;
+        if (!window.stream) { alert('Camera stream not available.'); return; }
         recordedBlobs = [];
         mediaRecorder = new MediaRecorder(window.stream, { mimeType: 'video/webm' });
         mediaRecorder.ondataavailable = event => { if (event.data && event.data.size > 0) recordedBlobs.push(event.data); };
@@ -591,10 +583,13 @@ templates = {
                 </div>
             </div>
         {% endif %}
+    {% else %}
+        <div class="card" style="text-align:center; color: var(--text-muted);"><p>Nothing to discover right now.</p></div>
     {% endfor %}
 {% endblock %}
 """
 }
+
 
 # --- JINJA2 CUSTOM LOADER ---
 class DictLoader(BaseLoader):
@@ -604,8 +599,8 @@ class DictLoader(BaseLoader):
         raise TemplateNotFound(template)
 app.jinja_loader = DictLoader(templates)
 
+
 # --- DATABASE MODELS ---
-# ... models from previous response are correct ...
 followers = db.Table('followers',
     db.Column('follower_id', db.Integer, db.ForeignKey('user.id', ondelete='CASCADE')),
     db.Column('followed_id', db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'))
@@ -647,7 +642,7 @@ class User(UserMixin, db.Model):
 
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    post_type = db.Column(db.String(10), nullable=False)
+    post_type = db.Column(db.String(10), nullable=False) # 'text' or 'sixs'
     text_content = db.Column(db.String(150))
     video_filename = db.Column(db.String(120))
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
@@ -661,6 +656,7 @@ class Comment(db.Model):
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id', ondelete='CASCADE'), nullable=False)
+
 
 # --- ROUTES ---
 @login_manager.user_loader
@@ -796,6 +792,7 @@ def signup():
 def logout():
     logout_user()
     return redirect(url_for('login'))
+
 
 # --- MAIN EXECUTION ---
 if __name__ == '__main__':
