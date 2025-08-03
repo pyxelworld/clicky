@@ -10,7 +10,7 @@ from jinja2 import BaseLoader, TemplateNotFound
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec'
+app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v2'
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -127,12 +127,19 @@ templates = {
         .modal-header .close { font-size: 24px; font-weight: bold; cursor: pointer; padding: 0 8px; }
         .modal-body { flex-grow: 1; padding: 16px; overflow-y: auto; }
         .modal-footer { padding: 8px 16px; border-top: 1px solid var(--border-color); }
+        
+        /* Styles for active like/repost buttons */
+        .action-button.liked { color: var(--red-color); }
+        .action-button.liked svg { fill: var(--red-color); stroke: var(--red-color); }
+        .action-button.reposted { color: var(--accent-color); }
+        .action-button.reposted svg { stroke: var(--accent-color); }
+
         {% block style_override %}{% endblock %}
     </style>
 </head>
-<body {% if request.endpoint == 'home' and feed_type == 'sixs' %}style="overflow: hidden;"{% endif %}>
+<body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}style="overflow: hidden;"{% endif %}>
     
-    {% if not (request.endpoint == 'home' and feed_type == 'sixs') %}
+    {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs')) %}
     <header class="top-bar">
         <h1 class="logo">{% block header_title %}Home{% endblock %}</h1>
         {% if request.endpoint == 'profile' and current_user == user %}
@@ -141,7 +148,7 @@ templates = {
     </header>
     {% endif %}
     
-    <main {% if not (request.endpoint == 'home' and feed_type == 'sixs') %}class="container"{% endif %}>
+    <main {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs')) %}class="container"{% endif %}>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
             <div style="position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index: 9999; max-width: 90%;">
@@ -154,7 +161,7 @@ templates = {
         {% block content %}{% endblock %}
     </main>
 
-    {% if current_user.is_authenticated and not (request.endpoint == 'home' and feed_type == 'sixs') %}
+    {% if current_user.is_authenticated and not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs')) %}
     <nav class="bottom-nav">
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
         <a href="{{ url_for('discover') }}" class="{{ 'active' if request.endpoint == 'discover' else '' }}">{{ ICONS.discover|safe }}</a>
@@ -205,7 +212,10 @@ templates = {
     }
     function closeCommentModal() {
         commentModal.style.display = 'none';
-        document.body.style.overflow = 'auto';
+        const isSixsView = document.querySelector('#sixs-feed-container');
+        if (!isSixsView) {
+            document.body.style.overflow = 'auto';
+        }
     }
     document.getElementById('comment-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -224,6 +234,24 @@ templates = {
         }
     });
     window.onclick = (event) => { if (event.target == commentModal) closeCommentModal(); };
+    
+    async function handleLike(button, postId) {
+        const response = await fetch(`/like/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        button.querySelector('span').innerText = data.likes;
+        button.classList.toggle('liked', data.liked);
+    }
+    async function handleRepost(button, postId) {
+        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
+        const data = await response.json();
+        if(data.success) {
+            button.classList.toggle('reposted', data.reposted);
+            // Optionally show a flash message/alert
+            // alert(data.message);
+        } else {
+            alert(data.message);
+        }
+    }
     </script>
     {% block scripts %}{% endblock %}
 </body>
@@ -237,7 +265,7 @@ templates = {
     #sixs-feed-container {
         height: 100dvh; width: 100vw; overflow-y: scroll;
         scroll-snap-type: y mandatory; background-color: #000;
-        position: fixed; top: 0; left: 0;
+        position: fixed; top: 0; left: 0; z-index: 10;
     }
     .six-video-slide {
         height: 100dvh; width: 100vw; scroll-snap-align: start;
@@ -269,7 +297,6 @@ templates = {
         gap: 5px; cursor: pointer; font-size: 13px;
     }
     .six-actions svg { width: 32px; height: 32px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
-    .six-actions .liked svg { fill: var(--red-color); stroke: var(--red-color); }
     {% endif %}
 {% endblock %}
 {% block content %}
@@ -312,12 +339,12 @@ templates = {
                         <p>{{ post.text_content }}</p>
                     </div>
                     <div class="six-actions">
-                        <button onclick="handleLike(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}">
+                        <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}">
                             {{ ICONS.like|safe }}
                             <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
                         </button>
                         <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
-                        <button onclick="handleRepost(this, {{ post.id }})">{{ ICONS.repost|safe }}</button>
+                        <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
                     </div>
                 </div>
             </section>
@@ -334,30 +361,25 @@ templates = {
 {% block scripts %}
 {% if feed_type == 'sixs' %}
 <script>
-    const videos = document.querySelectorAll('.six-video');
+    const container = document.getElementById('sixs-feed-container');
+    const videos = container.querySelectorAll('.six-video');
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            if (entry.isIntersecting) { entry.target.play(); } else { entry.target.pause(); }
+            const video = entry.target;
+            if (entry.isIntersecting) { 
+                video.play().catch(e => console.log("Play failed, user interaction needed."));
+            } else { 
+                video.pause(); 
+                video.currentTime = 0;
+            }
         });
     }, { threshold: 0.5 });
-    videos.forEach(video => observer.observe(video));
-    
-    async function handleLike(button, postId) {
-        const response = await fetch(`/like/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        button.querySelector('span').innerText = data.likes;
-        button.classList.toggle('liked', data.liked);
-    }
-    async function handleRepost(button, postId) {
-        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        if(data.success) {
-            button.style.color = 'var(--accent-color)';
-            alert('Reposted!');
-        } else {
-            alert(data.message);
-        }
-    }
+    videos.forEach(video => {
+      observer.observe(video)
+      video.addEventListener('click', () => {
+         if (video.paused) { video.play(); } else { video.pause(); }
+      });
+    });
 </script>
 {% endif %}
 {% endblock %}
@@ -380,27 +402,18 @@ templates = {
             <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color);">
         {% endif %}
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
-            <button onclick="openCommentModal({{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
-            <button onclick="handleRepostText(this, {{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.repost|safe }}</button>
-            <button onclick="handleLikeText(this, {{ post.id }})" class="{{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">{{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span></button>
+            <button onclick="openCommentModal({{ post.id }})" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">
+                {{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span>
+            </button>
+            <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">
+                {{ ICONS.repost|safe }}
+            </button>
+            <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}" style="background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer;">
+                {{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
+            </button>
         </div>
     </div>
 </div>
-<script>
-    async function handleLikeText(button, postId) {
-        const response = await fetch(`/like/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        button.querySelector('span').innerText = data.likes;
-        button.classList.toggle('liked', data.liked);
-        if(data.liked) button.style.color = 'var(--red-color)'; else button.style.color = 'var(--text-muted)';
-    }
-    async function handleRepostText(button, postId) {
-        const response = await fetch(`/repost/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        if(data.success) button.style.color = 'var(--accent-color)';
-        alert(data.message);
-    }
-</script>
 """,
 "create_post.html": """
 {% extends "layout.html" %}
@@ -530,7 +543,49 @@ templates = {
 "profile.html": """
 {% extends "layout.html" %}
 {% block header_title %}{{ user.username }}{% endblock %}
+
+{% block style_override %}
+    {% if active_tab == 'sixs' %}
+    #sixs-feed-container {
+        height: 100dvh; width: 100vw; overflow-y: scroll;
+        scroll-snap-type: y mandatory; background-color: #000;
+        position: fixed; top: 0; left: 0; z-index: 10;
+    }
+    .six-video-slide {
+        height: 100dvh; width: 100vw; scroll-snap-align: start;
+        position: relative; display: flex; justify-content: center; align-items: center;
+    }
+    .six-video-wrapper {
+        position: relative;
+        width: 100vw; height: 100vw;
+        max-width: 100dvh; max-height: 100dvh;
+        clip-path: circle(50% at 50% 50%);
+    }
+    .six-video { width: 100%; height: 100%; object-fit: cover; }
+    .six-ui-overlay {
+        position: absolute; bottom: 0; left: 0; right: 0; top: 0;
+        color: white; display: flex; justify-content: space-between; align-items: flex-end;
+        padding: 16px; padding-bottom: 53px; pointer-events: none;
+        background: linear-gradient(to top, rgba(0,0,0,0.4), transparent 40%);
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+    }
+    .six-info { pointer-events: auto; }
+    .six-info .username { font-weight: bold; font-size: 1.1em; }
+    .six-actions {
+        display: flex; flex-direction: column; gap: 20px;
+        pointer-events: auto;
+    }
+    .six-actions button {
+        background: none; border: none; color: white;
+        display: flex; flex-direction: column; align-items: center;
+        gap: 5px; cursor: pointer; font-size: 13px;
+    }
+    .six-actions svg { width: 32px; height: 32px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
+    {% endif %}
+{% endblock %}
+
 {% block content %}
+    {% if active_tab != 'sixs' %}
     <div style="padding: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div style="width: 80px; height: 80px; border-radius:50%; background: {{ user.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-size: 2.5rem; font-weight:bold;">{{ user.username[0]|upper }}</div>
@@ -548,17 +603,79 @@ templates = {
             <span><strong style="color:var(--text-color)">{{ user.followed.count() }}</strong> Following</span>
         </div>
     </div>
-    <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color);">
-        {% set tabs = [('Posts', url_for('profile', username=user.username, tab='posts')), ('Reposts', url_for('profile', username=user.username, tab='reposts')), ('Likes', url_for('profile', username=user.username, tab='likes'))] %}
+    {% endif %}
+
+    <div class="feed-nav" style="display: flex; border-bottom: 1px solid var(--border-color); {% if active_tab == 'sixs' %} position: fixed; top:0; left:0; right:0; z-index:100; background:rgba(0,0,0,0.65); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); {% endif %}">
+        {% set tabs = [('Posts', url_for('profile', username=user.username, tab='posts')), ('Sixs', url_for('profile', username=user.username, tab='sixs')), ('Reposts', url_for('profile', username=user.username, tab='reposts')), ('Likes', url_for('profile', username=user.username, tab='likes'))] %}
         {% for name, url in tabs %}
         <a href="{{ url }}" style="flex:1; text-align:center; padding: 15px; color: {% if active_tab == name.lower() %}var(--text-color){% else %}var(--text-muted){% endif %}; font-weight:bold; position:relative;">{{ name }} {% if active_tab == name.lower() %}<span style="position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--accent-color); border-radius:2px;"></span>{% endif %}</a>
         {% endfor %}
     </div>
-    {% for post in posts %}
-        {% include 'post_card_text.html' %}
+
+    {% if active_tab == 'sixs' %}
+        <div id="sixs-feed-container">
+            {% for post in posts %}
+            <section class="six-video-slide" data-post-id="{{ post.id }}">
+                <div class="six-video-wrapper">
+                    <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
+                </div>
+                <div class="six-ui-overlay">
+                    <div class="six-info">
+                        <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white;"><strong class="username">@{{ post.author.username }}</strong></a>
+                        <p>{{ post.text_content }}</p>
+                    </div>
+                    <div class="six-actions">
+                        <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}">
+                            {{ ICONS.like|safe }}
+                            <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
+                        </button>
+                        <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
+                        <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
+                    </div>
+                </div>
+            </section>
+            {% else %}
+            <section class="six-video-slide" style="flex-direction:column; text-align:center; color:white;">
+                <div style="padding-top: 53px;">
+                    <h4>No Sixs yet.</h4>
+                    <p style="color:#aaa;">This user hasn't posted any Sixs.</p>
+                </div>
+            </section>
+            {% endfor %}
+        </div>
     {% else %}
-        <p style="text-align:center; color:var(--text-muted); padding:40px;">No posts in this section.</p>
-    {% endfor %}
+        {% for post in posts %}
+            {% include 'post_card_text.html' %}
+        {% else %}
+            <p style="text-align:center; color:var(--text-muted); padding:40px;">No posts in this section.</p>
+        {% endfor %}
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if active_tab == 'sixs' %}
+<script>
+    const container = document.getElementById('sixs-feed-container');
+    const videos = container.querySelectorAll('.six-video');
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            const video = entry.target;
+            if (entry.isIntersecting) { 
+                video.play().catch(e => console.log("Play failed, user interaction needed."));
+            } else { 
+                video.pause(); 
+                video.currentTime = 0;
+            }
+        });
+    }, { threshold: 0.5 });
+    videos.forEach(video => {
+      observer.observe(video)
+      video.addEventListener('click', () => {
+         if (video.paused) { video.play(); } else { video.pause(); }
+      });
+    });
+</script>
+{% endif %}
 {% endblock %}
 """,
 
@@ -663,7 +780,7 @@ class Post(db.Model):
     post_type = db.Column(db.String(10), nullable=False)
     text_content = db.Column(db.String(150))
     video_filename = db.Column(db.String(120))
-    image_filename = db.Column(db.String(120), nullable=True) # ADDED: For text post images
+    image_filename = db.Column(db.String(120), nullable=True)
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
@@ -676,6 +793,14 @@ class Comment(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'))
     user = db.relationship('User')
 
+# --- Helper function to add user interaction flags to posts ---
+def add_user_flags_to_posts(posts):
+    if posts and current_user.is_authenticated:
+        for p in posts:
+            p.liked_by_current_user = current_user in p.liked_by
+            p.reposted_by_current_user = current_user in p.reposted_by
+    return posts
+
 # --- ROUTES ---
 @login_manager.user_loader
 def load_user(user_id): return User.query.get(int(user_id))
@@ -686,12 +811,14 @@ def home():
     feed_type = request.args.get('feed_type', 'text')
     followed_ids = [u.id for u in current_user.followed]
     followed_ids.append(current_user.id)
+    
     query = Post.query.filter(Post.user_id.in_(followed_ids))
     if feed_type == 'text':
         posts = query.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
     else: # sixs
         posts = query.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
-    for p in posts: p.liked_by_current_user = current_user in p.liked_by
+
+    posts = add_user_flags_to_posts(posts)
     return render_template('home.html', posts=posts, feed_type=feed_type)
 
 @app.route('/profile/<username>')
@@ -699,10 +826,19 @@ def home():
 def profile(username):
     user = User.query.filter_by(username=username).first_or_404()
     active_tab = request.args.get('tab', 'posts')
-    if active_tab == 'reposts': posts = user.reposts.order_by(Post.timestamp.desc()).all()
-    elif active_tab == 'likes': posts = user.liked_posts.order_by(Post.timestamp.desc()).all()
-    else: posts = user.posts.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
-    for p in posts: p.liked_by_current_user = current_user in p.liked_by
+    posts = []
+    
+    if active_tab == 'reposts':
+        posts = user.reposts.order_by(Post.timestamp.desc()).all()
+    elif active_tab == 'likes':
+        posts = user.liked_posts.order_by(Post.timestamp.desc()).all()
+    elif active_tab == 'sixs':
+        posts = user.posts.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
+    else: # Default to 'posts' (text posts)
+        active_tab = 'posts'
+        posts = user.posts.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
+
+    posts = add_user_flags_to_posts(posts)
     return render_template('profile.html', user=user, posts=posts, active_tab=active_tab)
 
 @app.route('/create', methods=['GET', 'POST'])
@@ -711,7 +847,6 @@ def create_post():
     if request.method == 'POST':
         post_type = request.form.get('post_type')
         if post_type == 'text':
-             # This functionality is now handled by create_text_post from the home feed
             flash('Text posts can be made from the home feed.', 'info'); return redirect(url_for('home'))
         elif post_type == 'six':
             video_file = request.files.get('video_file')
@@ -759,20 +894,31 @@ def add_comment(post_id):
 @login_required
 def like(post_id):
     post = Post.query.get_or_404(post_id)
-    if current_user in post.liked_by: post.liked_by.remove(current_user); liked = False
-    else: post.liked_by.append(current_user); liked = True
+    liked = False
+    if current_user in post.liked_by:
+        post.liked_by.remove(current_user)
+    else:
+        post.liked_by.append(current_user)
+        liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': len(post.liked_by.all())})
+    return jsonify({'liked': liked, 'likes': post.liked_by.count()})
 
 @app.route('/repost/<int:post_id>', methods=['POST'])
 @login_required
 def repost(post_id):
     post = Post.query.get_or_404(post_id)
     if post.author == current_user: return jsonify({'success': False, 'message': "You can't repost your own post."})
-    if post in current_user.reposts: current_user.reposts.remove(post); message = "Repost removed."
-    else: current_user.reposts.append(post); message = "Post reposted!"
+    
+    reposted = False
+    if post in current_user.reposts:
+        current_user.reposts.remove(post)
+        message = "Repost removed."
+    else:
+        current_user.reposts.append(post)
+        reposted = True
+        message = "Post reposted!"
     db.session.commit()
-    return jsonify({'success': True, 'message': message})
+    return jsonify({'success': True, 'reposted': reposted, 'message': message})
 
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
@@ -780,23 +926,16 @@ def edit_profile():
     if request.method == 'POST':
         new_username = request.form.get('username', '').strip()
         new_bio = request.form.get('bio', current_user.bio).strip()
-
-        # Handle username change
         if new_username and new_username != current_user.username:
-            # Case-insensitive check for existing user
             existing_user = User.query.filter(User.username.ilike(new_username)).first()
             if existing_user:
                 flash('Username is already taken.', 'error')
                 return redirect(url_for('edit_profile'))
             current_user.username = new_username
-        
-        # Handle bio change
         current_user.bio = new_bio
-        
         db.session.commit()
         flash('Profile updated!', 'success')
         return redirect(url_for('profile', username=current_user.username))
-    
     return render_template('edit_profile.html')
 
 @app.route('/delete_account', methods=['POST'])
@@ -806,7 +945,7 @@ def delete_account():
         flash('Incorrect password. Account not deleted.', 'error')
         return redirect(url_for('edit_profile'))
     user_id = current_user.id
-    logout_user() # Log out before deleting
+    logout_user()
     user = User.query.get(user_id)
     db.session.delete(user); db.session.commit()
     flash('Your account has been permanently deleted.', 'success')
@@ -817,11 +956,9 @@ def delete_account():
 def discover():
     query = request.args.get('q')
     if query:
-        # Search for users by username, case-insensitive, excluding self
         search_term = f"%{query}%"
         users = User.query.filter(User.username.ilike(search_term), User.id != current_user.id).all()
     else:
-        # Show random users if no query, excluding self
         users = User.query.filter(User.id != current_user.id).order_by(db.func.random()).limit(20).all()
     return render_template('discover.html', users=users)
 
