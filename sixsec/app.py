@@ -11,7 +11,7 @@ from sqlalchemy import or_
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v2'
+app.config['SECRET_KEY'] = 'the-final-complete-polished-key-for-sixsec-v3'
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -773,8 +773,9 @@ templates = {
         </div>
         {% if current_user.is_authenticated and current_user != user %}
         <div>
-            {% if not current_user.is_following(user) %}<a href="{{ url_for('follow', username=user.username, next=request.url) }}" class="btn">Follow</a>
-            {% else %}<a href="{{ url_for('unfollow', username=user.username, next=request.url) }}" class="btn btn-outline">Following</a>{% endif %}
+            {% set next_url = url_for('user_list', username=request.view_args.username, list_type=request.view_args.list_type) %}
+            {% if not current_user.is_following(user) %}<a href="{{ url_for('follow', username=user.username, next=next_url) }}" class="btn">Follow</a>
+            {% else %}<a href="{{ url_for('unfollow', username=user.username, next=next_url) }}" class="btn btn-outline">Following</a>{% endif %}
         </div>
         {% endif %}
     </div>
@@ -832,7 +833,6 @@ class Post(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan")
     
-    # For reposts ("quote tweets")
     repost_of_id = db.Column(db.Integer, db.ForeignKey('post.id'))
     reposted_by = db.relationship('Post', backref=db.backref('repost_of', remote_side=[id]), lazy='dynamic', cascade="all, delete-orphan")
 
@@ -845,13 +845,14 @@ class Comment(db.Model):
     user = db.relationship('User', backref='comments')
 
 
-# --- CONTEXT PROCESSOR ---
+# --- HELPER FUNCTIONS & CONTEXT PROCESSORS ---
+def is_reposted_by_current_user(post):
+    if not current_user.is_authenticated:
+        return False
+    return Post.query.filter_by(author=current_user, repost_of_id=post.id).count() > 0
+
 @app.context_processor
-def inject_user_status():
-    def is_reposted_by_current_user(post):
-        if not current_user.is_authenticated:
-            return False
-        return Post.query.filter_by(author=current_user, repost_of_id=post.id).count() > 0
+def inject_helpers():
     return dict(is_reposted_by_current_user=is_reposted_by_current_user)
 
 # --- ROUTES ---
@@ -869,7 +870,7 @@ def home():
     
     if feed_type == 'text':
         posts = posts_query.filter(or_(Post.post_type == 'text', Post.post_type == 'repost')).order_by(Post.timestamp.desc()).all()
-    else: # sixs
+    else:
         posts = posts_query.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
     
     for p in posts:
