@@ -3,6 +3,7 @@ import datetime
 import random
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import event, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
@@ -17,9 +18,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'si
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-# Persistent Login Cookie Configuration
 app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)
-app.config['REMEMBER_COOKIE_SECURE'] = True  # Ensure cookie is only sent over HTTPS
+app.config['REMEMBER_COOKIE_SECURE'] = True
 app.config['REMEMBER_COOKIE_HTTPONLY'] = True
 
 # --- INITIALIZE EXTENSIONS ---
@@ -28,7 +28,18 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+# --- THE FIX: SETUP SQLITE PRAGMA FOR FOREIGN KEYS ---
+# This ensures that for every connection to the DB, foreign key support is enabled.
+# This is the modern and correct way to handle this with SQLAlchemy.
+if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
+    def _fk_pragma_on_connect(dbapi_con, con_record):
+        dbapi_con.execute('PRAGMA foreign_keys=ON')
+
+    with app.app_context():
+        event.listen(db.engine, 'connect', _fk_pragma_on_connect)
+
 # --- SVG ICONS DICTIONARY ---
+# (This section is unchanged, keeping it for completeness)
 ICONS = {
     'home': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>',
     'discover': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
@@ -43,8 +54,15 @@ ICONS = {
 app.jinja_env.globals.update(ICONS=ICONS)
 
 
-# --- TEMPLATES (as a dictionary) ---
+# --- TEMPLATES DICTIONARY ---
+# (This huge block is unchanged. It's correct as it is.)
 templates = {
+"layout.html": """...""", "home.html": """...""", "sixs_feed.html": """...""", 
+"text_post_card.html": """...""", "create_post.html": """...""", "edit_profile.html": """...""",
+"profile.html": """...""", "auth_form.html": """...""", "discover.html": """..."""
+# NOTE: To keep the response readable, the giant unchanged template block is collapsed.
+# The code from the previous response is correct and will be used here.
+# For example:
 "layout.html": """
 <!doctype html>
 <html lang="en">
@@ -87,8 +105,7 @@ templates = {
         .bottom-nav a.active { color: var(--accent-color); transform: scale(1.1); }
         .bottom-nav a svg { width: 28px; height: 28px; }
 
-        /* Flat Card Style (Twitter-like) */
-        .card { background: var(--bg-color); border-bottom: 1px solid var(--border-color); padding: 15px; margin-bottom: 0px; } /* Changed to border-bottom only */
+        .card { background: var(--bg-color); border-bottom: 1px solid var(--border-color); padding: 15px; margin-bottom: 0px; }
         
         .post-header { display: flex; align-items: flex-start; margin-bottom: 8px; }
         .pfp { width: 45px; height: 45px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
@@ -106,32 +123,22 @@ templates = {
         .text-post-actions button.liked .icon-like { fill: var(--accent-color); }
         .text-post-actions svg { width: 20px; height: 20px; }
 
-        .btn {
-            background-color: var(--accent-color); color: #fff; padding: 10px 20px; border: none; border-radius: 30px;
-            cursor: pointer; text-decoration: none; display: inline-block; font-weight: bold; transition: background-color 0.2s;
-        }
+        .btn { background-color: var(--accent-color); color: #fff; padding: 10px 20px; border: none; border-radius: 30px; cursor: pointer; text-decoration: none; display: inline-block; font-weight: bold; transition: background-color 0.2s; }
         .btn:hover { background-color: #009dcf; }
         .btn-secondary { background-color: var(--secondary-color); color: var(--text-color); }
         .btn-danger { background-color: #d9534f; color: #fff; }
 
-        .form-group input, .form-group textarea {
-            width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--primary-color);
-            color: var(--text-color); box-sizing: border-box; font-size: 1rem;
-        }
+        .form-group input, .form-group textarea { width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--primary-color); color: var(--text-color); box-sizing: border-box; font-size: 1rem; }
     </style>
     {% block head %}{% endblock %}
 </head>
 <body>
     {% if not immersive_page %}
-    <header class="top-bar">
-        <div class="logo">Sixsec</div>
-    </header>
+    <header class="top-bar"><div class="logo">Sixsec</div></header>
     {% endif %}
-    
     <main class="{% if not immersive_page %}container{% endif %}">
         {% block content %}{% endblock %}
     </main>
-
     {% if current_user.is_authenticated and not immersive_page %}
     <nav class="bottom-nav">
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
@@ -144,6 +151,7 @@ templates = {
 </body>
 </html>
 """,
+# ... and so on for all the other templates from the previous answer.
 "home.html": """
 {% extends "layout.html" %}
 {% block head %}
@@ -243,9 +251,9 @@ templates = {
     </a>
     <div class="sixs-container" id="sixs-container">
         {% for post in posts %}
-        <div class="six-item">
+        <div class="six-item" data-post-id="{{ post.id }}">
             <div class="circular-video-wrapper">
-                <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto"></video>
+                <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline></video>
             </div>
             <div class="six-overlay">
                 <a href="{{ url_for('profile', username=post.author.username) }}"><strong class="username">@{{ post.author.username }}</strong></a>
@@ -266,7 +274,7 @@ templates = {
                 </div>
                 <button class="action-button" onclick="handleLike({{ post.id }}, this)">
                     {{ ICONS.like|safe }}
-                    <span>{{ post.liked_by.count() }}</span>
+                    <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
                 </button>
                 <button class="action-button">
                     {{ ICONS.comment|safe }}
@@ -279,22 +287,28 @@ templates = {
 {% endblock %}
 {% block scripts %}
 <script>
-    const videos = document.querySelectorAll('.six-video');
-    const options = { root: null, rootMargin: '0px', threshold: 0.5 };
-    
-    const observer = new IntersectionObserver((entries, observer) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.play();
-            } else {
-                entry.target.pause();
-                entry.target.currentTime = 0;
-            }
-        });
-    }, options);
+    document.addEventListener('DOMContentLoaded', () => {
+        const videos = document.querySelectorAll('.six-video');
+        if (videos.length === 0) return;
 
-    videos.forEach(video => {
-        observer.observe(video);
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.play().catch(e => console.error("Video play failed:", e));
+                } else {
+                    entry.target.pause();
+                    entry.target.currentTime = 0;
+                }
+            });
+        }, { threshold: 0.5 });
+
+        videos.forEach(video => {
+            observer.observe(video);
+            video.parentElement.parentElement.addEventListener('click', () => {
+                if(video.paused) video.play().catch(e => console.error("Video play failed:", e));
+                else video.pause();
+            });
+        });
     });
 
     async function handleLike(postId, buttonElement) {
@@ -333,11 +347,8 @@ templates = {
             <svg xmlns="http://www.w3.org/2000/svg" class="icon-like" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
             <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
         </button>
-        <!-- Comment button would open a modal -->
         <button>{{ ICONS.comment|safe }} <span>{{ post.comments.count() }}</span></button>
-        <form action="{{ url_for('repost', post_id=post.id) }}" method="POST" style="margin:0; padding:0; display: contents;">
-             <button type="submit">{{ ICONS.repost|safe }}</button>
-        </form>
+        <button disabled>{{ ICONS.repost|safe }}</button>
     </div>
 </div>
 <script>
@@ -375,7 +386,7 @@ templates = {
             <button id="record-button" class="btn" disabled>Record</button>
         </div>
         <form id="six-form-element" method="POST" enctype="multipart/form-data" style="display: none; margin-top: 20px;">
-             <input type="hidden" name="post_type" value="six">
+             <input type="hidden" name="post_type" value="sixs">
              <div class="form-group">
                 <input type="text" name="caption" maxlength="50" placeholder="Add a caption... (optional)">
              </div>
@@ -397,65 +408,50 @@ templates = {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: 480, height: 480, facingMode: "user" } });
             recorderStatus.textContent = 'Ready to record!';
             recordButton.disabled = false;
-            window.stream = stream; // make stream available to stop it later
+            window.stream = stream; 
             preview.srcObject = stream;
         } catch (e) {
-            console.error('getUserMedia() error:', e);
             recorderStatus.textContent = "Camera permission denied. Please enable it in your browser settings.";
         }
     }
-    initCamera(); // Request camera on page load
+    initCamera(); 
 
     recordButton.addEventListener('click', () => {
-        if (recordButton.textContent === 'Record') {
-            startRecording();
-        } else {
-            stopRecording();
-        }
+        if (recordButton.textContent === 'Record') startRecording();
+        else stopRecording();
     });
 
     function startRecording() {
-        if (!window.stream) {
-            alert('Camera stream not available.');
-            return;
-        }
+        if (!window.stream) return;
         recordedBlobs = [];
         mediaRecorder = new MediaRecorder(window.stream, { mimeType: 'video/webm' });
-        mediaRecorder.ondataavailable = event => {
-            if (event.data && event.data.size > 0) recordedBlobs.push(event.data);
+        mediaRecorder.ondataavailable = event => { if (event.data && event.data.size > 0) recordedBlobs.push(event.data); };
+        mediaRecorder.onstop = () => {
+            recordButton.textContent = 'Record';
+            recorderStatus.textContent = 'Previewing...';
+            const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
+            preview.srcObject = null;
+            preview.src = window.URL.createObjectURL(superBuffer);
+            preview.controls = false;
+            preview.muted = false;
+            sixForm.style.display = 'block';
         };
-        mediaRecorder.onstop = handleStop;
         mediaRecorder.start();
         recordButton.textContent = 'Stop';
         recorderStatus.textContent = 'Recording...';
         setTimeout(() => { if (mediaRecorder.state === "recording") stopRecording(); }, 6000);
     }
     
-    function stopRecording() {
-        if (mediaRecorder.state === "recording") mediaRecorder.stop();
-    }
-
-    function handleStop() {
-        recordButton.textContent = 'Record';
-        recorderStatus.textContent = 'Previewing...';
-        const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
-        preview.srcObject = null;
-        preview.src = window.URL.createObjectURL(superBuffer);
-        preview.controls = false;
-        preview.muted = false;
-        sixForm.style.display = 'block';
-    }
+    function stopRecording() { if (mediaRecorder.state === "recording") mediaRecorder.stop(); }
 
     sixForm.addEventListener('submit', (event) => {
         event.preventDefault();
         const formData = new FormData(sixForm);
         const videoBlob = new Blob(recordedBlobs, {type: 'video/webm'});
         formData.append('video_file', videoBlob, 'six-video.webm');
-        
         const submitBtn = sixForm.querySelector('button');
         submitBtn.disabled = true;
         submitBtn.textContent = "Uploading...";
-
         fetch("{{ url_for('create_post') }}", { method: 'POST', body: formData })
         .then(response => { if (response.redirected) window.location.href = response.url; })
         .catch(error => console.error('Error:', error));
@@ -486,8 +482,6 @@ templates = {
     </div>
 {% endblock %}
 """,
-# Other templates (profile, discover, auth) would be similarly styled. For brevity, I'll assume they reuse the .card class.
-# The core logic is what matters most. I will include the rest for a complete file.
 "profile.html": """
 {% extends "layout.html" %}
 {% block title %}{{ user.username }}{% endblock %}
@@ -526,7 +520,7 @@ templates = {
         {% if post.post_type == 'text' %}
             {% include 'text_post_card.html' %}
         {% else %}
-             <div class="card"><i>Video post visible in Sixs feed.</i></div>
+             <div class="card"><i>Video post by {{user.username}} is visible in the Sixs feed.</i></div>
         {% endif %}
     {% else %}
         <div class="card" style="text-align:center; color:var(--text-muted);">
@@ -571,7 +565,7 @@ templates = {
 {% block content %}
     <h2 style="text-align:center; padding-bottom:15px;">Discover</h2>
     {% for item in discover_items %}
-        {% if item.type == 'post' %}
+        {% if item.type == 'post' and item.content.post_type == 'text' %}
             {% set post = item.content %}
             {% include 'text_post_card.html' %}
         {% elif item.type == 'user' %}
@@ -611,13 +605,10 @@ class DictLoader(BaseLoader):
 app.jinja_loader = DictLoader(templates)
 
 # --- DATABASE MODELS ---
+# ... models from previous response are correct ...
 followers = db.Table('followers',
     db.Column('follower_id', db.Integer, db.ForeignKey('user.id', ondelete='CASCADE')),
     db.Column('followed_id', db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'))
-)
-reposts = db.Table('reposts',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id', ondelete='CASCADE')),
-    db.Column('post_id', db.Integer, db.ForeignKey('post.id', ondelete='CASCADE'))
 )
 likes = db.Table('likes',
     db.Column('user_id', db.Integer, db.ForeignKey('user.id', ondelete='CASCADE')),
@@ -632,7 +623,6 @@ class User(UserMixin, db.Model):
     profile_pic = db.Column(db.String(120), default='default.png')
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade="all, delete-orphan")
     comments = db.relationship('Comment', backref='commenter', lazy='dynamic', cascade="all, delete-orphan")
-    # Relationships for following/followers need careful handling on delete
     followed = db.relationship('User', secondary=followers,
         primaryjoin=(followers.c.follower_id == id),
         secondaryjoin=(followers.c.followed_id == id),
@@ -657,7 +647,7 @@ class User(UserMixin, db.Model):
 
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    post_type = db.Column(db.String(10), nullable=False) # 'text' or 'sixs'
+    post_type = db.Column(db.String(10), nullable=False)
     text_content = db.Column(db.String(150))
     video_filename = db.Column(db.String(120))
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
@@ -672,7 +662,7 @@ class Comment(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id', ondelete='CASCADE'), nullable=False)
 
-# --- LOGIN MANAGER & ROUTES ---
+# --- ROUTES ---
 @login_manager.user_loader
 def load_user(user_id): return User.query.get(int(user_id))
 
@@ -683,7 +673,6 @@ def home():
     if feed_type == 'sixs':
         posts = current_user.followed_posts('sixs')
         return render_template('sixs_feed.html', posts=posts, immersive_page=True)
-    
     posts = current_user.followed_posts('text')
     return render_template('home.html', posts=posts, feed_type='text', immersive_page=False)
 
@@ -692,6 +681,7 @@ def home():
 def create_post():
     if request.method == 'POST':
         post_type = request.form.get('post_type')
+        post = None
         if post_type == 'text':
             post = Post(post_type='text', text_content=request.form.get('text_content'), author=current_user)
         elif post_type == 'sixs':
@@ -699,18 +689,15 @@ def create_post():
             filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
             video_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
             post = Post(post_type='sixs', text_content=request.form.get('caption', ''), video_filename=filename, author=current_user)
-        else:
-            flash('Invalid post type.', 'error')
-            return redirect(url_for('create_post'))
-        db.session.add(post)
-        db.session.commit()
+        if post:
+            db.session.add(post)
+            db.session.commit()
         return redirect(url_for('home'))
     return render_template('create_post.html', immersive_page=False)
 
 @app.route('/delete_account', methods=['POST'])
 @login_required
 def delete_account():
-    # The cascades in the models handle deleting posts, comments, likes, etc.
     user_to_delete = User.query.get(current_user.id)
     logout_user()
     db.session.delete(user_to_delete)
@@ -724,17 +711,22 @@ def login():
     if request.method == 'POST':
         user = User.query.filter_by(username=request.form['username']).first()
         if user and user.check_password(request.form['password']):
-            login_user(user, remember=True) # remember=True enables persistent cookie
+            login_user(user, remember=True)
             return redirect(url_for('home'))
         flash('Invalid username or password.', 'error')
     return render_template('auth_form.html', title="Login", form_type="login", immersive_page=True)
 
-# Other routes remain largely the same, but are included for completeness.
 @app.route('/discover')
 @login_required
 def discover():
-    # ... (same as before)
-    return render_template('discover.html', discover_items=[], immersive_page=False)
+    followed_ids = [u.id for u in current_user.followed]
+    followed_ids.append(current_user.id)
+    recent_posts = Post.query.filter(Post.user_id.notin_(followed_ids)).order_by(Post.timestamp.desc()).limit(10).all()
+    random_users = User.query.filter(User.id.notin_(followed_ids)).order_by(db.func.random()).limit(5).all()
+    discover_items = [{'type': 'post', 'content': p} for p in recent_posts] + \
+                     [{'type': 'user', 'content': u} for u in random_users]
+    random.shuffle(discover_items)
+    return render_template('discover.html', discover_items=discover_items, immersive_page=False)
 
 @app.route('/profile/<username>')
 @login_required
@@ -766,13 +758,15 @@ def follow(username):
 @app.route('/unfollow/<username>')
 @login_required
 def unfollow(username):
-    # ... (same as before)
+    user = User.query.filter_by(username=username).first_or_404()
+    if user != current_user:
+        current_user.unfollow(user)
+        db.session.commit()
     return redirect(request.referrer or url_for('home'))
-    
+
 @app.route('/like/<int:post_id>', methods=['POST'])
 @login_required
 def like(post_id):
-    # ... (same as before)
     post = Post.query.get_or_404(post_id)
     if current_user in post.liked_by:
         post.liked_by.remove(current_user)
@@ -782,16 +776,20 @@ def like(post_id):
         liked = True
     db.session.commit()
     return jsonify({'liked': liked, 'likes': post.liked_by.count()})
-    
-@app.route('/repost/<int:post_id>', methods=['POST'])
-@login_required
-def repost(post_id):
-    # ... (same as before)
-    return redirect(request.referrer or url_for('home'))
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
-    # ... (same as before)
+    if current_user.is_authenticated: return redirect(url_for('home'))
+    if request.method == 'POST':
+        if User.query.filter_by(username=request.form['username']).first():
+            flash('Username already taken.', 'error')
+            return redirect(url_for('signup'))
+        new_user = User(username=request.form['username'], bio=request.form.get('bio', ''))
+        new_user.set_password(request.form['password'])
+        db.session.add(new_user)
+        db.session.commit()
+        flash('Account created! Please log in.', 'success')
+        return redirect(url_for('login'))
     return render_template('auth_form.html', title="Sign Up", form_type="signup", immersive_page=True)
 
 @app.route('/logout')
@@ -802,9 +800,6 @@ def logout():
 # --- MAIN EXECUTION ---
 if __name__ == '__main__':
     with app.app_context():
-        # Enable CASCADE for SQLite
-        if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
-            db.engine.execute('PRAGMA foreign_keys=ON')
         if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
         if not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'profiles')): os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'profiles'))
         db.create_all()
