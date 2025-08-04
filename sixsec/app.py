@@ -127,12 +127,10 @@ templates = {
             display: flex; justify-content: space-around; height: 53px;
             z-index: 1000; 
         }
-        .bottom-nav a { 
-            color: var(--text-color); 
-            display:flex; 
-            align-items:center; 
-            transition: transform 0.1s ease;
-            padding: 4px 0; /* Adds vertical padding for a larger tap area */
+        .bottom-nav a { color: var(--text-color); display:flex; align-items:center; transition: transform 0.1s ease; padding: 4px 0; }
+        .bottom-nav a svg {
+            width: 26px; /* Increases icon width from 24px */
+            height: 26px; /* Increases icon height from 24px */
         }
         .bottom-nav a.active svg { stroke-width: 2.5; }
         .bottom-nav a:not(.create-btn):active { transform: scale(0.9); }
