@@ -1365,22 +1365,12 @@ templates = {
         position: relative; display: flex; justify-content: center; align-items: center;
     }
     .six-video-wrapper {
-        position: relative;
+        position: relative; width: 100%; height: 100%;
         display:flex; justify-content:center; align-items:center;
-        transition: all 0.3s ease;
-        {% if current_user.six_feed_style == 'fullscreen' %}
-        width: 100%; height: 100%;
-        {% else %}
-        width: min(100vw, 100dvh); height: min(100vw, 100dvh);
-        clip-path: circle(50% at 50% 50%);
-        {% endif %}
     }
     .six-video { 
-        width: 100%; height: 100%; object-fit: cover;
-        {% if current_user.six_feed_style == 'fullscreen' %}
-        aspect-ratio: 9/16;
-        max-width: 100vw; max-height: 100dvh;
-        {% endif %}
+        width: 100%; height: 100%; object-fit: cover; 
+        aspect-ratio: 9/16; max-width: 100vw; max-height: 100dvh;
     }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
