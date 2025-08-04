@@ -128,10 +128,7 @@ templates = {
             z-index: 1000; 
         }
         .bottom-nav a { color: var(--text-color); display:flex; align-items:center; transition: transform 0.1s ease; }
-        .bottom-nav a svg {
-            width: 26px; /* Increases icon width from 24px */
-            height: 26px; /* Increases icon height from 24px */
-        }
+        .bottom-nav a svg { width: 28px; height: 28px; } /* New: Make icons bigger */
         .bottom-nav a.active svg { stroke-width: 2.5; }
         .bottom-nav a:not(.create-btn):active { transform: scale(0.9); }
         .bottom-nav .create-btn {
@@ -219,7 +216,7 @@ templates = {
         {% if request.endpoint == 'profile' and current_user == user %}
             <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }}</a>
         {% elif request.endpoint == 'home' %}
-            {# Placeholder for future notification icon #}
+            <a href="{{ url_for('discover') }}">{{ ICONS.discover|safe }}</a>
         {% endif %}
         </div>
     </header>
@@ -241,7 +238,6 @@ templates = {
     {% if current_user.is_authenticated and not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') or request.endpoint == 'create_post') %}
     <nav class="bottom-nav">
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
-        <a href="{{ url_for('discover') }}" class="{{ 'active' if request.endpoint == 'discover' else '' }}">{{ ICONS.discover|safe }}</a>
         <a href="{{ url_for('create_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
         <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' and user and current_user.username == user.username else '' }}">{{ ICONS.profile|safe }}</a>
     </nav>
