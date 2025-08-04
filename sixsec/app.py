@@ -801,7 +801,7 @@ templates = {
             {{ ICONS.back_arrow|safe }}
         </a>
         <div class="six-info">
-            <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white;"><strong class="username">@{{ post.author.username }}</strong></a>
+            <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white;"><strong class="username">@{{ post.author.username }}</strong><span style="font-weight: normal; color: rgba(255,255,255,0.8); font-size: 0.9em;"> · {{ post.timestamp|sao_paulo_time }}</span></a>
             <p>{{ post.text_content }}</p>
         </div>
         <div class="six-actions">
