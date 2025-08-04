@@ -232,63 +232,7 @@ templates = {
 </script>
 {% endblock %}
 """,
-"view_six_post.html": """
-{% extends "layout.html" %}
-{% block title %}Six de {{ post.author.username }}{% endblock %}
-{% block style_override %}
-body {
-    background-color: #000;
-    overflow: hidden;
-    padding-bottom: 0;
-}
-main {
-    height: 100vh;
-    width: 100vw;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-{% endblock %}
 
-{% block content %}
-    {# This is a self-contained page, so we borrow the structure from six_slide.html but make it standalone #}
-    <div class="six-video-slide" style="height: 100vh; width: 100%; position: relative;">
-        <div class="six-video-wrapper" style="width: 100%; height: 100%;">
-            <video id="single-six-video" class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop playsinline controls></video>
-            <div class="video-loader"></div>
-        </div>
-        <div class="six-ui-overlay" style="pointer-events: none;">
-            <a href="{{ request.referrer or url_for('home') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
-                {{ ICONS.back_arrow|safe }}
-            </a>
-            <div class="six-info" style="pointer-events: auto;">
-                <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white;"><strong class="username">@{{ post.author.username }}</strong><span style="font-weight: normal; color: rgba(255,255,255,0.8); font-size: 0.9em;"> · {{ post.timestamp|sao_paulo_time }}</span></a>
-                <p>{{ post.text_content }}</p>
-            </div>
-            <div class="six-actions" style="pointer-events: auto;">
-                <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}">
-                    {{ ICONS.like|safe }}
-                    <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
-                </button>
-                <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
-                <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
-                {% if post.author == current_user %}
-                <button onclick="handleDeletePost(this, {{ post.id }})" class="delete-btn">{{ ICONS.trash|safe }}</button>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-{% endblock %}
-{% block scripts %}
-<script>
-    const video = document.getElementById('single-six-video');
-    video.addEventListener('canplaythrough', () => {
-        video.classList.add('loaded');
-        video.play(); // Autoplay with sound
-    });
-</script>
-{% endblock %}
-""",
 
 "layout.html": """
 <!doctype html>
@@ -1875,13 +1819,12 @@ main {
                     <p style="margin: 4px 0 12px 0; padding-left: 20px; border-left: 2px solid var(--border-color);">{{ repost.caption }}</p>
                 {% endif %}
                 
-                {# Check if the repost is for a Post #}
                 {% if repost.original_post %}
                     {% with post=repost.original_post %}
 
                     {# --- IF REPOSTED POST IS A SIX --- #}
                     {% if post.post_type == 'six' %}
-                        <a href="{{ url_for('view_six_post', post_id=post.id) }}" style="text-decoration: none; color: inherit; display: flex; align-items: flex-start; gap: 12px; margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 16px;">
+                        <a href="{{ url_for('profile', username=post.author.username, tab='sixs', scrollTo=post.id) }}" style="text-decoration: none; color: inherit; display: flex; align-items: flex-start; gap: 12px; margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 16px;">
                             <div style="position: relative; width: 100px; height: 100px; border-radius: 50%; overflow: hidden; background-color: #111; flex-shrink: 0;">
                                 <video src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop muted autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
                             </div>
@@ -1897,7 +1840,7 @@ main {
 
                     {# --- IF REPOSTED POST IS TEXT --- #}
                     {% else %}
-                        <a href="{{ url_for('view_post', post_id=post.id) }}" style="text-decoration:none; color:inherit; display:block; border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
+                         <a href="{{ url_for('view_post', post_id=post.id) }}" style="text-decoration:none; color:inherit; display:block; border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
                             <div style="display:flex; gap:12px;">
                                 <div style="width:40px; height:40px; flex-shrink:0;">
                                     {% if post.author.pfp_filename %}<img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="PFP" style="width:40px; height:40px; border-radius:50%; object-fit: cover;">
@@ -1913,7 +1856,6 @@ main {
                     {% endif %}
                     {% endwith %}
 
-                {# Check if the repost is for a Comment #}
                 {% elif repost.original_comment %}
                     <a href="javascript:openCommentModal({{ repost.original_comment.post_id }}, {{ repost.original_comment.id }})" style="text-decoration:none; color:inherit; display:block;">
                         {% with comment=repost.original_comment %}
@@ -2007,6 +1949,21 @@ main {
 
     document.querySelectorAll('.six-video-slide').forEach(slide => {
       observer.observe(slide);
+    });
+
+    // New logic to handle scrolling to a specific Six
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const scrollToId = urlParams.get('scrollTo');
+        if (scrollToId) {
+            const targetElement = document.getElementById(`post-${scrollToId}`);
+            if (targetElement) {
+                // Use a timeout to ensure the browser has rendered everything before scrolling
+                setTimeout(() => {
+                    targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 100);
+            }
+        }
     });
 </script>
 {% endif %}
@@ -2278,14 +2235,7 @@ def view_post(post_id):
     add_user_flags_to_posts([post])
     return render_template('view_post.html', post=post)
 
-@app.route('/six/<int:post_id>')
-@login_required
-def view_six_post(post_id):
-    post = Post.query.options(selectinload(Post.author)).get_or_404(post_id)
-    if post.post_type != 'six':
-        return redirect(url_for('view_post', post_id=post.id))
-    add_user_flags_to_posts([post])
-    return render_template('view_six_post.html', post=post)
+
 
 @app.route('/post/<int:post_id>/context')
 @login_required
