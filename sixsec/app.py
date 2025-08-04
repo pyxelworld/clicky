@@ -852,7 +852,7 @@ templates = {
 "six_slide.html": """
 <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
     <div class="six-video-wrapper">
-        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
+        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted autoplay controls="false"></video>
     </div>
     <div class="six-ui-overlay">
         <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
@@ -1365,12 +1365,22 @@ templates = {
         position: relative; display: flex; justify-content: center; align-items: center;
     }
     .six-video-wrapper {
-        position: relative; width: 100%; height: 100%;
+        position: relative;
         display:flex; justify-content:center; align-items:center;
+        transition: all 0.3s ease;
+        {% if current_user.six_feed_style == 'fullscreen' %}
+        width: 100%; height: 100%;
+        {% else %}
+        width: min(100vw, 100dvh); height: min(100vw, 100dvh);
+        clip-path: circle(50% at 50% 50%);
+        {% endif %}
     }
     .six-video { 
-        width: 100%; height: 100%; object-fit: cover; 
-        aspect-ratio: 9/16; max-width: 100vw; max-height: 100dvh;
+        width: 100%; height: 100%; object-fit: cover;
+        {% if current_user.six_feed_style == 'fullscreen' %}
+        aspect-ratio: 9/16;
+        max-width: 100vw; max-height: 100dvh;
+        {% endif %}
     }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
