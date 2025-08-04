@@ -1659,14 +1659,16 @@ class User(UserMixin, db.Model):
         secondary=seen_sixs_posts,
         primaryjoin=f"and_(User.id==seen_sixs_posts.c.user_id, Post.id==seen_sixs_posts.c.post_id)",
         backref=db.backref('seen_by_six_users', lazy='dynamic'),
-        lazy='dynamic'
+        lazy='dynamic',
+        viewonly=True  # Add this line
     )
     seen_texts = db.relationship(
         'Post',
         secondary=seen_text_posts,
         primaryjoin=f"and_(User.id==seen_text_posts.c.user_id, Post.id==seen_text_posts.c.post_id)",
         backref=db.backref('seen_by_text_users', lazy='dynamic'),
-        lazy='dynamic'
+        lazy='dynamic',
+        viewonly=True  # Add this line
     )
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
@@ -1691,6 +1693,10 @@ class Post(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Comment.post_id')
     reposts = db.relationship('Repost', backref='original_post', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.post_id')
+    
+    # Add these two relationships to handle cascading deletes from the 'seen' tables
+    seen_by_six = db.relationship('User', secondary=seen_sixs_posts, back_populates='seen_sixs', cascade="all, delete")
+    seen_by_text = db.relationship('User', secondary=seen_text_posts, back_populates='seen_texts', cascade="all, delete")
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
