@@ -333,6 +333,28 @@ templates = {
     </nav>
     {% endif %}
 
+    <!-- Post Detail Modal -->
+    <div id="postDetailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="close-btn" onclick="closePostDetail()">×</span>
+                <h4 style="margin:0; padding-left:16px;">Publicação</h4>
+            </div>
+            <div class="modal-body" id="post-detail-content" style="padding: 0;">
+                <!-- Content will be injected here -->
+            </div>
+             <div class="modal-footer">
+                <form id="detail-comment-form" style="display: flex; gap: 8px;">
+                    <input type="text" id="detail-comment-text-input" class="form-group" placeholder="Adicionar um comentário..." style="margin:0; flex-grow:1;">
+                    <input type="hidden" id="detail-comment-post-id">
+                    <input type="hidden" id="detail-comment-parent-id">
+                    <button type="submit" class="btn">{{ ICONS.send|safe }}</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Original Comment Modal (now for Sixs only) -->
     <div id="commentModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
@@ -384,7 +406,9 @@ templates = {
     <script>
     const commentModal = document.getElementById('commentModal');
     const commentModalContent = commentModal.querySelector('.modal-content');
-    
+    const postDetailModal = document.getElementById('postDetailModal');
+    const postDetailModalContent = postDetailModal.querySelector('.modal-content');
+
     // --- Universal Button Loader ---
     function setButtonLoading(button, isLoading) {
         if (!button) return;
@@ -413,6 +437,7 @@ templates = {
         container.className = 'comment-container';
         container.dataset.commentId = comment.id;
         container.style.marginTop = '16px';
+        container.style.padding = '0 16px';
 
         const likeIcon = ICONS.like.replace('width="24"','width="18"').replace('height="24"','height="18"');
         const repostIcon = ICONS.repost.replace('width="24"','width="18"').replace('height="24"','height="18"');
@@ -433,16 +458,18 @@ templates = {
         if(comment.is_owned_by_user) {
             deleteButton = `<button onclick="handleDeleteComment(this, ${comment.id})" class="action-button delete-btn">${ICONS.trash}</button>`;
         }
+        
+        const textContent = comment.text.replace(/</g, "<").replace(/>/g, ">");
 
         container.innerHTML = `
             <div style="display: flex; gap: 12px;">
                 <div style="flex-shrink:0;">${pfpElement}</div>
                 <div style="flex-grow:1">
                     <div><strong style="color:var(--text-color);">${comment.user.username}</strong> <span style="color:var(--text-muted);">· ${comment.timestamp}</span></div>
-                    <div style="color:var(--text-color); margin: 4px 0; white-space: pre-wrap; word-wrap: break-word;">${comment.text}</div>
+                    <div style="color:var(--text-color); margin: 4px 0; white-space: pre-wrap; word-wrap: break-word;">${textContent}</div>
                     <div class="comment-actions" style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
                         <button onclick="handleLikeComment(this, ${comment.id})" class="action-button ${comment.is_liked_by_user ? 'liked' : ''}">${likeIcon}<span>${comment.like_count}</span></button>
-                        <button onclick="prepareReply(${comment.id}, '${comment.user.username}')" class="action-button">${ICONS.reply}<span>Responder</span></button>
+                        <button onclick="prepareReplyInDetail(${comment.id}, '${comment.user.username}')" class="action-button">${ICONS.reply}<span>Responder</span></button>
                         <button onclick="handleCommentRepost(this, ${comment.id})" class="action-button">${repostIcon}<span>Republicar</span></button>
                         ${deleteButton}
                     </div>
@@ -486,6 +513,112 @@ templates = {
         }
     }
 
+    // --- Post Detail Modal Logic ---
+    async function openPostDetail(postId, commentIdToHighlight = null) {
+        const contentArea = document.getElementById('post-detail-content');
+        contentArea.innerHTML = '<div class="spinner" style="margin: 40px auto;"></div>';
+        
+        postDetailModal.style.display = 'flex';
+        postDetailModalContent.classList.remove('closing');
+        postDetailModalContent.classList.add('opening');
+        document.body.style.overflow = 'hidden';
+
+        document.getElementById('detail-comment-post-id').value = postId;
+
+        try {
+            const [postCardRes, commentsRes] = await Promise.all([
+                fetch(`/get_post_card/${postId}`),
+                fetch(`/post/${postId}/comments`)
+            ]);
+            const postCardHtml = await postCardRes.text();
+            const comments = await commentsRes.json();
+            
+            contentArea.innerHTML = postCardHtml;
+            const commentsContainer = document.createElement('div');
+            commentsContainer.id = 'detail-comments-list';
+            commentsContainer.style.borderTop = '1px solid var(--border-color)';
+            commentsContainer.style.paddingBottom = '20px';
+            contentArea.appendChild(commentsContainer);
+
+            if (comments.length === 0) {
+                commentsContainer.innerHTML = '<p style="text-align:center; color: var(--text-muted); padding-top: 20px;">Nenhum comentário ainda.</p>';
+            } else {
+                appendComments(commentsContainer, comments);
+            }
+            
+            if (commentIdToHighlight) {
+                setTimeout(() => {
+                    const commentNode = contentArea.querySelector(`[data-comment-id='${commentIdToHighlight}']`);
+                    if (commentNode) {
+                        commentNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        commentNode.style.backgroundColor = 'rgba(29, 155, 240, 0.1)';
+                        setTimeout(() => {
+                           commentNode.style.backgroundColor = 'transparent';
+                        }, 2000);
+                    }
+                }, 300); // Small delay to allow rendering
+            }
+
+        } catch (error) {
+            console.error("Failed to load post details:", error);
+            contentArea.innerHTML = '<p style="text-align:center; color: var(--red-color); padding: 20px;">Não foi possível carregar a publicação.</p>';
+        }
+    }
+
+    function closePostDetail() {
+        postDetailModalContent.classList.remove('opening');
+        postDetailModalContent.classList.add('closing');
+        setTimeout(() => {
+            postDetailModal.style.display = 'none';
+            postDetailModalContent.classList.remove('closing');
+            document.body.style.overflow = 'auto';
+        }, 250);
+    }
+    
+    function prepareReplyInDetail(parentId, username) {
+        const textInput = document.getElementById('detail-comment-text-input');
+        const parentIdInput = document.getElementById('detail-comment-parent-id');
+        if (parentId) {
+            parentIdInput.value = parentId;
+            textInput.placeholder = `Respondendo a @${username}...`;
+            textInput.focus();
+        } else {
+            parentIdInput.value = '';
+            textInput.placeholder = 'Adicionar um comentário...';
+        }
+    }
+    
+    document.getElementById('detail-comment-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const button = e.target.querySelector('button[type=submit]');
+        const originalHtml = button.innerHTML;
+        setButtonLoading(button, true);
+
+        const postId = document.getElementById('detail-comment-post-id').value;
+        const parentId = document.getElementById('detail-comment-parent-id').value;
+        const text = document.getElementById('detail-comment-text-input').value;
+
+        if (!text.trim()) {
+            button.innerHTML = originalHtml; button.disabled = false; return;
+        }
+        
+        try {
+            const response = await fetch(`/post/${postId}/comment`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text, parent_id: parentId || null })
+            });
+            if (response.ok) {
+                // Refresh just the comments section
+                openPostDetail(postId);
+            }
+        } finally {
+            button.innerHTML = originalHtml; button.disabled = false;
+        }
+    });
+
+    postDetailModal.addEventListener('click', (event) => { if (event.target === postDetailModal) closePostDetail(); });
+
+    // --- Original Comment Modal Logic (for Sixs) ---
     async function openCommentModal(postId) {
         document.getElementById('comment-post-id').value = postId;
         const list = document.getElementById('comment-list');
@@ -516,23 +649,9 @@ templates = {
             commentModalContent.classList.remove('closing');
             const isSixsView = document.body.classList.contains('sixs-view');
             if (!isSixsView) document.body.style.overflow = 'auto';
-            prepareReply(null, null);
         }, 250);
     }
     
-    function prepareReply(parentId, username) {
-        const textInput = document.getElementById('comment-text-input');
-        const parentIdInput = document.getElementById('comment-parent-id');
-        if (parentId) {
-            parentIdInput.value = parentId;
-            textInput.placeholder = `Respondendo a @${username}...`;
-            textInput.focus();
-        } else {
-            parentIdInput.value = '';
-            textInput.placeholder = 'Adicionar um comentário...';
-        }
-    }
-
     document.getElementById('comment-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const button = e.target.querySelector('button[type=submit]');
@@ -540,70 +659,27 @@ templates = {
         setButtonLoading(button, true);
 
         const postId = document.getElementById('comment-post-id').value;
-        const parentId = document.getElementById('comment-parent-id').value;
         const text = document.getElementById('comment-text-input').value;
         if (!text.trim()) {
-            button.innerHTML = originalHtml;
-            button.disabled = false;
-            return;
+            button.innerHTML = originalHtml; button.disabled = false; return;
         }
         
         try {
             const response = await fetch(`/post/${postId}/comment`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: text, parent_id: parentId || null })
+                body: JSON.stringify({ text: text, parent_id: null })
             });
 
             if (response.ok) {
-                document.getElementById('comment-text-input').value = '';
-                prepareReply(null, null);
                 openCommentModal(postId); // Refresh comments
                 const countEl = document.querySelector(`#comment-count-${postId}`);
                 if(countEl) countEl.innerText = parseInt(countEl.innerText) + 1;
             }
         } finally {
-            button.innerHTML = originalHtml;
-            button.disabled = false;
+            button.innerHTML = originalHtml; button.disabled = false;
         }
     });
-
     commentModal.addEventListener('click', (event) => { if (event.target === commentModal) closeCommentModal(); });
-    
-    async function handleLike(button, postId) {
-        const originalHtml = button.innerHTML;
-        setButtonLoading(button, true);
-        try {
-            const response = await fetch(`/like/post/${postId}`, { method: 'POST' });
-            const data = await response.json();
-            
-            button.innerHTML = originalHtml; // Restore structure
-            button.querySelector('span').innerText = data.likes;
-            button.classList.toggle('liked', data.liked);
-        } catch(e) {
-            button.innerHTML = originalHtml; // Restore on error
-            flash('Ação falhou. Tente novamente.', 'error');
-        } finally {
-            button.disabled = false;
-        }
-    }
-
-    async function handleLikeComment(button, commentId) {
-        const originalHtml = button.innerHTML;
-        setButtonLoading(button, true);
-        try {
-            const response = await fetch(`/like/comment/${commentId}`, { method: 'POST' });
-            const data = await response.json();
-            
-            button.innerHTML = originalHtml; // Restore structure
-            button.querySelector('span').innerText = data.likes;
-            button.classList.toggle('liked', data.liked);
-        } catch(e) {
-            button.innerHTML = originalHtml; // Restore on error
-            flash('Ação falhou. Tente novamente.', 'error');
-        } finally {
-            button.disabled = false;
-        }
-    }
 
     async function handleRepost(button, postId) {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
@@ -1064,7 +1140,7 @@ templates = {
             <a href="{{ url_for('profile', username=post.author.username) }}" style="color:var(--text-color); font-weight:bold;">{{ post.author.username }}</a>
             <span style="color:var(--text-muted);">· {{ post.timestamp|sao_paulo_time }}</span>
         </div>
-        <div style="margin: 4px 0 12px 0; white-space: pre-wrap; word-wrap: break-word;">{{ post.text_content }}</div>
+        <div style="margin: 4px 0 12px 0; white-space: pre-wrap; word-wrap: break-word; cursor: pointer;" onclick="openPostDetail({{ post.id }})">{{ post.text_content }}</div>
         {% if post.image_filename %}
             <div style="position: relative; margin-bottom:12px;">
                 <div class="spinner" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:1;"></div>
@@ -1091,7 +1167,12 @@ templates = {
 </div>
 """,
 "comment_card.html": """
-<div class="comment-card" style="border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
+<div class="comment-card" style="border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px; cursor: pointer;" onclick="openPostDetail({{ comment.post_id }}, {{ comment.id }})">
+    {% if comment.post %}
+    <div style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 8px;">
+        Em resposta a <a href="javascript:void(0)" onclick="event.stopPropagation(); openPostDetail({{ comment.post_id }})" style="color: var(--accent-color);">@{{ comment.post.author.username }}</a>
+    </div>
+    {% endif %}
     <div style="display:flex; gap:12px;">
         <div style="width:30px; height:30px; flex-shrink:0;">
             {% if comment.user.pfp_filename %}
@@ -1104,7 +1185,7 @@ templates = {
         </div>
         <div style="flex-grow:1;">
             <div>
-                <a href="{{ url_for('profile', username=comment.user.username) }}" style="color:var(--text-color); font-weight:bold;">{{ comment.user.username }}</a>
+                <a href="{{ url_for('profile', username=comment.user.username) }}" style="color:var(--text-color); font-weight:bold;" onclick="event.stopPropagation()">{{ comment.user.username }}</a>
                 <span style="color:var(--text-muted); font-size: 0.9em;">· {{ comment.timestamp|sao_paulo_time }}</span>
             </div>
             <p style="margin: 4px 0 0 0; font-size: 0.95em;">{{ comment.text }}</p>
@@ -2035,6 +2116,13 @@ def add_header(response):
 @login_manager.user_loader
 def load_user(user_id): return User.query.get(int(user_id))
 
+@app.route('/get_post_card/<int:post_id>')
+@login_required
+def get_post_card(post_id):
+    post = Post.query.get_or_404(post_id)
+    add_user_flags_to_posts([post])
+    return render_template('post_card_text.html', post=post)
+
 @app.route('/')
 @login_required
 def home():
@@ -2080,7 +2168,10 @@ def profile(username):
     if active_tab == 'republicações':
         # Eager load related data to avoid N+1 queries
         post_reposts = user.reposts.options(selectinload(Repost.original_post).selectinload(Post.author)).order_by(Repost.timestamp.desc()).all()
-        comment_reposts = user.comment_reposts.options(selectinload(CommentRepost.original_comment).selectinload(Comment.user)).order_by(CommentRepost.timestamp.desc()).all()
+        comment_reposts = user.comment_reposts.options(
+            selectinload(CommentRepost.original_comment).selectinload(Comment.user),
+            selectinload(CommentRepost.original_comment).selectinload(Comment.post).selectinload(Post.author)
+        ).order_by(CommentRepost.timestamp.desc()).all()
         reposts_data = sorted(post_reposts + comment_reposts, key=lambda r: r.timestamp, reverse=True)
         original_posts = [r.original_post for r in post_reposts if r.original_post]
         add_user_flags_to_posts(original_posts)
