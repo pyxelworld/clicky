@@ -381,7 +381,7 @@ templates = {
 
             if (media.tagName === 'VIDEO') {
                 // 'canplaythrough' is the event for when the video is fully buffered
-                media.addEventListener('canplaythrough', onMediaLoaded);
+                media.addEventListener('loadeddata', onMediaLoaded);
                 // Fallback for partially loaded videos
                 if (media.readyState >= 3) onMediaLoaded();
             } else { // It's an IMG
@@ -1979,7 +1979,7 @@ def profile(username):
         add_user_flags_to_posts(original_posts)
 
     else:
-        post_type_filter = 'sixs' if active_tab == 'sixs' else 'text'
+        post_type_filter = 'six' if active_tab == 'sixs' else 'text'
         # Eager load author for each post
         posts = user.posts.options(selectinload(Post.author)).filter(Post.post_type == post_type_filter).order_by(Post.timestamp.desc()).all()
         add_user_flags_to_posts(posts)
