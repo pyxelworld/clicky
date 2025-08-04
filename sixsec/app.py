@@ -1892,11 +1892,9 @@ def home():
 @app.route('/profile/<username>')
 @login_required
 def profile(username):
-    # Use eager loading to fetch followers/followed counts more efficiently
-    user = User.query.filter_by(username=username).options(
-        selectinload(User.followers),
-        selectinload(User.followed)
-    ).first_or_404()
+    # Get the user. We can't use selectinload on the self-referential followers/followed,
+    # but the .count() method on the dynamic relationship is already efficient.
+    user = User.query.filter_by(username=username).first_or_404()
 
     active_tab = request.args.get('tab', 'publicações')
     posts = []
