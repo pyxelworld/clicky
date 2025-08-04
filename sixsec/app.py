@@ -312,7 +312,7 @@ templates = {
             <div style="display: flex; gap: 12px;">
                 <div style="flex-shrink:0;">${pfpElement}</div>
                 <div style="flex-grow:1">
-                    <div><strong style="color:var(--text-color);">${comment.user.username}</strong> <span style="color:var(--text-muted);">${comment.timestamp}</span></div>
+                    <div><strong style="color:var(--text-color);">${comment.user.username}</strong> <span style="color:var(--text-muted);">· ${comment.timestamp}</span></div>
                     <div style="color:var(--text-color); margin: 4px 0; white-space: pre-wrap; word-wrap: break-word;">${comment.text}</div>
                     <div class="comment-actions" style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
                         <button onclick="handleLikeComment(this, ${comment.id})" class="action-button ${comment.is_liked_by_user ? 'liked' : ''}">${likeIcon}<span>${comment.like_count}</span></button>
@@ -872,7 +872,7 @@ templates = {
         <div style="flex-grow:1;">
             <div>
                 <a href="{{ url_for('profile', username=comment.user.username) }}" style="color:var(--text-color); font-weight:bold;">{{ comment.user.username }}</a>
-                <span style="color:var(--text-muted); font-size: 0.9em;">· {{ comment.timestamp.strftime('%d de %b') }}</span>
+                <span style="color:var(--text-muted); font-size: 0.9em;">· {{ comment.timestamp|sao_paulo_time }}</span>
             </div>
             <p style="margin: 4px 0 0 0; font-size: 0.95em;">{{ comment.text }}</p>
         </div>
@@ -1732,10 +1732,12 @@ def add_user_flags_to_posts(posts):
     return posts
 
 def format_comment(comment):
+    # Pass the raw datetime object to be formatted by the Jinja filter on the client side
+    sao_paulo_formatted_time = sao_paulo_time_filter(comment.timestamp)
     return {
         'id': comment.id,
         'text': comment.text,
-        'timestamp': comment.timestamp.strftime('%d de %b'),
+        'timestamp': sao_paulo_formatted_time,
         'user': {
             'username': comment.user.username,
             'pfp_gradient': comment.user.pfp_gradient,
