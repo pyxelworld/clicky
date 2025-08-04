@@ -173,7 +173,7 @@ templates = {
             font-size: 15px;
             overscroll-behavior-y: contain;
             opacity: 1;
-            transition: opacity 0.3s ease-in-out;
+            transition: opacity 0.25s ease-in-out;
         }
         body.fade-out {
             opacity: 0;
@@ -241,8 +241,8 @@ templates = {
             border-radius: 16px 16px 0 0; width: 100%; max-width: 600px;
             max-height: 80vh; display: flex; flex-direction: column;
         }
-        .modal-content.opening { animation: slideUp 0.35s ease-out forwards; }
-        .modal-content.closing { animation: slideDown 0.35s ease-out forwards; }
+        .modal-content.opening { animation: slideUp 0.25s ease-out forwards; }
+        .modal-content.closing { animation: slideDown 0.25s ease-out forwards; }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         @keyframes slideDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
         .modal-header { padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; }
@@ -267,7 +267,7 @@ templates = {
         .flash-message {
             padding: 12px 16px; border-radius: 8px; margin-bottom: 15px;
             color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center;
-            animation: fadeInOut 3.5s ease-in-out forwards;
+            animation: fadeInOut 3.0s ease-in-out forwards;
         }
         .flash-message.info { background-color: var(--accent-color); }
         .flash-message.success { background-color: #0f7b4f; }
@@ -282,7 +282,7 @@ templates = {
             background-color: var(--bg-color);
             z-index: 99999;
             display: flex; align-items: center; justify-content: center;
-            transition: opacity 0.3s ease;
+            transition: opacity 0.25s ease;
         }
         .spinner {
             width: 40px; height: 40px;
@@ -377,11 +377,11 @@ templates = {
 
         document.addEventListener('click', function(e) {
             let anchor = e.target.closest('a');
-            if (anchor && anchor.href && anchor.target !== '_blank' && !anchor.getAttribute('href').startsWith('#') && !anchor.getAttribute('href').startsWith('javascript:')) {
+            if (anchor && anchor.href && anchor.target !== '_blank' && !anchor.getAttribute('href').startsWith('#') && !anchor.getAttribute('href').startsWith('javascript:') && !anchor.classList.contains('btn')) {
                 e.preventDefault();
                 showLoader();
                 document.body.classList.add('fade-out');
-                setTimeout(() => { window.location.href = anchor.href; }, 300);
+                setTimeout(() => { window.location.href = anchor.href; }, 250);
             }
         });
     </script>
@@ -389,6 +389,26 @@ templates = {
     const commentModal = document.getElementById('commentModal');
     const commentModalContent = commentModal.querySelector('.modal-content');
     
+    // --- Universal Button Loader ---
+    function setButtonLoading(button, isLoading) {
+        if (!button) return;
+        if (isLoading) {
+            button.disabled = true;
+            button.dataset.originalHtml = button.innerHTML;
+            let spinnerSize = '20px';
+            let borderWidth = '2px';
+            if(button.classList.contains('action-button')) {
+                spinnerSize = '16px';
+            }
+            button.innerHTML = `<div class="spinner" style="width:${spinnerSize}; height:${spinnerSize}; border-width:${borderWidth};"></div>`;
+        } else {
+            button.disabled = false;
+            if (button.dataset.originalHtml) {
+                button.innerHTML = button.dataset.originalHtml;
+            }
+        }
+    }
+
     function buildCommentNode(comment) {
         const container = document.createElement('div');
         container.className = 'comment-container';
@@ -503,7 +523,7 @@ templates = {
             const isSixsView = document.body.classList.contains('sixs-view');
             if (!isSixsView) document.body.style.overflow = 'auto';
             prepareReply(null, null);
-        }, 300);
+        }, 250);
     }
     
     function prepareReply(parentId, username) {
@@ -521,59 +541,80 @@ templates = {
 
     document.getElementById('comment-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        const button = e.target.querySelector('button[type=submit]');
+        setButtonLoading(button, true);
+
         const postId = document.getElementById('comment-post-id').value;
         const parentId = document.getElementById('comment-parent-id').value;
         const text = document.getElementById('comment-text-input').value;
-        if (!text.trim()) return;
+        if (!text.trim()) {
+            setButtonLoading(button, false);
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/post/${postId}/comment`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text, parent_id: parentId || null })
+            });
 
-        const response = await fetch(`/post/${postId}/comment`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: text, parent_id: parentId || null })
-        });
-
-        if (response.ok) {
-            document.getElementById('comment-text-input').value = '';
-            prepareReply(null, null);
-            openCommentModal(postId); // Refresh comments
-            const countEl = document.querySelector(`#comment-count-${postId}`);
-            if(countEl) countEl.innerText = parseInt(countEl.innerText) + 1;
+            if (response.ok) {
+                document.getElementById('comment-text-input').value = '';
+                prepareReply(null, null);
+                openCommentModal(postId); // Refresh comments
+                const countEl = document.querySelector(`#comment-count-${postId}`);
+                if(countEl) countEl.innerText = parseInt(countEl.innerText) + 1;
+            }
+        } finally {
+            setButtonLoading(button, false);
         }
     });
 
-    commentModal.addEventListener('click', (event) => {
-        if (event.target === commentModal) {
-            closeCommentModal();
-        }
-    });
+    commentModal.addEventListener('click', (event) => { if (event.target === commentModal) closeCommentModal(); });
     
     async function handleLike(button, postId) {
-        const response = await fetch(`/like/post/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        button.querySelector('span').innerText = data.likes;
-        button.classList.toggle('liked', data.liked);
+        setButtonLoading(button, true);
+        try {
+            const response = await fetch(`/like/post/${postId}`, { method: 'POST' });
+            const data = await response.json();
+            button.querySelector('span').innerText = data.likes;
+            button.classList.toggle('liked', data.liked);
+        } finally {
+            setButtonLoading(button, false);
+        }
     }
 
     async function handleLikeComment(button, commentId) {
-        const response = await fetch(`/like/comment/${commentId}`, { method: 'POST' });
-        const data = await response.json();
-        button.querySelector('span').innerText = data.likes;
-        button.classList.toggle('liked', data.liked);
+        setButtonLoading(button, true);
+        try {
+            const response = await fetch(`/like/comment/${commentId}`, { method: 'POST' });
+            const data = await response.json();
+            button.querySelector('span').innerText = data.likes;
+            button.classList.toggle('liked', data.liked);
+        } finally {
+            setButtonLoading(button, false);
+        }
     }
 
     async function handleRepost(button, postId) {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
         if (caption === null) return; 
 
-        const response = await fetch(`/repost/post/${postId}`, { 
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption: caption })
-        });
-        const data = await response.json();
-        if(data.success) {
-            button.classList.toggle('reposted', data.reposted);
-            flash(data.message, 'success');
-        } else {
-            flash(data.message, 'error');
+        setButtonLoading(button, true);
+        try {
+            const response = await fetch(`/repost/post/${postId}`, { 
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ caption: caption })
+            });
+            const data = await response.json();
+            if(data.success) {
+                button.classList.toggle('reposted', data.reposted);
+                flash(data.message, 'success');
+            } else {
+                flash(data.message, 'error');
+            }
+        } finally {
+            setButtonLoading(button, false);
         }
     }
     
@@ -581,57 +622,69 @@ templates = {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
         if (caption === null) return;
 
-        const response = await fetch(`/repost/comment/${commentId}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption: caption })
-        });
-        const data = await response.json();
-        if(data.success) {
-            flash(data.message, 'success');
-        } else {
-            flash(data.message, 'error');
+        setButtonLoading(button, true);
+        try {
+            const response = await fetch(`/repost/comment/${commentId}`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ caption: caption })
+            });
+            const data = await response.json();
+            if(data.success) {
+                flash(data.message, 'success');
+            } else {
+                flash(data.message, 'error');
+            }
+        } finally {
+            setButtonLoading(button, false);
         }
     }
 
     async function handleDeletePost(button, postId) {
         if (!confirm('Tem certeza que deseja deletar esta publicação? Esta ação é permanente.')) return;
-
-        const response = await fetch(`/delete_post/${postId}`, { method: 'POST' });
-        const data = await response.json();
-        if(data.success) {
-            const postElement = document.getElementById(`post-${postId}`);
-            if(postElement) {
-                postElement.style.transition = 'opacity 0.3s ease';
-                postElement.style.opacity = '0';
-                setTimeout(() => postElement.remove(), 300);
+        setButtonLoading(button, true);
+        try {
+            const response = await fetch(`/delete_post/${postId}`, { method: 'POST' });
+            const data = await response.json();
+            if(data.success) {
+                const postElement = document.getElementById(`post-${postId}`);
+                if(postElement) {
+                    postElement.style.transition = 'opacity 0.25s ease';
+                    postElement.style.opacity = '0';
+                    setTimeout(() => postElement.remove(), 250);
+                }
+                flash(data.message, 'success');
+            } else {
+                flash(data.message, 'error');
             }
-            flash(data.message, 'success');
-        } else {
-            flash(data.message, 'error');
+        } finally {
+            // No need to restore button since the whole post is removed
         }
     }
 
     async function handleDeleteComment(button, commentId) {
         if (!confirm('Tem certeza que deseja deletar este comentário?')) return;
-        
-        const response = await fetch(`/delete_comment/${commentId}`, { method: 'POST' });
-        const data = await response.json();
-        
-        if (data.success) {
-            const commentElement = button.closest('.comment-container');
-            if (commentElement) {
-                commentElement.style.transition = 'opacity 0.3s ease';
-                commentElement.style.opacity = '0';
-                setTimeout(() => commentElement.remove(), 300);
-            }
-            // Update the main post's comment count on the page if it exists
-            const postId = document.getElementById('comment-post-id').value;
-            const countEl = document.querySelector(`#comment-count-${postId}`);
-            if(countEl) countEl.innerText = Math.max(0, parseInt(countEl.innerText) - 1);
+        setButtonLoading(button, true);
+        try {
+            const response = await fetch(`/delete_comment/${commentId}`, { method: 'POST' });
+            const data = await response.json();
             
-            flash(data.message, 'success');
-        } else {
-            flash(data.message, 'error');
+            if (data.success) {
+                const commentElement = button.closest('.comment-container');
+                if (commentElement) {
+                    commentElement.style.transition = 'opacity 0.25s ease';
+                    commentElement.style.opacity = '0';
+                    setTimeout(() => commentElement.remove(), 250);
+                }
+                const postId = document.getElementById('comment-post-id').value;
+                const countEl = document.querySelector(`#comment-count-${postId}`);
+                if(countEl) countEl.innerText = Math.max(0, parseInt(countEl.innerText) - 1);
+                
+                flash(data.message, 'success');
+            } else {
+                flash(data.message, 'error');
+            }
+        } finally {
+            // No need to restore button since the whole comment is removed
         }
     }
 
@@ -643,7 +696,7 @@ templates = {
         container.appendChild(flashDiv);
         setTimeout(() => {
             flashDiv.remove();
-        }, 3500);
+        }, 3000);
     }
     </script>
     {% block scripts %}{% endblock %}
@@ -825,6 +878,10 @@ templates = {
 {% block scripts %}
 {% if feed_type == 'text' %}
 <script>
+    document.querySelector('form[action="{{ url_for('create_text_post') }}"]').addEventListener('submit', (e) => {
+        setButtonLoading(e.target.querySelector('button[type=submit]'), true);
+    });
+
     document.querySelectorAll('img[data-src]').forEach(img => {
         img.onload = () => {
             img.classList.add('loaded');
@@ -872,7 +929,7 @@ templates = {
     }
     
     allVideos.forEach(video => {
-        video.addEventListener('loadeddata', () => {
+        video.addEventListener('canplaythrough', () => {
             video.classList.add('loaded');
         });
     });
@@ -1370,7 +1427,7 @@ templates = {
 {% block header_title %}Configurações{% endblock %}
 {% block content %}
 <div style="padding:16px;">
-    <form method="POST" action="{{ url_for('edit_profile') }}" enctype="multipart/form-data">
+    <form method="POST" action="{{ url_for('edit_profile') }}" enctype="multipart/form-data" onsubmit="setButtonLoading(this.querySelector('button[type=submit]'), true)">
         <h4>Editar Perfil</h4>
         <div class="form-group" style="text-align: center;">
             <label for="pfp" style="cursor: pointer;">
@@ -1412,7 +1469,7 @@ templates = {
 
     <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Alterar Senha</h4>
-    <form method="POST" action="{{ url_for('change_password') }}">
+    <form method="POST" action="{{ url_for('change_password') }}" onsubmit="setButtonLoading(this.querySelector('button[type=submit]'), true)">
         <div class="form-group">
             <label for="current_password">Senha Atual</label>
             <input type="password" id="current_password" name="current_password" required>
@@ -1426,8 +1483,8 @@ templates = {
 
     <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Gerenciamento de Dados</h4>
-    <form method="POST" action="{{ url_for('clear_cache') }}" style="margin-bottom: 24px;">
-        <button type="submit" class="btn btn-outline" style="width: 100%;" onclick="return confirm('Isso irá limpar os dados em cache no servidor, como imagens e vídeos processados. O site pode carregar um pouco mais devagar na primeira vez que você visualizar o conteúdo novamente. Continuar?')">Limpar Cache do Servidor</button>
+    <form method="POST" action="{{ url_for('clear_cache') }}" style="margin-bottom: 24px;" onsubmit="if(confirm('Isso irá limpar os dados em cache no servidor, como imagens e vídeos processados. O site pode carregar um pouco mais devagar na primeira vez que você visualizar o conteúdo novamente. Continuar?')){ setButtonLoading(this.querySelector('button[type=submit]'), true); return true;} else {return false;}">
+        <button type="submit" class="btn btn-outline" style="width: 100%;">Limpar Cache do Servidor</button>
     </form>
     
     <hr style="border-color: var(--border-color); margin: 30px 0;">
@@ -1437,9 +1494,9 @@ templates = {
     <div style="border: 1px solid var(--red-color); border-radius: 8px; padding: 16px;">
         <h5 style="margin-top:0;">Deletar Conta</h5>
         <p style="color:var(--text-muted);">Esta ação é permanente. Todas as suas publicações, comentários, curtidas e dados de seguidores serão removidos.</p>
-        <form action="{{ url_for('delete_account') }}" method="POST">
+        <form action="{{ url_for('delete_account') }}" method="POST" onsubmit="if(confirm('Tem certeza absoluta?')){ setButtonLoading(this.querySelector('button[type=submit]'), true); return true;} else {return false;}">
              <div class="form-group"><label for="password">Confirme com sua senha</label><input type="password" id="password" name="password" required></div>
-            <button type="submit" class="btn btn-danger" onclick="return confirm('Tem certeza absoluta?')">{{ ICONS.trash|safe }} Deletar Minha Conta</button>
+            <button type="submit" class="btn btn-danger">{{ ICONS.trash|safe }} Deletar Minha Conta</button>
         </form>
     </div>
     <div class="content-spacer"></div>
@@ -1631,7 +1688,7 @@ templates = {
     }
     
     allVideos.forEach(video => {
-        video.addEventListener('loadeddata', () => {
+        video.addEventListener('canplaythrough', () => {
             video.classList.add('loaded');
         });
     });
