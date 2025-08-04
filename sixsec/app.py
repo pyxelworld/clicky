@@ -147,6 +147,49 @@ seen_text_posts = db.Table('seen_text_posts',
 
 # --- DICIONÁRIO DE TEMPLATES ---
 templates = {
+"view_six.html": """
+{% extends "layout.html" %}
+{% block title %}Six de {{ post.author.username }}{% endblock %}
+{% block style_override %}
+    body { background-color: #000; overflow: hidden; padding-bottom: 0; }
+    #six-viewer-container {
+        height: 100dvh; width: 100vw;
+        position: fixed; top: 0; left: 0;
+        background-color: #000;
+        z-index: 10;
+    }
+{% endblock %}
+{% block content %}
+<div id="six-viewer-container">
+    {% include 'six_slide.html' %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+    // Simplified script for single six view
+    const video = document.querySelector('.six-video');
+    const slide = document.querySelector('.six-video-slide');
+    let isMuted = false; // Start unmuted on this page
+
+    function toggleMute() {
+        isMuted = !isMuted;
+        video.muted = isMuted;
+    }
+
+    if (video) {
+        video.muted = isMuted;
+        video.play().catch(e => console.error("Autoplay failed", e));
+        
+        slide.addEventListener('click', toggleMute);
+
+        video.addEventListener('loadeddata', () => {
+            video.classList.add('loaded');
+        });
+    }
+</script>
+{% endblock %}
+""",
+
 "view_post.html": """
 {% extends "layout.html" %}
 {% block title %}Publicação de {{ post.author.username }}{% endblock %}
@@ -1818,28 +1861,48 @@ templates = {
                     <p style="margin: 4px 0 12px 0; padding-left: 20px; border-left: 2px solid var(--border-color);">{{ repost.caption }}</p>
                 {% endif %}
                 
+                {# Check if the repost is for a Post #}
                 {% if repost.original_post %}
-                    <a href="{{ url_for('view_post', post_id=repost.original_post.id) }}" style="text-decoration:none; color:inherit; display:block; border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
-                        {% with post=repost.original_post %}
-                            {# We only want the core content, not the full card with actions #}
+                    {% with post=repost.original_post %}
+
+                    {# --- IF REPOSTED POST IS A SIX --- #}
+                    {% if post.post_type == 'six' %}
+                        <div style="display: flex; align-items: flex-start; gap: 12px; margin-top: 8px;">
+                            <a href="{{ url_for('view_six_post', post_id=post.id) }}" style="position: relative; width: 100px; height: 100px; border-radius: 50%; overflow: hidden; background-color: #111; flex-shrink: 0;">
+                                <video class="reposted-six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop muted autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
+                            </a>
+                            <div style="padding-top: 8px; flex-grow:1; position: relative;">
+                                <div style="display:flex; justify-content: space-between; align-items: flex-start;">
+                                    <a href="{{ url_for('view_six_post', post_id=post.id) }}" style="color:inherit; text-decoration:none;">
+                                        <div style="font-weight: bold;">@{{ post.author.username }}</div>
+                                        <div style="color: var(--text-muted); font-size: 0.9em; margin-top: 4px;">{{ post.text_content|truncate(80) }}</div>
+                                    </a>
+                                    <button class="reposted-six-volume-toggle" style="background: none; border: none; color: var(--text-muted); padding: 5px; cursor: pointer;">
+                                        {{ ICONS.volume_off|safe|replace('width="24"','width="20"')|replace('height="24"','height="20"') }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                    {# --- IF REPOSTED POST IS TEXT --- #}
+                    {% else %}
+                        <a href="{{ url_for('view_post', post_id=post.id) }}" style="text-decoration:none; color:inherit; display:block; border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
                             <div style="display:flex; gap:12px;">
                                 <div style="width:40px; height:40px; flex-shrink:0;">
-                                    {% if post.author.pfp_filename %}
-                                        <img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="Foto de perfil de {{ post.author.username }}" style="width:40px; height:40px; border-radius:50%; object-fit: cover;">
-                                    {% else %}
-                                        <div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">{{ post.author.username[0]|upper }}</div>
-                                    {% endif %}
+                                    {% if post.author.pfp_filename %}<img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="PFP" style="width:40px; height:40px; border-radius:50%; object-fit: cover;">
+                                    {% else %}<div style="width:40px; height:40px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold;">{{ post.author.username[0]|upper }}</div>{% endif %}
                                 </div>
                                 <div style="flex-grow:1;">
                                     <div><strong style="color:var(--text-color);">{{ post.author.username }}</strong><span style="color:var(--text-muted); font-size:0.9em;"> · {{ post.timestamp|sao_paulo_time }}</span></div>
                                     <div style="margin: 4px 0 12px 0; white-space: pre-wrap; word-wrap: break-word;">{{ post.text_content }}</div>
-                                    {% if post.image_filename %}
-                                        <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color);">
-                                    {% endif %}
+                                    {% if post.image_filename %}<img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; border: 1px solid var(--border-color);">{% endif %}
                                 </div>
                             </div>
-                        {% endwith %}
-                    </a>
+                        </a>
+                    {% endif %}
+                    {% endwith %}
+
+                {# Check if the repost is for a Comment #}
                 {% elif repost.original_comment %}
                     <a href="javascript:openCommentModal({{ repost.original_comment.post_id }}, {{ repost.original_comment.id }})" style="text-decoration:none; color:inherit; display:block;">
                         {% with comment=repost.original_comment %}
@@ -1933,6 +1996,25 @@ templates = {
 
     document.querySelectorAll('.six-video-slide').forEach(slide => {
       observer.observe(slide);
+    });
+</script>
+{% elif active_tab == 'republicações' %}
+<script>
+    document.querySelectorAll('.reposted-six-volume-toggle').forEach(button => {
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const container = button.closest('div.flex-grow-1').parentElement;
+            const video = container.querySelector('.reposted-six-video');
+            if (video) {
+                video.muted = !video.muted;
+                if (video.muted) {
+                    button.innerHTML = ICONS.volume_off.replace('width="24"','width="20"').replace('height="24"','height="20"');
+                } else {
+                    button.innerHTML = ICONS.volume_on.replace('width="24"','width="20"').replace('height="24"','height="20"');
+                }
+            }
+        });
     });
 </script>
 {% endif %}
@@ -2212,6 +2294,13 @@ def get_post_context(post_id):
     # Render a simplified version of the post card for the modal
     html = render_template('post_card_text.html', post=post)
     return jsonify({'html': html})
+
+@app.route('/six/<int:post_id>')
+@login_required
+def view_six_post(post_id):
+    post = Post.query.filter_by(id=post_id, post_type='six').first_or_404()
+    add_user_flags_to_posts([post])
+    return render_template('view_six.html', post=post)
 
 @login_manager.user_loader
 def load_user(user_id): return User.query.get(int(user_id))
