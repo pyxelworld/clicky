@@ -274,19 +274,6 @@ templates = {
             0%, 100% { opacity: 0; transform: translateY(-20px); }
             10%, 90% { opacity: 1; transform: translateY(0); }
         }
-        
-        .loading-spinner {
-            border: 4px solid rgba(255, 255, 255, 0.2);
-            border-left-color: #fff;
-            border-radius: 50%;
-            width: 40px; height: 40px;
-            animation: spin 1s linear infinite;
-            position: absolute;
-            top: 50%; left: 50%;
-            margin-top: -20px; margin-left: -20px;
-            z-index: 5;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         {% block style_override %}{% endblock %}
     </style>
@@ -349,26 +336,6 @@ templates = {
     
     <script>
         const ICONS = {{ ICONS|tojson|safe }};
-
-        document.addEventListener('DOMContentLoaded', () => {
-            // Handle image loading states
-            document.querySelectorAll('.post-image').forEach(img => {
-                const container = img.closest('.post-image-container');
-                const spinner = container.querySelector('.loading-spinner');
-                
-                function imageLoaded() {
-                    if(spinner) spinner.style.display = 'none';
-                    img.style.opacity = '1';
-                    container.style.minHeight = '0';
-                }
-
-                if (img.complete) {
-                    imageLoaded();
-                } else {
-                    img.addEventListener('load', imageLoaded);
-                }
-            });
-        });
     </script>
     <script>
     const commentModal = document.getElementById('commentModal');
@@ -617,31 +584,6 @@ templates = {
         }, 3500);
     }
     </script>
-
-    <script>
-        // Generic form submission spinner handler
-        function setupFormSpinner(formId) {
-            const form = document.getElementById(formId);
-            if (!form) return;
-
-            form.addEventListener('submit', () => {
-                const button = form.querySelector('button[type="submit"]');
-                const btnText = button.querySelector('.btn-text');
-                const btnSpinner = button.querySelector('.btn-spinner');
-
-                button.disabled = true;
-                if(btnText) btnText.style.display = 'none';
-                if(btnSpinner) {
-                    btnSpinner.style.display = 'inline-block';
-                    btnSpinner.classList.add('loading-spinner');
-                }
-            });
-        }
-        document.addEventListener('DOMContentLoaded', () => {
-            setupFormSpinner('text-post-form');
-        });
-    </script>
-
     {% block scripts %}{% endblock %}
 </body>
 </html>
@@ -727,16 +669,13 @@ templates = {
 
     {% if feed_type == 'text' %}
         <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">
-            <form id="text-post-form" method="POST" action="{{ url_for('create_text_post') }}" enctype="multipart/form-data">
+            <form method="POST" action="{{ url_for('create_text_post') }}" enctype="multipart/form-data">
                 <div class="form-group" style="margin-bottom: 1rem;">
                     <textarea name="text_content" rows="3" placeholder="O que está acontecendo?" required maxlength="150" style="resize:vertical;"></textarea>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <input type="file" name="image" accept="image/png, image/jpeg, image/gif">
-                    <button type="submit" class="btn">
-                        <span class="btn-text">Publicar</span>
-                        <span class="btn-spinner" style="display:none; width: 20px; height: 20px; border-width: 2px;" class="loading-spinner"></span>
-                    </button>
+                    <button type="submit" class="btn">Publicar</button>
                 </div>
             </form>
         </div>
@@ -837,7 +776,7 @@ templates = {
 {% if feed_type == 'sixs' %}
 <script>
     const container = document.getElementById('sixs-feed-container');
-    const videos = Array.from(container.querySelectorAll('.six-video'));
+    const videos = container.querySelectorAll('.six-video');
     const volumeToggle = document.getElementById('volume-toggle');
     const unmutePrompt = document.getElementById('unmute-prompt');
 
@@ -845,83 +784,66 @@ templates = {
     let hasInteracted = false;
     const seenSixs = new Set();
 
-    function setGlobalMutedState(isMuted) {
+    function setMutedState(isMuted) {
         isSoundOn = !isMuted;
+        videos.forEach(v => v.muted = isMuted);
         volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
-        const currentVisibleVideo = document.querySelector('.is-visible video');
-        if (currentVisibleVideo) {
-            currentVisibleVideo.muted = isMuted;
+        const currentVideo = document.querySelector('.is-visible video');
+        if (currentVideo) {
+            currentVideo.muted = isMuted;
         }
-    }
-    
-    function markSixAsSeen(postId) {
-        if (!postId || seenSixs.has(postId)) return;
-        seenSixs.add(postId);
-        fetch(`/mark_six_as_seen/${postId}`, { method: 'POST' });
     }
 
     if (videos.length > 0) {
         volumeToggle.style.display = 'block';
-        
-        volumeToggle.addEventListener('click', e => {
+        volumeToggle.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!hasInteracted) hasInteracted = true;
-            unmutePrompt.style.display = 'none';
-            setGlobalMutedState(isSoundOn); // Toggle current state
+            setMutedState(isSoundOn);
         });
         
         container.addEventListener('click', () => {
             if (!hasInteracted) {
                 hasInteracted = true;
                 unmutePrompt.style.display = 'none';
-                setGlobalMutedState(false); // Unmute
+                setMutedState(false);
             }
         }, { once: true });
+    }
+    
+    function markSixAsSeen(postId) {
+        if (!postId || seenSixs.has(postId)) {
+            return;
+        }
+        seenSixs.add(postId);
+        fetch(`/mark_six_as_seen/${postId}`, { method: 'POST' });
     }
 
     const sixObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             const slide = entry.target;
             const video = slide.querySelector('video');
-            const spinner = slide.querySelector('.loading-spinner');
             
             if (entry.isIntersecting) {
                 slide.classList.add('is-visible');
                 if (video) {
-                    spinner.style.display = 'block';
-                    video.style.opacity = '0';
-
-                    const playVideo = () => {
-                        spinner.style.display = 'none';
-                        video.style.opacity = '1';
-                        video.muted = !isSoundOn;
-                        video.play().catch(e => {
-                           if (!hasInteracted && videos.length > 0) unmutePrompt.style.display = 'block';
-                        });
-                        markSixAsSeen(slide.dataset.postId);
-                    };
-
-                    // readyState 4 means 'HAVE_ENOUGH_DATA'
-                    if (video.readyState >= 4) {
-                        playVideo();
-                    } else {
-                        video.addEventListener('canplaythrough', playVideo, { once: true });
-                    }
+                    video.muted = !isSoundOn;
+                    video.play().catch(e => {
+                        if (!hasInteracted && videos.length > 0) unmutePrompt.style.display = 'block';
+                    });
+                    markSixAsSeen(slide.dataset.postId);
                 }
             } else { 
                 slide.classList.remove('is-visible');
                 if (video) {
                     video.pause(); 
                     video.currentTime = 0;
-                    video.style.opacity = '0';
-                    spinner.style.display = 'block';
                 }
             }
         });
     }, { threshold: 0.7 });
 
     document.querySelectorAll('.six-video-slide').forEach(slide => {
-        if(slide.querySelector('video')) sixObserver.observe(slide);
+      sixObserver.observe(slide);
     });
 </script>
 {% endif %}
@@ -930,8 +852,7 @@ templates = {
 "six_slide.html": """
 <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
     <div class="six-video-wrapper">
-        <div class="loading-spinner"></div>
-        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline style="opacity: 0; transition: opacity 0.3s;
+    <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
     </div>
     <div class="six-ui-overlay">
         <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
@@ -973,10 +894,7 @@ templates = {
         </div>
         <div style="margin: 4px 0 12px 0; white-space: pre-wrap; word-wrap: break-word;">{{ post.text_content }}</div>
         {% if post.image_filename %}
-            <div class="post-image-container" style="position: relative; min-height: 100px; background-color: var(--primary-color); border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color);">
-                <div class="loading-spinner"></div>
-                <img class="post-image" src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; display: block; opacity: 0; transition: opacity 0.3s;">
-            </div>
+            <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color);">
         {% endif %}
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
             <div style="display: flex; gap: 8px;">
@@ -1332,18 +1250,15 @@ templates = {
         const formData = new FormData(sixForm);
         const videoBlob = new Blob(recordedBlobs, {type: 'video/webm'});
         formData.append('video_file', videoBlob, 'six-video.webm');
-        
-        const submitBtn = sixForm.querySelector('button[type="submit"]');
-        const originalBtnHTML = submitBtn.innerHTML;
+        const submitBtn = sixForm.querySelector('button');
         submitBtn.disabled = true;
-        submitBtn.innerHTML = `<div class="loading-spinner" style="width: 20px; height: 20px; border-width: 2px; position:static; margin:0; display:inline-block; vertical-align:middle;"></div><span style="vertical-align:middle; margin-left: 8px;">Enviando...</span>`;
-
+        submitBtn.textContent = "Enviando...";
         fetch("{{ url_for('create_post') }}", { method: 'POST', body: formData })
         .then(response => { if (response.redirected) window.location.href = response.url; })
         .catch(error => {
             console.error('Erro:', error);
             submitBtn.disabled = false;
-            submitBtn.innerHTML = originalBtnHTML;
+            submitBtn.textContent = "Publicar Six";
             recorderStatus.textContent = "Falha no envio. Tente novamente.";
         });
     });
@@ -1600,82 +1515,63 @@ templates = {
 {% if active_tab == 'sixs' %}
 <script>
     const container = document.getElementById('sixs-feed-container');
-    const videos = Array.from(container.querySelectorAll('.six-video'));
+    const videos = container.querySelectorAll('.six-video');
     const volumeToggle = document.getElementById('volume-toggle');
     const unmutePrompt = document.getElementById('unmute-prompt');
-
+    
     let isSoundOn = false;
     let hasInteracted = false;
+    
+    if(videos.length > 0) {
+        volumeToggle.style.display = 'block';
+    }
 
-    function setGlobalMutedState(isMuted) {
+    function setMutedState(isMuted) {
         isSoundOn = !isMuted;
+        videos.forEach(v => v.muted = isMuted);
         volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
-        const currentVisibleVideo = document.querySelector('.is-visible video');
-        if (currentVisibleVideo) {
-            currentVisibleVideo.muted = isMuted;
+        const currentVideo = document.querySelector('.is-visible video');
+        if (currentVideo) {
+            currentVideo.muted = isMuted;
         }
     }
 
-    if (videos.length > 0) {
-        volumeToggle.style.display = 'block';
-        
-        volumeToggle.addEventListener('click', e => {
-            e.stopPropagation();
-            if (!hasInteracted) hasInteracted = true;
+    volumeToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setMutedState(isSoundOn);
+    });
+    
+    container.addEventListener('click', () => {
+        if (!hasInteracted && videos.length > 0) {
+            hasInteracted = true;
             unmutePrompt.style.display = 'none';
-            setGlobalMutedState(isSoundOn); // Toggle current state
-        });
-        
-        container.addEventListener('click', () => {
-            if (!hasInteracted) {
-                hasInteracted = true;
-                unmutePrompt.style.display = 'none';
-                setGlobalMutedState(false); // Unmute
-            }
-        }, { once: true });
-    }
+            setMutedState(false);
+        }
+    }, { once: true });
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const slide = entry.target;
-            const video = slide.querySelector('video');
-            const spinner = slide.querySelector('.loading-spinner');
+            const video = entry.target.querySelector('video');
+            if (!video) return;
             
             if (entry.isIntersecting) {
-                slide.classList.add('is-visible');
-                if (video) {
-                    spinner.style.display = 'block';
-                    video.style.opacity = '0';
-
-                    const playVideo = () => {
-                        spinner.style.display = 'none';
-                        video.style.opacity = '1';
-                        video.muted = !isSoundOn;
-                        video.play().catch(e => {
-                           if (!hasInteracted && videos.length > 0) unmutePrompt.style.display = 'block';
-                        });
-                    };
-
-                    if (video.readyState >= 4) {
-                        playVideo();
-                    } else {
-                        video.addEventListener('canplaythrough', playVideo, { once: true });
+                entry.target.classList.add('is-visible');
+                video.muted = !isSoundOn;
+                video.play().catch(e => {
+                    if (!hasInteracted && videos.length > 0) {
+                        unmutePrompt.style.display = 'block';
                     }
-                }
+                });
             } else { 
-                slide.classList.remove('is-visible');
-                if (video) {
-                    video.pause(); 
-                    video.currentTime = 0;
-                    video.style.opacity = '0';
-                    spinner.style.display = 'block';
-                }
+                entry.target.classList.remove('is-visible');
+                video.pause(); 
+                video.currentTime = 0;
             }
         });
     }, { threshold: 0.7 });
 
     document.querySelectorAll('.six-video-slide').forEach(slide => {
-        if(slide.querySelector('video')) observer.observe(slide);
+      observer.observe(slide);
     });
 </script>
 {% endif %}
