@@ -1693,10 +1693,6 @@ class Post(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Comment.post_id')
     reposts = db.relationship('Repost', backref='original_post', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.post_id')
-    
-    # Add these two relationships to handle cascading deletes from the 'seen' tables
-    seen_by_six = db.relationship('User', secondary=seen_sixs_posts, back_populates='seen_sixs', cascade="all, delete")
-    seen_by_text = db.relationship('User', secondary=seen_text_posts, back_populates='seen_texts', cascade="all, delete")
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
