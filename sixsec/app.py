@@ -1743,7 +1743,7 @@ class User(UserMixin, db.Model):
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
     def check_password(self, pw): return check_password_hash(self.password_hash, pw)
-    def is_following(self, u): return self.followed.filter(followers.c.followed_id == u.id).count() > 0
+    def is_following(self, u): return u in self.followed
     def follow(self, u):
         if not self.is_following(u): self.followed.append(u)
     def unfollow(self, u):
