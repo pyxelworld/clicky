@@ -1644,14 +1644,16 @@ class User(UserMixin, db.Model):
         secondary=seen_sixs_posts,
         primaryjoin=f"and_(User.id==seen_sixs_posts.c.user_id, Post.id==seen_sixs_posts.c.post_id)",
         backref=db.backref('seen_by_six_users', lazy='dynamic'),
-        lazy='dynamic'
+        lazy='dynamic',
+        viewonly=True  # Add this line
     )
     seen_texts = db.relationship(
         'Post',
         secondary=seen_text_posts,
         primaryjoin=f"and_(User.id==seen_text_posts.c.user_id, Post.id==seen_text_posts.c.post_id)",
         backref=db.backref('seen_by_text_users', lazy='dynamic'),
-        lazy='dynamic'
+        lazy='dynamic',
+        viewonly=True  # Add this line
     )
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
