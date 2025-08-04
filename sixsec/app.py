@@ -149,19 +149,23 @@ templates = {
 "view_post.html": """
 {% extends "layout.html" %}
 {% block title %}Publicação de {{ post.author.username }}{% endblock %}
-{% block content %}
-    <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">
-       <a href="{{ request.referrer or url_for('home') }}" style="display:flex; align-items: center; gap: 8px; color: var(--text-color); margin-bottom: 16px;">{{ ICONS.back_arrow|safe }} Voltar</a>
-    </div>
 
-    {# Render the post itself #}
-    {% include 'post_card_text.html' %}
+{# We override the header block to make it empty on this page #}
+{% block header_title %}{% endblock %}
+
+{% block content %}
+    <a href="{{ request.referrer or url_for('home') }}" style="position: absolute; top: 12px; left: 16px; color: var(--text-color); z-index: 10;">{{ ICONS.back_arrow|safe }}</a>
+    
+    <div style="padding-top: 53px;"> {# Add padding to push content below the absolute-positioned back arrow #}
+        {# Render the post itself #}
+        {% include 'post_card_text.html' %}
+    </div>
     
     {# Render the comment section #}
     <div style="border-top: 1px solid var(--border-color); padding: 16px;">
         <h4 style="margin-top:0;">Comentários</h4>
         <form id="comment-form-page" style="display: flex; gap: 8px; margin-bottom: 24px;">
-            <input type="text" id="comment-text-input-page" class="form-group" placeholder="Adicionar um comentário..." style="margin:0; flex-grow:1;">
+            <input type="text" id="comment-text-input-page" class="form-group comment-input-style" placeholder="Adicionar um comentário..." style="margin:0; flex-grow:1;">
             <input type="hidden" id="comment-post-id-page" value="{{ post.id }}">
             <button type="submit" class="btn">{{ ICONS.send|safe }}</button>
         </form>
@@ -310,6 +314,16 @@ templates = {
             border-radius: 6px; background: transparent; color: var(--text-color);
             box-sizing: border-box; font-size: 1rem;
         }
+        /* New style for comment inputs */
+        .comment-input-style {
+            background-color: var(--primary-color) !important;
+            border: 1px solid var(--primary-color) !important;
+            border-radius: 20px !important;
+            padding: 10px 16px !important;
+        }
+        .comment-input-style:focus {
+            border-color: var(--accent-color) !important;
+        }
         .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--accent-color); }
         .modal {
             display: none; position: fixed; z-index: 2000; left: 0; top: 0;
@@ -427,7 +441,7 @@ templates = {
         <div class="modal-body" id="comment-list" style="flex-grow: 1;"><div class="spinner" style="margin: 40px auto;"></div></div>
         <div class="modal-footer">
           <form id="comment-form" style="display: flex; gap: 8px;">
-            <input type="text" id="comment-text-input" class="form-group" placeholder="Adicionar um comentário..." style="margin:0; flex-grow:1;">
+            <input type="text" id="comment-text-input" class="form-group comment-input-style" placeholder="Adicionar um comentário..." style="margin:0; flex-grow:1;">
             <input type="hidden" id="comment-post-id">
             <input type="hidden" id="comment-parent-id">
             <button type="submit" class="btn">{{ ICONS.send|safe }}</button>
@@ -929,7 +943,7 @@ templates = {
         <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">
             <form method="POST" action="{{ url_for('create_text_post') }}" enctype="multipart/form-data">
                 <div class="form-group" style="margin-bottom: 1rem;">
-                    <textarea name="text_content" rows="3" placeholder="O que está acontecendo?" required maxlength="150" style="resize:vertical;"></textarea>
+                    <input type="text" name="text_content" class="comment-input-style" placeholder="O que está acontecendo?" required maxlength="150" />
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <input type="file" name="image" accept="image/png, image/jpeg, image/gif">
