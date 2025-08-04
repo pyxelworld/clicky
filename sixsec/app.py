@@ -1992,7 +1992,7 @@ templates = {
     <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
         <form method="GET" action="{{ url_for('discover') }}">
             <div style="display: flex; gap: 8px;">
-                <input type="search" name="q" placeholder="Buscar por usuários..." class="form-group" style="margin:0; flex-grow:1;" value="{{ request.args.get('q', '') }}">
+                <input type="search" name="q" placeholder="Buscar por usuários..." class="form-group comment-input-style" style="margin:0; flex-grow:1;" value="{{ request.args.get('q', '') }}">
                 <button type="submit" class="btn">{{ ICONS.discover|safe }}</button>
             </div>
         </form>
