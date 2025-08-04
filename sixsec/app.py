@@ -1884,7 +1884,7 @@ class Comment(db.Model):
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
-    user = db.relationship('User', backref='liked_comments')
+    user = db.relationship('User', backref='comments')
     parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy='dynamic', cascade="all, delete-orphan")
     reposts = db.relationship('CommentRepost', backref='original_comment', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.comment_id')
