@@ -151,17 +151,15 @@ templates = {
 {% extends "layout.html" %}
 {% block title %}Publicação de {{ post.author.username }}{% endblock %}
 
-{# We override the header block to make it empty on this page #}
-{% block header_title %}{% endblock %}
+{# We override the header block to provide a clean back-arrow-only header #}
+{% block header_title %}
+    <a href="{{ request.referrer or url_for('home') }}" style="color: var(--text-color);">{{ ICONS.back_arrow|safe }}</a>
+{% endblock %}
 
 {% block content %}
-    <a href="{{ request.referrer or url_for('home') }}" style="position: absolute; top: 12px; left: 16px; color: var(--text-color); z-index: 10;">{{ ICONS.back_arrow|safe }}</a>
-    
-    <div style="padding-top: 53px;"> {# Add padding to push content below the absolute-positioned back arrow #}
-        {# Render the post itself #}
-        {% include 'post_card_text.html' %}
-    </div>
-    
+    {# Render the post itself - no extra padding needed now #}
+    {% include 'post_card_text.html' %}
+
     {# Render the comment section #}
     <div style="border-top: 1px solid var(--border-color); padding: 16px;">
         <h4 style="margin-top:0;">Comentários</h4>
