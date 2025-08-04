@@ -147,49 +147,6 @@ seen_text_posts = db.Table('seen_text_posts',
 
 # --- DICIONÁRIO DE TEMPLATES ---
 templates = {
-"view_six.html": """
-{% extends "layout.html" %}
-{% block title %}Six de {{ post.author.username }}{% endblock %}
-{% block style_override %}
-    body { background-color: #000; overflow: hidden; padding-bottom: 0; }
-    #six-viewer-container {
-        height: 100dvh; width: 100vw;
-        position: fixed; top: 0; left: 0;
-        background-color: #000;
-        z-index: 10;
-    }
-{% endblock %}
-{% block content %}
-<div id="six-viewer-container">
-    {% include 'six_slide.html' %}
-</div>
-{% endblock %}
-{% block scripts %}
-<script>
-    // Simplified script for single six view
-    const video = document.querySelector('.six-video');
-    const slide = document.querySelector('.six-video-slide');
-    let isMuted = false; // Start unmuted on this page
-
-    function toggleMute() {
-        isMuted = !isMuted;
-        video.muted = isMuted;
-    }
-
-    if (video) {
-        video.muted = isMuted;
-        video.play().catch(e => console.error("Autoplay failed", e));
-        
-        slide.addEventListener('click', toggleMute);
-
-        video.addEventListener('loadeddata', () => {
-            video.classList.add('loaded');
-        });
-    }
-</script>
-{% endblock %}
-""",
-
 "view_post.html": """
 {% extends "layout.html" %}
 {% block title %}Publicação de {{ post.author.username }}{% endblock %}
@@ -272,6 +229,63 @@ templates = {
 
     // Initial load
     document.addEventListener('DOMContentLoaded', loadCommentsForPage);
+</script>
+{% endblock %}
+""",
+"view_six_post.html": """
+{% extends "layout.html" %}
+{% block title %}Six de {{ post.author.username }}{% endblock %}
+{% block style_override %}
+body {
+    background-color: #000;
+    overflow: hidden;
+    padding-bottom: 0;
+}
+main {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+{% endblock %}
+
+{% block content %}
+    {# This is a self-contained page, so we borrow the structure from six_slide.html but make it standalone #}
+    <div class="six-video-slide" style="height: 100vh; width: 100%; position: relative;">
+        <div class="six-video-wrapper" style="width: 100%; height: 100%;">
+            <video id="single-six-video" class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop playsinline controls></video>
+            <div class="video-loader"></div>
+        </div>
+        <div class="six-ui-overlay" style="pointer-events: none;">
+            <a href="{{ request.referrer or url_for('home') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
+                {{ ICONS.back_arrow|safe }}
+            </a>
+            <div class="six-info" style="pointer-events: auto;">
+                <a href="{{ url_for('profile', username=post.author.username) }}" style="color:white;"><strong class="username">@{{ post.author.username }}</strong><span style="font-weight: normal; color: rgba(255,255,255,0.8); font-size: 0.9em;"> · {{ post.timestamp|sao_paulo_time }}</span></a>
+                <p>{{ post.text_content }}</p>
+            </div>
+            <div class="six-actions" style="pointer-events: auto;">
+                <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}">
+                    {{ ICONS.like|safe }}
+                    <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
+                </button>
+                <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
+                <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
+                {% if post.author == current_user %}
+                <button onclick="handleDeletePost(this, {{ post.id }})" class="delete-btn">{{ ICONS.trash|safe }}</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block scripts %}
+<script>
+    const video = document.getElementById('single-six-video');
+    video.addEventListener('canplaythrough', () => {
+        video.classList.add('loaded');
+        video.play(); // Autoplay with sound
+    });
 </script>
 {% endblock %}
 """,
@@ -1867,22 +1881,19 @@ templates = {
 
                     {# --- IF REPOSTED POST IS A SIX --- #}
                     {% if post.post_type == 'six' %}
-                        <div style="display: flex; align-items: flex-start; gap: 12px; margin-top: 8px;">
-                            <a href="{{ url_for('view_six_post', post_id=post.id) }}" style="position: relative; width: 100px; height: 100px; border-radius: 50%; overflow: hidden; background-color: #111; flex-shrink: 0;">
-                                <video class="reposted-six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop muted autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
-                            </a>
-                            <div style="padding-top: 8px; flex-grow:1; position: relative;">
-                                <div style="display:flex; justify-content: space-between; align-items: flex-start;">
-                                    <a href="{{ url_for('view_six_post', post_id=post.id) }}" style="color:inherit; text-decoration:none;">
-                                        <div style="font-weight: bold;">@{{ post.author.username }}</div>
-                                        <div style="color: var(--text-muted); font-size: 0.9em; margin-top: 4px;">{{ post.text_content|truncate(80) }}</div>
-                                    </a>
-                                    <button class="reposted-six-volume-toggle" style="background: none; border: none; color: var(--text-muted); padding: 5px; cursor: pointer;">
-                                        {{ ICONS.volume_off|safe|replace('width="24"','width="20"')|replace('height="24"','height="20"') }}
-                                    </button>
-                                </div>
+                        <a href="{{ url_for('view_six_post', post_id=post.id) }}" style="text-decoration: none; color: inherit; display: flex; align-items: flex-start; gap: 12px; margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 16px;">
+                            <div style="position: relative; width: 100px; height: 100px; border-radius: 50%; overflow: hidden; background-color: #111; flex-shrink: 0;">
+                                <video src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop muted autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
                             </div>
-                        </div>
+                            <div style="padding-top: 8px;">
+                                <div style="font-weight: bold; display: flex; align-items: center; gap: 8px;">
+                                    {% if post.author.pfp_filename %}<img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="PFP" style="width:20px; height:20px; border-radius:50%; object-fit: cover;">
+                                    {% else %}<div style="width:20px; height:20px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size: 0.8em;">{{ post.author.username[0]|upper }}</div>{% endif %}
+                                    @{{ post.author.username }}
+                                </div>
+                                <div style="color: var(--text-muted); font-size: 0.9em; margin-top: 4px;">{{ post.text_content|truncate(80) }}</div>
+                            </div>
+                        </a>
 
                     {# --- IF REPOSTED POST IS TEXT --- #}
                     {% else %}
@@ -1996,25 +2007,6 @@ templates = {
 
     document.querySelectorAll('.six-video-slide').forEach(slide => {
       observer.observe(slide);
-    });
-</script>
-{% elif active_tab == 'republicações' %}
-<script>
-    document.querySelectorAll('.reposted-six-volume-toggle').forEach(button => {
-        button.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const container = button.closest('div.flex-grow-1').parentElement;
-            const video = container.querySelector('.reposted-six-video');
-            if (video) {
-                video.muted = !video.muted;
-                if (video.muted) {
-                    button.innerHTML = ICONS.volume_off.replace('width="24"','width="20"').replace('height="24"','height="20"');
-                } else {
-                    button.innerHTML = ICONS.volume_on.replace('width="24"','width="20"').replace('height="24"','height="20"');
-                }
-            }
-        });
     });
 </script>
 {% endif %}
@@ -2286,6 +2278,15 @@ def view_post(post_id):
     add_user_flags_to_posts([post])
     return render_template('view_post.html', post=post)
 
+@app.route('/six/<int:post_id>')
+@login_required
+def view_six_post(post_id):
+    post = Post.query.options(selectinload(Post.author)).get_or_404(post_id)
+    if post.post_type != 'six':
+        return redirect(url_for('view_post', post_id=post.id))
+    add_user_flags_to_posts([post])
+    return render_template('view_six_post.html', post=post)
+
 @app.route('/post/<int:post_id>/context')
 @login_required
 def get_post_context(post_id):
@@ -2294,13 +2295,6 @@ def get_post_context(post_id):
     # Render a simplified version of the post card for the modal
     html = render_template('post_card_text.html', post=post)
     return jsonify({'html': html})
-
-@app.route('/six/<int:post_id>')
-@login_required
-def view_six_post(post_id):
-    post = Post.query.filter_by(id=post_id, post_type='six').first_or_404()
-    add_user_flags_to_posts([post])
-    return render_template('view_six.html', post=post)
 
 @login_manager.user_loader
 def load_user(user_id): return User.query.get(int(user_id))
