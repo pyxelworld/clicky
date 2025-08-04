@@ -862,7 +862,7 @@ templates = {
                 {{ ICONS.like|safe }}
                 <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
             </button>
-            <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span></button>
+            <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments|length }}</span></button>
             <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
             {% if post.author == current_user %}
             <button onclick="handleDeletePost(this, {{ post.id }})" class="delete-btn">{{ ICONS.trash|safe }}</button>
@@ -894,7 +894,7 @@ templates = {
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
             <div style="display: flex; gap: 8px;">
                 <button onclick="openCommentModal({{ post.id }})" class="action-button">
-                    {{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments.count() }}</span>
+                    {{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments|length }}</span>
                 </button>
                 <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">
                     {{ ICONS.repost|safe }} <span>{{ post.reposts.count() }}</span>
@@ -1761,7 +1761,7 @@ class Post(db.Model):
     image_filename = db.Column(db.String(120), nullable=True)
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    comments = db.relationship('Comment', backref='post', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Comment.post_id')
+    comments = db.relationship('Comment', backref='post', lazy='select', cascade="all, delete-orphan", foreign_keys='Comment.post_id')
     reposts = db.relationship('Repost', backref='original_post', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.post_id')
 
 class Comment(db.Model):
@@ -2010,8 +2010,8 @@ def delete_comment(comment_id):
 @app.route('/post/<int:post_id>/comments')
 @login_required
 def get_comments(post_id):
-    post = Post.query.get_or_404(post_id)
-    top_level_comments = post.comments.filter_by(parent_id=None).order_by(Comment.timestamp.asc()).all()
+    # Eagerly load users to avoid N+1 in format_comment
+    top_level_comments = Comment.query.options(selectinload(Comment.user)).filter_by(post_id=post_id, parent_id=None).order_by(Comment.timestamp.asc()).all()
     return jsonify([format_comment(c) for c in top_level_comments])
 
 @app.route('/comment/<int:comment_id>/replies')
