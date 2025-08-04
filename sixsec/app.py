@@ -1856,6 +1856,7 @@ templates = {
                     {% endif %}
                     {% endwith %}
 
+                {# Check if the repost is for a Comment #}
                 {% elif repost.original_comment %}
                     <a href="javascript:openCommentModal({{ repost.original_comment.post_id }}, {{ repost.original_comment.id }})" style="text-decoration:none; color:inherit; display:block;">
                         {% with comment=repost.original_comment %}
