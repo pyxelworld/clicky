@@ -276,30 +276,6 @@ templates = {
         }
 
         {% block style_override %}{% endblock %}
-        .loading-spinner {
-            width: 32px; height: 32px;
-            border: 4px solid var(--border-color);
-            border-top-color: var(--accent-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-        .loading-spinner-small {
-            width: 18px; height: 18px;
-            border: 2px solid var(--border-color);
-            border-top-color: var(--text-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            display: none; /* Hidden by default */
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .media-wrapper {
-            position: relative;
-            width: 100%;
-            display: flex; justify-content: center; align-items: center;
-        }
-        .six-video::-webkit-media-controls { display: none !important; }
-        .six-video { pointer-events: none; }
     </style>
 </head>
 <body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}class="sixs-view" style="overflow: hidden;"
@@ -352,7 +328,7 @@ templates = {
             <input type="text" id="comment-text-input" class="form-group" placeholder="Adicionar um comentário..." style="margin:0; flex-grow:1;">
             <input type="hidden" id="comment-post-id">
             <input type="hidden" id="comment-parent-id">
-            <button type="submit" class="btn"><span class="btn-text">{{ ICONS.send|safe }}</span><span class="loading-spinner-small"></span></button>
+            <button type="submit" class="btn">{{ ICONS.send|safe }}</button>
           </form>
         </div>
       </div>
@@ -362,58 +338,6 @@ templates = {
         const ICONS = {{ ICONS|tojson|safe }};
     </script>
     <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        // --- Global Media Preloader ---
-        document.querySelectorAll('.media-wrapper, .six-video-wrapper').forEach(wrapper => {
-            const spinner = wrapper.querySelector('.loading-spinner');
-            const media = wrapper.querySelector('img, video');
-
-            if (!media || !spinner) return;
-
-            const onMediaLoaded = () => {
-                spinner.style.display = 'none';
-                media.style.display = 'block';
-                // If it's a video and it's visible, try to play it
-                if (media.tagName === 'VIDEO' && wrapper.closest('.is-visible')) {
-                    media.play().catch(e => console.log("Playback failed post-load:", e));
-                }
-            };
-
-            if (media.tagName === 'VIDEO') {
-                // This logic prevents a race condition on mobile browsers.
-                // It first checks if the video is ALREADY ready to play.
-                if (media.readyState >= 2) { // 2 = HAVE_CURRENT_DATA
-                    onMediaLoaded();
-                } else {
-                    // If not, it adds a listener for 'canplay' which is more reliable than 'loadeddata'.
-                    // The 'once: true' option automatically removes the listener after it fires.
-                    media.addEventListener('canplay', onMediaLoaded, { once: true });
-                }
-            } else { // It's an IMG
-                if (media.complete) {
-                    onMediaLoaded();
-                } else {
-                    media.addEventListener('load', onMediaLoaded, { once: true });
-                }
-            }
-        });
-
-        // --- Global Form Spinner Logic ---
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', (e) => {
-                const submitBtn = e.submitter || form.querySelector('button[type="submit"]');
-                if (submitBtn) {
-                    submitBtn.disabled = true;
-                    const spinner = submitBtn.querySelector('.loading-spinner-small');
-                    if(spinner) spinner.style.display = 'inline-block';
-                    // Hide original button text if needed
-                    const btnText = submitBtn.querySelector('.btn-text');
-                    if (btnText) btnText.style.display = 'none';
-                }
-            });
-        });
-    });
-
     const commentModal = document.getElementById('commentModal');
     
     function buildCommentNode(comment) {
@@ -751,7 +675,7 @@ templates = {
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <input type="file" name="image" accept="image/png, image/jpeg, image/gif">
-                    <button type="submit" class="btn"><span class="btn-text">Publicar</span><span class="loading-spinner-small"></span></button>
+                    <button type="submit" class="btn">Publicar</button>
                 </div>
             </form>
         </div>
@@ -854,29 +778,42 @@ templates = {
     const container = document.getElementById('sixs-feed-container');
     const videos = container.querySelectorAll('.six-video');
     const volumeToggle = document.getElementById('volume-toggle');
-    
-    let isSoundOn = true; // Audio is ON by default now
+    const unmutePrompt = document.getElementById('unmute-prompt');
+
+    let isSoundOn = false;
+    let hasInteracted = false;
     const seenSixs = new Set();
 
     function setMutedState(isMuted) {
         isSoundOn = !isMuted;
         videos.forEach(v => v.muted = isMuted);
         volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
+        const currentVideo = document.querySelector('.is-visible video');
+        if (currentVideo) {
+            currentVideo.muted = isMuted;
+        }
     }
-    
-    // Initial setup for volume
-    setMutedState(!isSoundOn);
 
     if (videos.length > 0) {
         volumeToggle.style.display = 'block';
         volumeToggle.addEventListener('click', (e) => {
             e.stopPropagation();
-            setMutedState(isSoundOn); // Toggle current state
+            setMutedState(isSoundOn);
         });
+        
+        container.addEventListener('click', () => {
+            if (!hasInteracted) {
+                hasInteracted = true;
+                unmutePrompt.style.display = 'none';
+                setMutedState(false);
+            }
+        }, { once: true });
     }
-
+    
     function markSixAsSeen(postId) {
-        if (!postId || seenSixs.has(postId)) return;
+        if (!postId || seenSixs.has(postId)) {
+            return;
+        }
         seenSixs.add(postId);
         fetch(`/mark_six_as_seen/${postId}`, { method: 'POST' });
     }
@@ -888,11 +825,11 @@ templates = {
             
             if (entry.isIntersecting) {
                 slide.classList.add('is-visible');
-                if (video && video.readyState >= 3) { // Only play if ready
+                if (video) {
                     video.muted = !isSoundOn;
-                    video.play().catch(e => console.log("Autoplay with sound might have been blocked by the browser."));
-                }
-                if (slide.dataset.postId) {
+                    video.play().catch(e => {
+                        if (!hasInteracted && videos.length > 0) unmutePrompt.style.display = 'block';
+                    });
                     markSixAsSeen(slide.dataset.postId);
                 }
             } else { 
@@ -915,8 +852,7 @@ templates = {
 "six_slide.html": """
 <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
     <div class="six-video-wrapper">
-        <div class="loading-spinner"></div>
-        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline controlsList="nodownload nofullscreen" style="display:none;"></video>
+        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
     </div>
     <div class="six-ui-overlay">
         <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
@@ -958,10 +894,7 @@ templates = {
         </div>
         <div style="margin: 4px 0 12px 0; white-space: pre-wrap; word-wrap: break-word;">{{ post.text_content }}</div>
         {% if post.image_filename %}
-            <div class="media-wrapper" style="border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color); min-height: 100px; overflow:hidden;">
-                <div class="loading-spinner"></div>
-                <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="display:none; width:100%; border-radius:16px; vertical-align: middle;">
-            </div>
+            <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color);">
         {% endif %}
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
             <div style="display: flex; gap: 8px;">
@@ -1122,7 +1055,7 @@ templates = {
              <form id="six-form-element" method="POST" enctype="multipart/form-data" style="display: none; width: 80%; max-width: 400px; margin-top: 5px;">
                  <input type="hidden" name="post_type" value="six">
                  <div class="form-group"> <input type="text" name="caption" maxlength="50" placeholder="Adicionar uma legenda... (opcional)"> </div>
-                 <button type="submit" class="btn" style="width: 100%;"><span class="btn-text">Publicar Six</span><span class="loading-spinner-small"></span></button>
+                 <button type="submit" class="btn" style="width: 100%;">Publicar Six</button>
             </form>
         </div>
     </div>
@@ -1376,7 +1309,7 @@ templates = {
             <small style="color:var(--text-muted); margin-top: 4px; display: block;">Escolha como você prefere visualizar os vídeos Sixs no seu feed.</small>
         </div>
         
-        <button type="submit" class="btn" style="width:100%; margin-top: 10px;"><span class="btn-text">Salvar Alterações</span><span class="loading-spinner-small"></span></button>
+        <button type="submit" class="btn" style="width:100%; margin-top: 10px;">Salvar Alterações</button>
     </form>
 
 
@@ -1584,53 +1517,61 @@ templates = {
     const container = document.getElementById('sixs-feed-container');
     const videos = container.querySelectorAll('.six-video');
     const volumeToggle = document.getElementById('volume-toggle');
+    const unmutePrompt = document.getElementById('unmute-prompt');
     
-    let isSoundOn = true; // Audio is ON by default
+    let isSoundOn = false;
+    let hasInteracted = false;
     
+    if(videos.length > 0) {
+        volumeToggle.style.display = 'block';
+    }
+
     function setMutedState(isMuted) {
         isSoundOn = !isMuted;
         videos.forEach(v => v.muted = isMuted);
         volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
+        const currentVideo = document.querySelector('.is-visible video');
+        if (currentVideo) {
+            currentVideo.muted = isMuted;
+        }
     }
+
+    volumeToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setMutedState(isSoundOn);
+    });
     
-    // Initial setup for volume
-    setMutedState(!isSoundOn);
+    container.addEventListener('click', () => {
+        if (!hasInteracted && videos.length > 0) {
+            hasInteracted = true;
+            unmutePrompt.style.display = 'none';
+            setMutedState(false);
+        }
+    }, { once: true });
 
-    if (videos.length > 0) {
-        volumeToggle.style.display = 'block';
-        volumeToggle.addEventListener('click', (e) => {
-            e.stopPropagation();
-            setMutedState(isSoundOn); // Toggle current state
-        });
-    }
-
-    const sixObserver = new IntersectionObserver((entries) => {
+    const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const slide = entry.target;
-            const video = slide.querySelector('video');
+            const video = entry.target.querySelector('video');
+            if (!video) return;
             
             if (entry.isIntersecting) {
-                slide.classList.add('is-visible');
-                // The global preloader script in layout.html will handle playing the video when it's ready.
-                // We just ensure it has the right muted state.
-                if (video) {
-                    video.muted = !isSoundOn;
-                    if(video.readyState >= 2) { // If it's already playable
-                         video.play().catch(e => console.log("Autoplay with sound might have been blocked by the browser."));
+                entry.target.classList.add('is-visible');
+                video.muted = !isSoundOn;
+                video.play().catch(e => {
+                    if (!hasInteracted && videos.length > 0) {
+                        unmutePrompt.style.display = 'block';
                     }
-                }
+                });
             } else { 
-                slide.classList.remove('is-visible');
-                if (video) {
-                    video.pause(); 
-                    video.currentTime = 0;
-                }
+                entry.target.classList.remove('is-visible');
+                video.pause(); 
+                video.currentTime = 0;
             }
         });
     }, { threshold: 0.7 });
 
     document.querySelectorAll('.six-video-slide').forEach(slide => {
-      sixObserver.observe(slide);
+      observer.observe(slide);
     });
 </script>
 {% endif %}
@@ -1978,7 +1919,7 @@ def profile(username):
         add_user_flags_to_posts(original_posts)
 
     else:
-        post_type_filter = 'six' if active_tab == 'sixs' else 'text'
+        post_type_filter = 'sixs' if active_tab == 'sixs' else 'text'
         # Eager load author for each post
         posts = user.posts.options(selectinload(Post.author)).filter(Post.post_type == post_type_filter).order_by(Post.timestamp.desc()).all()
         add_user_flags_to_posts(posts)
