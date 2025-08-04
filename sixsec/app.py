@@ -1,6 +1,7 @@
 import os
 import datetime
 import random
+import pytz
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, not_, text
@@ -51,6 +52,20 @@ ICONS = {
     'check': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
 }
 app.jinja_env.globals.update(ICONS=ICONS)
+
+@app.template_filter('sao_paulo_time')
+def sao_paulo_time_filter(utc_dt):
+    if not utc_dt:
+        return ""
+    sao_paulo_tz = pytz.timezone('America/Sao_Paulo')
+    utc_tz = pytz.utc
+    # Make the naive datetime object timezone-aware (as UTC)
+    aware_utc_dt = utc_tz.localize(utc_dt)
+    # Convert to São Paulo timezone
+    sao_paulo_dt = aware_utc_dt.astimezone(sao_paulo_tz)
+    
+    # Format the string
+    return sao_paulo_dt.strftime('%d de %b · %H:%M')
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -817,7 +832,7 @@ templates = {
     <div style="flex-grow:1;">
         <div>
             <a href="{{ url_for('profile', username=post.author.username) }}" style="color:var(--text-color); font-weight:bold;">{{ post.author.username }}</a>
-            <span style="color:var(--text-muted);">· {{ post.timestamp.strftime('%d de %b') }}</span>
+            <span style="color:var(--text-muted);">· {{ post.timestamp|sao_paulo_time }}</span>
         </div>
         <div style="margin: 4px 0 12px 0; white-space: pre-wrap; word-wrap: break-word;">{{ post.text_content }}</div>
         {% if post.image_filename %}
