@@ -1,22 +1,14 @@
-# instead of sending me the entire code, make me a before and after so perfect that i can copy and paste it into vs code find and replace to apply all changes
-# consider even the left spaces in the lines for it
-
 import os
 import datetime
 import random
 import pytz
-import shutil
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, not_, text
-from sqlalchemy.orm import selectinload
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from jinja2 import BaseLoader, TemplateNotFound
-from flask_caching import Cache
-from PIL import Image
-import ffmpeg
 
 # --- CONFIGURAÇÃO DO APP ---
 app = Flask(__name__)
@@ -25,17 +17,11 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
-app.config['CACHE_TYPE'] = 'FileSystemCache'
-app.config['CACHE_DIR'] = os.path.join(basedir, 'cache')
-app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024 # Increased for larger video files before compression
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'webm'}
-IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-VIDEO_EXTENSIONS = {'mp4', 'mov', 'webm'}
-
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 # --- INICIALIZAÇÃO DE EXTENSÕES E HELPERS ---
 db = SQLAlchemy(app)
-cache = Cache(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -81,52 +67,8 @@ def sao_paulo_time_filter(utc_dt):
     # Format the string
     return sao_paulo_dt.strftime('%d de %b · %H:%M')
 
-def allowed_file(filename, file_type='any'):
-    is_allowed = '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-    if not is_allowed:
-        return False
-    if file_type == 'image':
-        return filename.rsplit('.', 1)[1].lower() in IMAGE_EXTENSIONS
-    if file_type == 'video':
-        return filename.rsplit('.', 1)[1].lower() in VIDEO_EXTENSIONS
-    return True
-
-def process_image(input_path, output_path, max_width=1080):
-    try:
-        with Image.open(input_path) as img:
-            if img.width > max_width:
-                height = int((max_width / img.width) * img.height)
-                img = img.resize((max_width, height), Image.Resampling.LANCZOS)
-            
-            # Convert to RGB if it's RGBA (to save as JPEG)
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-                
-            img.save(output_path, 'jpeg', quality=85, optimize=True)
-        return True
-    except Exception as e:
-        print(f"Error processing image: {e}")
-        # Fallback: just copy the file
-        shutil.copy(input_path, output_path)
-        return False
-
-def process_video(input_path, output_path):
-    try:
-        ffmpeg.input(input_path).output(
-            output_path,
-            vcodec='libx264', # A widely compatible codec
-            crf=28,          # Constant Rate Factor (quality). Higher is lower quality/size. 23 is default.
-            preset='fast',   # Encoding speed vs. compression ratio
-            acodec='aac',      # Audio codec
-            strict='experimental',
-            vf='scale=w=720:h=1280:force_original_aspect_ratio=decrease' # Scale down to 720p max
-        ).run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
-        return True
-    except ffmpeg.Error as e:
-        print(f"FFmpeg Error: {e.stderr.decode()}")
-        # Fallback: just copy the file
-        shutil.copy(input_path, output_path)
-        return False
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- BANCO DE DADOS ---
 followers = db.Table('followers',
@@ -852,7 +794,7 @@ templates = {
 "six_slide.html": """
 <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
     <div class="six-video-wrapper">
-    <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
+        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
     </div>
     <div class="six-ui-overlay">
         <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
@@ -1328,12 +1270,6 @@ templates = {
     </form>
 
     <hr style="border-color: var(--border-color); margin: 30px 0;">
-    <h4>Gerenciamento de Dados</h4>
-    <form method="POST" action="{{ url_for('clear_cache') }}" style="margin-bottom: 24px;">
-        <button type="submit" class="btn btn-outline" style="width: 100%;" onclick="return confirm('Isso irá limpar os dados em cache no servidor, como imagens e vídeos processados. O site pode carregar um pouco mais devagar na primeira vez que você visualizar o conteúdo novamente. Continuar?')">Limpar Cache do Servidor</button>
-    </form>
-    
-    <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Ações da Conta</h4>
     <a href="{{ url_for('logout') }}" class="btn btn-outline" style="width: 100%; box-sizing: border-box; text-align: center; margin-bottom: 24px;">{{ ICONS.logout|safe }} Sair</a>
     
@@ -1365,22 +1301,12 @@ templates = {
         position: relative; display: flex; justify-content: center; align-items: center;
     }
     .six-video-wrapper {
-        position: relative;
+        position: relative; width: 100%; height: 100%;
         display:flex; justify-content:center; align-items:center;
-        transition: all 0.3s ease;
-        {% if current_user.six_feed_style == 'fullscreen' %}
-        width: 100%; height: 100%;
-        {% else %}
-        width: min(100vw, 100dvh); height: min(100vw, 100dvh);
-        clip-path: circle(50% at 50% 50%);
-        {% endif %}
     }
     .six-video { 
-        width: 100%; height: 100%; object-fit: cover;
-        {% if current_user.six_feed_style == 'fullscreen' %}
-        aspect-ratio: 9/16;
-        max-width: 100vw; max-height: 100dvh;
-        {% endif %}
+        width: 100%; height: 100%; object-fit: cover; 
+        aspect-ratio: 9/16; max-width: 100vw; max-height: 100dvh;
     }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
@@ -1644,32 +1570,7 @@ templates = {
     <a href="{{ url_for('profile', username=user.username) }}" style="display:flex; align-items: center; padding: 12px 16px; gap: 8px; color: var(--text-color); border-bottom: 1px solid var(--border-color);">{{ ICONS.back_arrow|safe }} Voltar para o Perfil</a>
     {% for u in user_list %}
     <div style="border-bottom: 1px solid var(--border-color); padding:12px 16px; display:flex; align-items:center; gap:12px;">
-        <div style="width: 40px; height: 40px; flex-shrink:0;">import os
-import datetime
-import random
-import pytz
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, not_, text
-from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
-from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
-from jinja2 import BaseLoader, TemplateNotFound
-
-# --- CONFIGURAÇÃO DO APP ---
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'a-chave-final-completa-e-polida-para-sixsec-v10-ptbr-final'
-basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-
-# --- INICIALIZAÇÃO DE EXTENSÕES E HELPERS ---
-db = SQLAlchemy(app)
-login_manager = LoginManager()
-login_manager.init_app(app)
+        <div style="width: 40px; height: 40px; flex-shrink:0;">
             <a href="{{ url_for('profile', username=u.username) }}">
             {% if u.pfp_filename %}
                 <img src="{{ url_for('static', filename='uploads/' + u.pfp_filename) }}" alt="Foto de perfil de {{ u.username }}" style="width:40px; height:40px; border-radius:50%; object-fit: cover;">
@@ -1853,15 +1754,9 @@ def format_comment(comment):
     
 @app.after_request
 def add_header(response):
-    # This disables caching for dynamic pages (HTML)
-    if response.mimetype == 'text/html':
-        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '-1'
-    # For static assets served through Flask, we can set a cache policy
-    # Note: A production setup would use a webserver like Nginx to serve static files directly.
-    elif request.path.startswith('/static/'):
-         response.headers['Cache-Control'] = 'public, max-age=31536000' # Cache for 1 year
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '-1'
     return response
 
 # --- ROTAS ---
@@ -1872,56 +1767,55 @@ def load_user(user_id): return User.query.get(int(user_id))
 @login_required
 def home():
     feed_type = request.args.get('feed_type', 'text')
-    
-    # Eagerly load the list of followed users to avoid multiple queries
-    followed_users = current_user.followed.all()
-    followed_ids = [u.id for u in followed_users]
+    followed_ids = [u.id for u in current_user.followed]
     followed_ids.append(current_user.id)
     
-    post_type_filter = 'text' if feed_type == 'text' else 'six'
-    seen_table = seen_text_posts if feed_type == 'text' else seen_sixs_posts
+    base_query = Post.query.filter(Post.user_id.in_(followed_ids))
+    
+    if feed_type == 'text':
+        query = base_query.filter_by(post_type='text')
+        seen_ids_subquery = db.session.query(seen_text_posts.c.post_id).filter_by(user_id=current_user.id)
+        
+        unseen_posts = query.filter(not_(Post.id.in_(seen_ids_subquery))).order_by(Post.timestamp.desc()).all()
+        seen_posts = query.filter(Post.id.in_(seen_ids_subquery)).order_by(Post.timestamp.desc()).all()
+        
+        add_user_flags_to_posts(unseen_posts)
+        add_user_flags_to_posts(seen_posts)
+        return render_template('home.html', unseen_posts=unseen_posts, seen_posts=seen_posts, feed_type=feed_type)
+    
+    else: # feed_type == 'sixs'
+        query = base_query.filter_by(post_type='six')
+        seen_ids_subquery = db.session.query(seen_sixs_posts.c.post_id).filter_by(user_id=current_user.id)
+        
+        unseen_posts = query.filter(not_(Post.id.in_(seen_ids_subquery))).order_by(Post.timestamp.desc()).all()
+        seen_posts = query.filter(Post.id.in_(seen_ids_subquery)).order_by(Post.timestamp.desc()).all()
 
-    # Eager load authors to prevent N+1 queries in the template
-    base_query = Post.query.options(selectinload(Post.author)).filter(
-        Post.user_id.in_(followed_ids),
-        Post.post_type == post_type_filter
-    )
-    
-    seen_ids_subquery = db.session.query(seen_table.c.post_id).filter_by(user_id=current_user.id)
-    
-    # Perform two queries to get seen and unseen posts
-    unseen_posts = base_query.filter(not_(Post.id.in_(seen_ids_subquery))).order_by(Post.timestamp.desc()).all()
-    seen_posts = base_query.filter(Post.id.in_(seen_ids_subquery)).order_by(Post.timestamp.desc()).all()
-    
-    # Combine lists and fetch interaction data in one go
-    all_posts = unseen_posts + seen_posts
-    add_user_flags_to_posts(all_posts)
-
-    return render_template('home.html', unseen_posts=unseen_posts, seen_posts=seen_posts, feed_type=feed_type)
+        add_user_flags_to_posts(unseen_posts)
+        add_user_flags_to_posts(seen_posts)
+        return render_template('home.html', unseen_posts=unseen_posts, seen_posts=seen_posts, feed_type=feed_type)
 
 @app.route('/profile/<username>')
 @login_required
 def profile(username):
-    # Get the user. We can't use selectinload on the self-referential followers/followed,
-    # but the .count() method on the dynamic relationship is already efficient.
     user = User.query.filter_by(username=username).first_or_404()
-
     active_tab = request.args.get('tab', 'publicações')
     posts = []
     reposts_data = []
 
     if active_tab == 'republicações':
-        # Eager load related data to avoid N+1 queries
-        post_reposts = user.reposts.options(selectinload(Repost.original_post).selectinload(Post.author)).order_by(Repost.timestamp.desc()).all()
-        comment_reposts = user.comment_reposts.options(selectinload(CommentRepost.original_comment).selectinload(Comment.user)).order_by(CommentRepost.timestamp.desc()).all()
+        post_reposts = user.reposts.order_by(Repost.timestamp.desc()).all()
+        comment_reposts = user.comment_reposts.order_by(CommentRepost.timestamp.desc()).all()
         reposts_data = sorted(post_reposts + comment_reposts, key=lambda r: r.timestamp, reverse=True)
-        original_posts = [r.original_post for r in post_reposts if r.original_post]
-        add_user_flags_to_posts(original_posts)
-
-    else:
-        post_type_filter = 'sixs' if active_tab == 'sixs' else 'text'
-        # Eager load author for each post
-        posts = user.posts.options(selectinload(Post.author)).filter(Post.post_type == post_type_filter).order_by(Post.timestamp.desc()).all()
+        if reposts_data:
+            original_posts = [r.original_post for r in post_reposts if r.original_post]
+            add_user_flags_to_posts(original_posts)
+    elif active_tab == 'sixs':
+        posts = user.posts.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
+    else: # Default para 'publicações'
+        active_tab = 'publicações'
+        posts = user.posts.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
+    
+    if posts:
         add_user_flags_to_posts(posts)
         
     return render_template('profile.html', user=user, posts=posts, reposts=reposts_data, active_tab=active_tab)
@@ -1945,71 +1839,38 @@ def follow_list(username, list_type):
 @login_required
 def create_post():
     if request.method == 'POST':
-        video_file = request.files.get('video_file')
-        if not video_file or not allowed_file(video_file.filename, 'video'):
-            flash('Arquivo de vídeo inválido ou não enviado.', 'error')
-            return redirect(url_for('create_post'))
-
-        # Process and save video
-        temp_filename = secure_filename(f"temp_six_{current_user.id}_{int(datetime.datetime.now().timestamp())}")
-        final_filename = f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.mp4" # Standardize to mp4
-        
-        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
-        final_path = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
-        
-        video_file.save(temp_path)
-        
-        process_video(temp_path, final_path)
-        
-        # Clean up temporary file
-        os.remove(temp_path)
-
-        post = Post(
-            post_type='six',
-            text_content=request.form.get('caption', ''),
-            video_filename=final_filename,
-            author=current_user
-        )
-        db.session.add(post)
-        db.session.commit()
-        
-        flash('Six publicado com sucesso!', 'success')
-        return redirect(url_for('home', feed_type='sixs'))
-        
+        post_type = request.form.get('post_type')
+        if post_type == 'six':
+            video_file = request.files.get('video_file')
+            if not video_file: 
+                flash('Dados de vídeo não recebidos.', 'error')
+                return redirect(url_for('create_post'))
+            filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
+            video_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            post = Post(post_type='six', text_content=request.form.get('caption', ''), video_filename=filename, author=current_user)
+            db.session.add(post)
+            db.session.commit()
+            flash('Six publicado com sucesso!', 'success')
+            return redirect(url_for('home', feed_type='sixs'))
     return render_template('create_post.html')
 
 @app.route('/create_text_post', methods=['POST'])
 @login_required
 def create_text_post():
     text = request.form.get('text_content')
+    image_file = request.files.get('image')
+    filename = None
     if not text or not text.strip():
         flash('O conteúdo da publicação não pode estar vazio.', 'error')
         return redirect(url_for('home'))
-
-    image_file = request.files.get('image')
-    final_filename = None
-
     if image_file and image_file.filename != '':
-        if not allowed_file(image_file.filename, 'image'):
+        if not allowed_file(image_file.filename):
             flash('Tipo de arquivo de imagem inválido.', 'error')
             return redirect(url_for('home'))
-            
-        temp_filename = secure_filename(f"temp_img_{current_user.id}_{int(datetime.datetime.now().timestamp())}")
-        final_filename = f"img_{current_user.id}_{int(datetime.datetime.now().timestamp())}.jpg" # Standardize to jpg for consistency
-        
-        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
-        final_path = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
-        
-        image_file.save(temp_path)
-        
-        process_image(temp_path, final_path)
-        
-        # Clean up temporary file
-        os.remove(temp_path)
-
-    post = Post(post_type='text', text_content=text, image_filename=final_filename, author=current_user)
-    db.session.add(post)
-    db.session.commit()
+        filename = secure_filename(f"img_{current_user.id}_{int(datetime.datetime.now().timestamp())}{os.path.splitext(image_file.filename)[1]}")
+        image_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    post = Post(post_type='text', text_content=text, image_filename=filename, author=current_user)
+    db.session.add(post); db.session.commit()
     flash('Publicação criada!', 'success')
     return redirect(url_for('home', feed_type='text'))
 
@@ -2020,17 +1881,12 @@ def delete_post(post_id):
     if post.author != current_user:
         return jsonify({'success': False, 'message': 'Permissão negada.'}), 403
 
-    # Safely try to delete associated files
     if post.image_filename:
-        try:
-            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.image_filename))
-        except OSError as e:
-            print(f"Error deleting image file {post.image_filename}: {e}")
+        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.image_filename))
+        except OSError: pass
     if post.video_filename:
-        try:
-            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.video_filename))
-        except OSError as e:
-            print(f"Error deleting video file {post.video_filename}: {e}")
+        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.video_filename))
+        except OSError: pass
 
     db.session.delete(post)
     db.session.commit()
@@ -2312,18 +2168,6 @@ def logout():
     flash('Você foi desconectado.', 'success')
     return redirect(url_for('login'))
 
-@app.route('/clear-cache', methods=['POST'])
-@login_required
-def clear_cache():
-    try:
-        shutil.rmtree(app.config['CACHE_DIR'])
-        os.makedirs(app.config['CACHE_DIR'], exist_ok=True)
-        flash('O cache do servidor foi limpo com sucesso!', 'success')
-    except Exception as e:
-        flash(f'Erro ao limpar o cache: {e}', 'error')
-    return redirect(url_for('edit_profile'))
-
-
 def check_and_upgrade_db():
     """Verifica o esquema do DB e adiciona colunas ausentes sem perda de dados."""
     engine = db.get_engine()
@@ -2355,9 +2199,7 @@ def check_and_upgrade_db():
 # --- EXECUÇÃO PRINCIPAL ---
 if __name__ == '__main__':
     with app.app_context():
-        # Ensure upload and cache directories exist
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-        os.makedirs(app.config['CACHE_DIR'], exist_ok=True)
+        if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
         db.create_all()
         check_and_upgrade_db() # Executa a verificação/atualização aqui
 
