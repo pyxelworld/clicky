@@ -60,7 +60,8 @@ ICONS = {
     'camera_switch': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"></path><path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"></path><path d="m18 19-3-3 3-3"></path><path d="m6 5 3 3-3 3"></path></svg>',
     'pause': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg>',
     'record_circle': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"></circle></svg>',
-    'check': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+    'check': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+    'attach_file': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
 }
 app.jinja_env.globals.update(ICONS=ICONS)
 
@@ -307,6 +308,21 @@ templates = {
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-outline { background: transparent; border: 1px solid var(--text-muted); color: var(--text-color); }
         .btn-danger { background-color: var(--red-color); color: white; }
+        .attachment-btn {
+            background: none;
+            border: none;
+            color: var(--accent-color);
+            cursor: pointer;
+            padding: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background-color 0.2s ease;
+        }
+        .attachment-btn:hover {
+            background-color: rgba(29, 155, 240, 0.1);
+        }
         .form-group { margin-bottom: 1.5rem; }
         .form-group label { display: block; margin-bottom: .5rem; color: var(--text-muted); }
         .form-group input, .form-group textarea {
@@ -942,12 +958,15 @@ templates = {
 
     {% if feed_type == 'text' %}
         <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">
-            <form method="POST" action="{{ url_for('create_text_post') }}" enctype="multipart/form-data">
-                <div class="form-group" style="margin-bottom: 1rem;">
-                    <input type="text" name="text_content" class="comment-input-style" placeholder="O que está acontecendo?" required maxlength="150" />
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <input type="file" name="image" accept="image/png, image/jpeg, image/gif">
+            <form method="POST" action="{{ url_for('create_text_post') }}" enctype="multipart/form-data" onsubmit="setButtonLoading(this.querySelector('button[type=submit]'), true)">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label for="image-upload" class="attachment-btn" title="Anexar imagem">
+                        {{ ICONS.attach_file|safe }}
+                    </label>
+                    <input type="file" id="image-upload" name="image" accept="image/png, image/jpeg, image/gif" style="display: none;">
+                    
+                    <input type="text" name="text_content" class="comment-input-style" placeholder="O que está acontecendo?" required maxlength="150" style="flex-grow: 1;" />
+                    
                     <button type="submit" class="btn">Publicar</button>
                 </div>
             </form>
