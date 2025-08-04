@@ -320,7 +320,7 @@ templates = {
             border: 1px solid var(--primary-color) !important;
             border-radius: 20px !important;
             padding: 10px 16px !important;
-            text-color: white;
+            font-color: white;
         }
         .comment-input-style:focus {
             border-color: var(--accent-color) !important;
