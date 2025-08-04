@@ -458,7 +458,7 @@ templates = {
         }
     }
 
-    async function handleDeletePost(button, postId) {
+    async function handleDeletePost(postDeleteButton, postId) {
         if (!confirm('Tem certeza que deseja deletar esta publicação? Esta ação é permanente.')) return;
 
         const response = await fetch(`/delete_post/${postId}`, { method: 'POST' });
