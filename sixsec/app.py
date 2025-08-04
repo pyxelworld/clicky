@@ -916,7 +916,7 @@ templates = {
 <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
     <div class="six-video-wrapper">
         <div class="loading-spinner"></div>
-        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline controlsList="nodownload nofullscreen" style="display:none;"></video>
+        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
     </div>
     <div class="six-ui-overlay">
         <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
