@@ -380,14 +380,21 @@ templates = {
             };
 
             if (media.tagName === 'VIDEO') {
-                // 'canplaythrough' is the event for when the video is fully buffered
-                media.addEventListener('loadeddata', onMediaLoaded);
-                // Fallback for partially loaded videos
-                if (media.readyState >= 3) onMediaLoaded();
+                // This logic prevents a race condition on mobile browsers.
+                // It first checks if the video is ALREADY ready to play.
+                if (media.readyState >= 2) { // 2 = HAVE_CURRENT_DATA
+                    onMediaLoaded();
+                } else {
+                    // If not, it adds a listener for 'canplay' which is more reliable than 'loadeddata'.
+                    // The 'once: true' option automatically removes the listener after it fires.
+                    media.addEventListener('canplay', onMediaLoaded, { once: true });
+                }
             } else { // It's an IMG
-                media.addEventListener('load', onMediaLoaded);
-                // Fallback for cached images
-                if (media.complete) onMediaLoaded();
+                if (media.complete) {
+                    onMediaLoaded();
+                } else {
+                    media.addEventListener('load', onMediaLoaded, { once: true });
+                }
             }
         });
 
@@ -909,7 +916,7 @@ templates = {
 <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
     <div class="six-video-wrapper">
         <div class="loading-spinner"></div>
-        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline style="display:none;"></video>
+        <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline controlsList="nodownload nofullscreen" style="display:none;"></video>
     </div>
     <div class="six-ui-overlay">
         <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
@@ -1577,61 +1584,53 @@ templates = {
     const container = document.getElementById('sixs-feed-container');
     const videos = container.querySelectorAll('.six-video');
     const volumeToggle = document.getElementById('volume-toggle');
-    const unmutePrompt = document.getElementById('unmute-prompt');
     
-    let isSoundOn = false;
-    let hasInteracted = false;
+    let isSoundOn = true; // Audio is ON by default
     
-    if(videos.length > 0) {
-        volumeToggle.style.display = 'block';
-    }
-
     function setMutedState(isMuted) {
         isSoundOn = !isMuted;
         videos.forEach(v => v.muted = isMuted);
         volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
-        const currentVideo = document.querySelector('.is-visible video');
-        if (currentVideo) {
-            currentVideo.muted = isMuted;
-        }
+    }
+    
+    // Initial setup for volume
+    setMutedState(!isSoundOn);
+
+    if (videos.length > 0) {
+        volumeToggle.style.display = 'block';
+        volumeToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            setMutedState(isSoundOn); // Toggle current state
+        });
     }
 
-    volumeToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setMutedState(isSoundOn);
-    });
-    
-    container.addEventListener('click', () => {
-        if (!hasInteracted && videos.length > 0) {
-            hasInteracted = true;
-            unmutePrompt.style.display = 'none';
-            setMutedState(false);
-        }
-    }, { once: true });
-
-    const observer = new IntersectionObserver((entries) => {
+    const sixObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const video = entry.target.querySelector('video');
-            if (!video) return;
+            const slide = entry.target;
+            const video = slide.querySelector('video');
             
             if (entry.isIntersecting) {
-                entry.target.classList.add('is-visible');
-                video.muted = !isSoundOn;
-                video.play().catch(e => {
-                    if (!hasInteracted && videos.length > 0) {
-                        unmutePrompt.style.display = 'block';
+                slide.classList.add('is-visible');
+                // The global preloader script in layout.html will handle playing the video when it's ready.
+                // We just ensure it has the right muted state.
+                if (video) {
+                    video.muted = !isSoundOn;
+                    if(video.readyState >= 2) { // If it's already playable
+                         video.play().catch(e => console.log("Autoplay with sound might have been blocked by the browser."));
                     }
-                });
+                }
             } else { 
-                entry.target.classList.remove('is-visible');
-                video.pause(); 
-                video.currentTime = 0;
+                slide.classList.remove('is-visible');
+                if (video) {
+                    video.pause(); 
+                    video.currentTime = 0;
+                }
             }
         });
     }, { threshold: 0.7 });
 
     document.querySelectorAll('.six-video-slide').forEach(slide => {
-      observer.observe(slide);
+      sixObserver.observe(slide);
     });
 </script>
 {% endif %}
