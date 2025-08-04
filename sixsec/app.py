@@ -173,11 +173,8 @@ templates = {
             font-size: 15px;
             overscroll-behavior-y: contain;
             opacity: 1;
-            transition: opacity 0.25s ease-in-out;
         }
-        body.fade-out {
-            opacity: 0;
-        }
+        /* REMOVED: body.fade-out class is no longer used */
         body.sixs-view, body.creator-view { padding-bottom: 0; background-color: #000; }
         .container { max-width: 600px; margin: 0 auto; }
         a { color: var(--accent-color); text-decoration: none; }
@@ -361,27 +358,26 @@ templates = {
         function showLoader() { if(pageLoader) pageLoader.style.display = 'flex'; }
         function hideLoader() { if(pageLoader) pageLoader.style.display = 'none'; }
         
-        // --- Page Transitions ---
+        // --- Page Loader Logic ---
         document.addEventListener('DOMContentLoaded', () => {
             hideLoader();
-            document.body.classList.remove('fade-out');
         });
         
         window.addEventListener('pageshow', (event) => {
             // Hide loader on back/forward navigation
             if (event.persisted) {
                 hideLoader();
-                document.body.classList.remove('fade-out');
             }
         });
 
         document.addEventListener('click', function(e) {
             let anchor = e.target.closest('a');
+            // Check if it's a standard navigation link
             if (anchor && anchor.href && anchor.target !== '_blank' && !anchor.getAttribute('href').startsWith('#') && !anchor.getAttribute('href').startsWith('javascript:') && !anchor.classList.contains('btn')) {
                 e.preventDefault();
                 showLoader();
-                document.body.classList.add('fade-out');
-                setTimeout(() => { window.location.href = anchor.href; }, 250);
+                // Navigate immediately, no delay for animation
+                window.location.href = anchor.href;
             }
         });
     </script>
