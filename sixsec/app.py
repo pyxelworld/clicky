@@ -860,7 +860,7 @@ templates = {
         <div class="six-actions">
             <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}">
                 {{ ICONS.like|safe }}
-                <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
+                <span id="like-count-{{ post.id }}">{{ post.liked_by|length }}</span>
             </button>
             <button onclick="openCommentModal({{ post.id }})">{{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments|length }}</span></button>
             <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">{{ ICONS.repost|safe }}</button>
@@ -897,10 +897,10 @@ templates = {
                     {{ ICONS.comment|safe }} <span id="comment-count-{{ post.id }}">{{ post.comments|length }}</span>
                 </button>
                 <button onclick="handleRepost(this, {{ post.id }})" class="action-button {{ 'reposted' if post.reposted_by_current_user else '' }}">
-                    {{ ICONS.repost|safe }} <span>{{ post.reposts.count() }}</span>
+                    {{ ICONS.repost|safe }} <span>{{ post.reposts|length }}</span>
                 </button>
                 <button onclick="handleLike(this, {{ post.id }})" class="action-button {{ 'liked' if post.liked_by_current_user else '' }}">
-                    {{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by.count() }}</span>
+                    {{ ICONS.like|safe }} <span id="like-count-{{ post.id }}">{{ post.liked_by|length }}</span>
                 </button>
             </div>
             {% if post.author == current_user %}
@@ -1441,8 +1441,8 @@ templates = {
         <h2 style="margin: 12px 0 0 0;">{{ user.username }}</h2>
         <p style="color: var(--text-muted); margin: 4px 0 12px 0;">{{ user.bio or "Sem biografia ainda." }}</p>
         <div class="follow-stats" style="display:flex; gap: 16px;">
-            <a href="{{ url_for('follow_list', username=user.username, list_type='followers') }}"><strong>{{ user.followers.count() }}</strong> Seguidores</a>
-            <a href="{{ url_for('follow_list', username=user.username, list_type='following') }}"><strong>{{ user.followed.count() }}</strong> Seguindo</a>
+            <a href="{{ url_for('follow_list', username=user.username, list_type='followers') }}"><strong>{{ user.followers|length }}</strong> Seguidores</a>
+            <a href="{{ url_for('follow_list', username=user.username, list_type='following') }}"><strong>{{ user.followed|length }}</strong> Seguindo</a>
         </div>
     </div>
     {% endif %}
@@ -1712,16 +1712,16 @@ class User(UserMixin, db.Model):
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Post.user_id')
     reposts = db.relationship('Repost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='Repost.user_id')
     comment_reposts = db.relationship('CommentRepost', backref='reposter', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.user_id')
-    liked_posts = db.relationship('Post', secondary=post_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
-    liked_comments = db.relationship('Comment', secondary=comment_likes, backref=db.backref('liked_by', lazy='dynamic'), lazy='dynamic')
+    liked_posts = db.relationship('Post', secondary=post_likes, backref=db.backref('liked_by', lazy='select'), lazy='select')
+    liked_comments = db.relationship('Comment', secondary=comment_likes, backref=db.backref('liked_by', lazy='select'), lazy='select')
     
     followed = db.relationship(
         'User', 
         secondary=followers, 
         primaryjoin=(followers.c.follower_id == id), 
         secondaryjoin=(followers.c.followed_id == id), 
-        backref=db.backref('followers', lazy='dynamic'), 
-        lazy='dynamic'
+        backref=db.backref('followers', lazy='select'), 
+        lazy='select'
     )
     
     seen_sixs = db.relationship(
@@ -1816,7 +1816,7 @@ def format_comment(comment):
             'initial': comment.user.username[0].upper(),
             'pfp_filename': comment.user.pfp_filename
         },
-        'like_count': comment.liked_by.count(),
+        'like_count': len(comment.liked_by),
         'is_liked_by_user': current_user in comment.liked_by,
         'is_owned_by_user': current_user.is_authenticated and comment.user_id == current_user.id,
         'replies_count': comment.replies.count()
@@ -2050,7 +2050,7 @@ def like_post(post_id):
         post.liked_by.append(current_user)
         liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': post.liked_by.count()})
+    return jsonify({'liked': liked, 'likes': len(post.liked_by)})
 
 @app.route('/like/comment/<int:comment_id>', methods=['POST'])
 @login_required
@@ -2063,7 +2063,7 @@ def like_comment(comment_id):
         comment.liked_by.append(current_user)
         liked = True
     db.session.commit()
-    return jsonify({'liked': liked, 'likes': comment.liked_by.count()})
+    return jsonify({'liked': liked, 'likes': len(comment.liked_by)})
 
 @app.route('/repost/post/<int:post_id>', methods=['POST'])
 @login_required
