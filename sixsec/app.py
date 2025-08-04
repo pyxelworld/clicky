@@ -2,13 +2,18 @@ import os
 import datetime
 import random
 import pytz
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
+import shutil
+from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, not_, text
+from sqlalchemy.orm import selectinload
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from jinja2 import BaseLoader, TemplateNotFound
+from flask_caching import Cache
+from PIL import Image
+import ffmpeg
 
 # --- CONFIGURAÇÃO DO APP ---
 app = Flask(__name__)
@@ -17,11 +22,17 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'sixsec.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'static/uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+app.config['CACHE_TYPE'] = 'FileSystemCache'
+app.config['CACHE_DIR'] = os.path.join(basedir, 'cache')
+app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024 # Increased for larger video files before compression
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'webm'}
+IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+VIDEO_EXTENSIONS = {'mp4', 'mov', 'webm'}
+
 
 # --- INICIALIZAÇÃO DE EXTENSÕES E HELPERS ---
 db = SQLAlchemy(app)
+cache = Cache(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -67,8 +78,49 @@ def sao_paulo_time_filter(utc_dt):
     # Format the string
     return sao_paulo_dt.strftime('%d de %b · %H:%M')
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+def allowed_file(filename, file_type='any'):
+    is_allowed = '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    if not is_allowed:
+        return False
+    if file_type == 'image':
+        return filename.rsplit('.', 1)[1].lower() in IMAGE_EXTENSIONS
+    if file_type == 'video':
+        return filename.rsplit('.', 1)[1].lower() in VIDEO_EXTENSIONS
+    return True
+
+def process_image(input_path, output_path, max_width=1080):
+    try:
+        with Image.open(input_path) as img:
+            if img.width > max_width:
+                height = int((max_width / img.width) * img.height)
+                img = img.resize((max_width, height), Image.Resampling.LANCZOS)
+            
+            # Convert to RGB if it's RGBA (to save as JPEG)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+                
+            img.save(output_path, 'jpeg', quality=85, optimize=True)
+        return True
+    except Exception as e:
+        print(f"Error processing image: {e}")
+        # Fallback: just copy the file
+        shutil.copy(input_path, output_path)
+        return False
+
+def process_video(input_path, output_path):
+    try:
+        (
+            ffmpeg
+            .input(input_path)
+            .output(output_path, vcodec='libx264', crf=28, preset='fast', acodec='aac', strict='experimental', vf='scale=720:-2')
+            .run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
+        )
+        return True
+    except ffmpeg.Error as e:
+        print(f"FFmpeg Error: {e.stderr.decode()}")
+        # Fallback: just copy the file
+        shutil.copy(input_path, output_path)
+        return False
 
 # --- BANCO DE DADOS ---
 followers = db.Table('followers',
@@ -98,7 +150,7 @@ templates = {
 <!doctype html>
 <html lang="pt-br">
 <head>
-    <meta charset="utf-8">
+    <meta charset="utf-t-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, user-scalable=no">
     <title>{% block title %}Sixsec{% endblock %}</title>
     <style>
@@ -120,6 +172,11 @@ templates = {
             color: var(--text-color); 
             font-size: 15px;
             overscroll-behavior-y: contain;
+            opacity: 1;
+            transition: opacity 0.3s ease-in-out;
+        }
+        body.fade-out {
+            opacity: 0;
         }
         body.sixs-view, body.creator-view { padding-bottom: 0; background-color: #000; }
         .container { max-width: 600px; margin: 0 auto; }
@@ -175,18 +232,21 @@ templates = {
         .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--accent-color); }
         .modal {
             display: none; position: fixed; z-index: 2000; left: 0; top: 0;
-            width: 100%; height: 100%; overflow: auto; background-color: rgba(91, 112, 131, 0.4);
+            width: 100%; height: 100%;
+            background-color: rgba(91, 112, 131, 0.4);
             align-items: flex-end; justify-content: center;
         }
         .modal-content {
             background-color: var(--bg-color); margin: auto auto 0 auto;
             border-radius: 16px 16px 0 0; width: 100%; max-width: 600px;
             max-height: 80vh; display: flex; flex-direction: column;
-            animation: slideUp 0.3s ease-out;
         }
+        .modal-content.opening { animation: slideUp 0.35s ease-out forwards; }
+        .modal-content.closing { animation: slideDown 0.35s ease-out forwards; }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes slideDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
         .modal-header { padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; }
-        .modal-header .close { font-size: 24px; font-weight: bold; cursor: pointer; padding: 0 8px; }
+        .modal-header .close-btn { font-size: 24px; font-weight: bold; cursor: pointer; padding: 0 8px; }
         .modal-body { flex-grow: 1; padding: 16px; overflow-y: auto; }
         .modal-footer { padding: 8px 16px; border-top: 1px solid var(--border-color); }
         .action-button { background:none; border:none; color:var(--text-muted); display:flex; align-items:center; gap:8px; cursor:pointer; padding: 4px; font-size: 14px; }
@@ -216,6 +276,22 @@ templates = {
             0%, 100% { opacity: 0; transform: translateY(-20px); }
             10%, 90% { opacity: 1; transform: translateY(0); }
         }
+        
+        #page-loader {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: var(--bg-color);
+            z-index: 99999;
+            display: flex; align-items: center; justify-content: center;
+            transition: opacity 0.3s ease;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid var(--border-color);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         {% block style_override %}{% endblock %}
     </style>
@@ -223,6 +299,8 @@ templates = {
 <body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}class="sixs-view" style="overflow: hidden;"
       {% elif request.endpoint == 'create_post' %}class="creator-view" style="overflow: hidden;"
       {% endif %}>
+
+    <div id="page-loader"><div class="spinner"></div></div>
     
     {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') or request.endpoint == 'create_post') %}
     <header class="top-bar">
@@ -261,10 +339,10 @@ templates = {
     <div id="commentModal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
-          <span class="close" onclick="closeCommentModal()">×</span>
+          <span class="close-btn" onclick="closeCommentModal()">×</span>
           <h4 style="margin:0; padding-left:16px;">Comentários</h4>
         </div>
-        <div class="modal-body" id="comment-list"></div>
+        <div class="modal-body" id="comment-list"><div class="spinner" style="margin: 40px auto;"></div></div>
         <div class="modal-footer">
           <form id="comment-form" style="display: flex; gap: 8px;">
             <input type="text" id="comment-text-input" class="form-group" placeholder="Adicionar um comentário..." style="margin:0; flex-grow:1;">
@@ -278,9 +356,38 @@ templates = {
     
     <script>
         const ICONS = {{ ICONS|tojson|safe }};
+        const pageLoader = document.getElementById('page-loader');
+
+        function showLoader() { if(pageLoader) pageLoader.style.display = 'flex'; }
+        function hideLoader() { if(pageLoader) pageLoader.style.display = 'none'; }
+        
+        // --- Page Transitions ---
+        document.addEventListener('DOMContentLoaded', () => {
+            hideLoader();
+            document.body.classList.remove('fade-out');
+        });
+        
+        window.addEventListener('pageshow', (event) => {
+            // Hide loader on back/forward navigation
+            if (event.persisted) {
+                hideLoader();
+                document.body.classList.remove('fade-out');
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            let anchor = e.target.closest('a');
+            if (anchor && anchor.href && anchor.target !== '_blank' && !anchor.getAttribute('href').startsWith('#') && !anchor.getAttribute('href').startsWith('javascript:')) {
+                e.preventDefault();
+                showLoader();
+                document.body.classList.add('fade-out');
+                setTimeout(() => { window.location.href = anchor.href; }, 300);
+            }
+        });
     </script>
     <script>
     const commentModal = document.getElementById('commentModal');
+    const commentModalContent = commentModal.querySelector('.modal-content');
     
     function buildCommentNode(comment) {
         const container = document.createElement('div');
@@ -368,8 +475,11 @@ templates = {
     async function openCommentModal(postId) {
         document.getElementById('comment-post-id').value = postId;
         const list = document.getElementById('comment-list');
-        list.innerHTML = '<p>Carregando...</p>';
+        list.innerHTML = '<div class="spinner" style="margin: 40px auto;"></div>';
+        
         commentModal.style.display = 'flex';
+        commentModalContent.classList.remove('closing');
+        commentModalContent.classList.add('opening');
         document.body.style.overflow = 'hidden';
 
         const response = await fetch(`/post/${postId}/comments`);
@@ -384,10 +494,16 @@ templates = {
     }
 
     function closeCommentModal() {
-        commentModal.style.display = 'none';
-        const isSixsView = document.body.classList.contains('sixs-view');
-        if (!isSixsView) document.body.style.overflow = 'auto';
-        prepareReply(null, null);
+        commentModalContent.classList.remove('opening');
+        commentModalContent.classList.add('closing');
+
+        setTimeout(() => {
+            commentModal.style.display = 'none';
+            commentModalContent.classList.remove('closing');
+            const isSixsView = document.body.classList.contains('sixs-view');
+            if (!isSixsView) document.body.style.overflow = 'auto';
+            prepareReply(null, null);
+        }, 300);
     }
     
     function prepareReply(parentId, username) {
@@ -424,7 +540,11 @@ templates = {
         }
     });
 
-    window.onclick = (event) => { if (event.target == commentModal) closeCommentModal(); };
+    commentModal.addEventListener('click', (event) => {
+        if (event.target === commentModal) {
+            closeCommentModal();
+        }
+    });
     
     async function handleLike(button, postId) {
         const response = await fetch(`/like/post/${postId}`, { method: 'POST' });
@@ -522,7 +642,7 @@ templates = {
         flashDiv.textContent = message;
         container.appendChild(flashDiv);
         setTimeout(() => {
-            container.removeChild(flashDiv);
+            flashDiv.remove();
         }, 3500);
     }
     </script>
@@ -548,7 +668,7 @@ templates = {
         position: relative;
         display:flex; justify-content:center; align-items:center;
         transition: all 0.3s ease;
-        {% if current_user.six_feed_style == 'fullscreen' %}
+        {% if current_user.is_authenticated and current_user.six_feed_style == 'fullscreen' %}
         width: 100%; height: 100%;
         {% else %}
         width: min(100vw, 100dvh); height: min(100vw, 100dvh);
@@ -557,11 +677,20 @@ templates = {
     }
     .six-video { 
         width: 100%; height: 100%; object-fit: cover;
-        {% if current_user.six_feed_style == 'fullscreen' %}
-        aspect-ratio: 9/16;
-        max-width: 100vw; max-height: 100dvh;
-        {% endif %}
+        display: block;
+        opacity: 0;
+        transition: opacity 0.3s ease;
     }
+    .six-video.loaded { opacity: 1; }
+    .video-loader {
+        position: absolute; width: 40px; height: 40px;
+        border: 4px solid rgba(255,255,255,0.2);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        z-index: 5;
+    }
+    .six-video.loaded + .video-loader { display: none; }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
         color: white; display: flex; justify-content: space-between; align-items: flex-end;
@@ -696,6 +825,12 @@ templates = {
 {% block scripts %}
 {% if feed_type == 'text' %}
 <script>
+    document.querySelectorAll('img[data-src]').forEach(img => {
+        img.onload = () => {
+            img.classList.add('loaded');
+        };
+    });
+
     const seenTextPosts = new Set();
     function markTextPostAsSeen(postId) {
         if (!postId || seenTextPosts.has(postId)) {
@@ -718,29 +853,38 @@ templates = {
 {% if feed_type == 'sixs' %}
 <script>
     const container = document.getElementById('sixs-feed-container');
-    const videos = container.querySelectorAll('.six-video');
+    const allVideos = Array.from(container.querySelectorAll('.six-video'));
     const volumeToggle = document.getElementById('volume-toggle');
     const unmutePrompt = document.getElementById('unmute-prompt');
 
-    let isSoundOn = false;
+    let isMuted = true;
     let hasInteracted = false;
     const seenSixs = new Set();
 
-    function setMutedState(isMuted) {
-        isSoundOn = !isMuted;
-        videos.forEach(v => v.muted = isMuted);
+    function setMutedState(shouldMute) {
+        isMuted = shouldMute;
+        allVideos.forEach(v => v.muted = isMuted);
         volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
         const currentVideo = document.querySelector('.is-visible video');
         if (currentVideo) {
             currentVideo.muted = isMuted;
         }
     }
+    
+    allVideos.forEach(video => {
+        video.addEventListener('loadeddata', () => {
+            video.classList.add('loaded');
+        });
+    });
 
-    if (videos.length > 0) {
+    if (allVideos.length > 0) {
         volumeToggle.style.display = 'block';
+        
         volumeToggle.addEventListener('click', (e) => {
             e.stopPropagation();
-            setMutedState(isSoundOn);
+            hasInteracted = true;
+            unmutePrompt.style.display = 'none';
+            setMutedState(!isMuted);
         });
         
         container.addEventListener('click', () => {
@@ -753,9 +897,7 @@ templates = {
     }
     
     function markSixAsSeen(postId) {
-        if (!postId || seenSixs.has(postId)) {
-            return;
-        }
+        if (!postId || seenSixs.has(postId)) return;
         seenSixs.add(postId);
         fetch(`/mark_six_as_seen/${postId}`, { method: 'POST' });
     }
@@ -765,13 +907,18 @@ templates = {
             const slide = entry.target;
             const video = slide.querySelector('video');
             
-            if (entry.isIntersecting) {
+            if (entry.isIntersecting && entry.intersectionRatio >= 0.7) {
                 slide.classList.add('is-visible');
                 if (video) {
-                    video.muted = !isSoundOn;
-                    video.play().catch(e => {
-                        if (!hasInteracted && videos.length > 0) unmutePrompt.style.display = 'block';
-                    });
+                    video.muted = isMuted;
+                    const playPromise = video.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(error => {
+                            if (!hasInteracted && allVideos.length > 0) {
+                                unmutePrompt.style.display = 'block';
+                            }
+                        });
+                    }
                     markSixAsSeen(slide.dataset.postId);
                 }
             } else { 
@@ -795,6 +942,7 @@ templates = {
 <section class="six-video-slide" id="post-{{ post.id }}" data-post-id="{{ post.id }}">
     <div class="six-video-wrapper">
         <video class="six-video" src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop preload="auto" playsinline muted></video>
+        <div class="video-loader"></div>
     </div>
     <div class="six-ui-overlay">
         <a href="{{ url_for('home', feed_type='text') }}" style="position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: auto; color: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));">
@@ -836,7 +984,10 @@ templates = {
         </div>
         <div style="margin: 4px 0 12px 0; white-space: pre-wrap; word-wrap: break-word;">{{ post.text_content }}</div>
         {% if post.image_filename %}
-            <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; margin-bottom:12px; border: 1px solid var(--border-color);">
+            <div style="position: relative; margin-bottom:12px;">
+                <div class="spinner" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:1;"></div>
+                <img src="{{ url_for('static', filename='uploads/' + post.image_filename) }}" style="width:100%; border-radius:16px; border: 1px solid var(--border-color); opacity:0; transition: opacity 0.3s ease;" onload="this.style.opacity=1; this.previousElementSibling.style.display='none';">
+            </div>
         {% endif %}
         <div style="display: flex; justify-content: space-between; max-width: 425px; color:var(--text-muted);">
             <div style="display: flex; gap: 8px;">
@@ -969,8 +1120,10 @@ templates = {
 {% endblock %}
 {% block content %}
     <div id="permission-prompt" style="padding:16px; text-align: center; color: white; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-        <p id="permission-status" style="color:var(--text-muted); min-height: 20px; margin: 20px 0; max-width: 300px;">Toque para habilitar sua câmera e microfone para gravar um Six.</p>
-        <button id="enable-camera-btn" class="btn">Habilitar Câmera</button>
+        <div id="prompt-content">
+            <p id="permission-status" style="color:var(--text-muted); min-height: 20px; margin: 20px 0; max-width: 300px;">Toque para habilitar sua câmera e microfone para gravar um Six.</p>
+            <button id="enable-camera-btn" class="btn">Habilitar Câmera</button>
+        </div>
     </div>
 
     <div id="six-creator-ui" style="display: none;">
@@ -1015,6 +1168,7 @@ templates = {
 
     const sixCreatorUI = document.getElementById('six-creator-ui');
     const permissionPrompt = document.getElementById('permission-prompt');
+    const promptContent = document.getElementById('prompt-content');
     const enableCameraBtn = document.getElementById('enable-camera-btn');
     const preview = document.getElementById('video-preview');
     const switchCameraBtn = document.getElementById('switch-camera-btn');
@@ -1037,6 +1191,7 @@ templates = {
     }
 
     async function initCamera() {
+        promptContent.innerHTML = '<div class="spinner"></div>';
         try {
             if (stream) { stream.getTracks().forEach(track => track.stop()); }
             const constraints = { audio: true, video: { width: 480, height: 480, facingMode: facingMode } };
@@ -1051,21 +1206,20 @@ templates = {
             preview.srcObject = stream;
             preview.classList.toggle('mirrored', facingMode === 'user');
             
-            // Re-create the recorder for the new stream, but only reset if idle
             mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
             mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
             mediaRecorder.onstop = handleStop;
 
             if (recorderState === 'idle') {
-                resetRecorder(); // This will also call updateUI()
+                resetRecorder();
             } else {
-                updateUI(); // Manually update UI if not resetting
+                updateUI();
             }
 
         } catch (e) {
             console.error(e);
-            document.getElementById('permission-status').textContent = "Permissão de Câmera/Mic negada. Por favor, habilite nas configurações do seu navegador e atualize a página.";
-            enableCameraBtn.disabled = true;
+            permissionPrompt.style.display = 'flex';
+            promptContent.innerHTML = `<p id="permission-status" style="color:var(--text-muted); max-width: 300px;">Permissão de Câmera/Mic negada. Por favor, habilite nas configurações do seu navegador e atualize a página.</p>`;
         }
     }
     
@@ -1078,12 +1232,15 @@ templates = {
         if (recorderState === 'idle') {
             recorderStatus.textContent = "Toque no botão para gravar";
             recordButton.style.display = 'flex';
+            recordButton.classList.remove('recording');
             switchCameraBtn.style.display = 'flex';
             switchCameraBtn.disabled = false;
         } else if (recorderState === 'recording') {
             recorderStatus.textContent = `Gravando... ${((MAX_DURATION - recordedDuration) / 1000).toFixed(1)}s`;
             recordButton.style.display = 'flex';
             recordButton.classList.add('recording');
+            switchCameraBtn.style.display = 'flex';
+            switchCameraBtn.disabled = true;
         } else if (recorderState === 'paused') {
             recorderStatus.textContent = 'Pausado. Continue ou finalize.';
             pauseResumeBtn.style.display = 'flex';
@@ -1094,15 +1251,13 @@ templates = {
             recorderStatus.textContent = 'Pré-visualização. Refaça ou publique.';
             retakeBtn.style.display = 'flex';
             sixForm.style.display = 'block';
+            switchCameraBtn.style.display = 'none';
         }
     }
 
     function startRecording() {
         if (recorderState !== 'idle') return;
         recordedBlobs = [];
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-        mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedBlobs.push(e.data); };
-        mediaRecorder.onstop = handleStop;
         mediaRecorder.start();
         recorderState = 'recording';
         startTimer();
@@ -1150,10 +1305,10 @@ templates = {
         recorderState = 'idle';
         if (stream) {
             preview.srcObject = stream;
+            preview.muted = true;
             preview.play();
         }
         preview.controls = false;
-        preview.muted = true;
         setProgress(0);
         updateUI();
     }
@@ -1194,7 +1349,7 @@ templates = {
         formData.append('video_file', videoBlob, 'six-video.webm');
         const submitBtn = sixForm.querySelector('button');
         submitBtn.disabled = true;
-        submitBtn.textContent = "Enviando...";
+        submitBtn.innerHTML = `<div class="spinner" style="width:20px; height:20px; border-width:2px;"></div>`;
         fetch("{{ url_for('create_post') }}", { method: 'POST', body: formData })
         .then(response => { if (response.redirected) window.location.href = response.url; })
         .catch(error => {
@@ -1244,7 +1399,7 @@ templates = {
         <h4>Preferências</h4>
         <div class="form-group">
             <label for="six_feed_style">Estilo do Feed de Sixs</label>
-            <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none; background-color: var(--primary-color); border: 1px solid var(--border-color);">
+            <select name="six_feed_style" id="six_feed_style" class="form-group" style="padding: 12px; width: 100%; -webkit-appearance: none; appearance: none; background-color: var(--primary-color); border: 1px solid var(--border-color);">
                 <option value="circle" {% if current_user.six_feed_style == 'circle' %}selected{% endif %}>Círculo</option>
                 <option value="fullscreen" {% if current_user.six_feed_style == 'fullscreen' %}selected{% endif %}>Tela Cheia</option>
             </select>
@@ -1269,6 +1424,12 @@ templates = {
         <button type="submit" class="btn">Mudar Senha</button>
     </form>
 
+    <hr style="border-color: var(--border-color); margin: 30px 0;">
+    <h4>Gerenciamento de Dados</h4>
+    <form method="POST" action="{{ url_for('clear_cache') }}" style="margin-bottom: 24px;">
+        <button type="submit" class="btn btn-outline" style="width: 100%;" onclick="return confirm('Isso irá limpar os dados em cache no servidor, como imagens e vídeos processados. O site pode carregar um pouco mais devagar na primeira vez que você visualizar o conteúdo novamente. Continuar?')">Limpar Cache do Servidor</button>
+    </form>
+    
     <hr style="border-color: var(--border-color); margin: 30px 0;">
     <h4>Ações da Conta</h4>
     <a href="{{ url_for('logout') }}" class="btn btn-outline" style="width: 100%; box-sizing: border-box; text-align: center; margin-bottom: 24px;">{{ ICONS.logout|safe }} Sair</a>
@@ -1301,13 +1462,30 @@ templates = {
         position: relative; display: flex; justify-content: center; align-items: center;
     }
     .six-video-wrapper {
-        position: relative; width: 100%; height: 100%;
+        position: relative;
         display:flex; justify-content:center; align-items:center;
+        transition: all 0.3s ease;
+        {% if current_user.is_authenticated and current_user.six_feed_style == 'fullscreen' %}
+        width: 100%; height: 100%;
+        {% else %}
+        width: min(100vw, 100dvh); height: min(100vw, 100dvh);
+        clip-path: circle(50% at 50% 50%);
+        {% endif %}
     }
     .six-video { 
         width: 100%; height: 100%; object-fit: cover; 
-        aspect-ratio: 9/16; max-width: 100vw; max-height: 100dvh;
+        display: block; opacity: 0; transition: opacity 0.3s ease;
     }
+    .six-video.loaded { opacity: 1; }
+    .video-loader {
+        position: absolute; width: 40px; height: 40px;
+        border: 4px solid rgba(255,255,255,0.2);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        z-index: 5;
+    }
+    .six-video.loaded + .video-loader { display: none; }
     .six-ui-overlay {
         position: absolute; bottom: 0; left: 0; right: 0; top: 0;
         color: white; display: flex; justify-content: space-between; align-items: flex-end;
@@ -1441,20 +1619,26 @@ templates = {
 {% if active_tab == 'sixs' %}
 <script>
     const container = document.getElementById('sixs-feed-container');
-    const videos = container.querySelectorAll('.six-video');
+    const allVideos = Array.from(container.querySelectorAll('.six-video'));
     const volumeToggle = document.getElementById('volume-toggle');
     const unmutePrompt = document.getElementById('unmute-prompt');
     
-    let isSoundOn = false;
+    let isMuted = true;
     let hasInteracted = false;
     
-    if(videos.length > 0) {
+    if(allVideos.length > 0) {
         volumeToggle.style.display = 'block';
     }
+    
+    allVideos.forEach(video => {
+        video.addEventListener('loadeddata', () => {
+            video.classList.add('loaded');
+        });
+    });
 
-    function setMutedState(isMuted) {
-        isSoundOn = !isMuted;
-        videos.forEach(v => v.muted = isMuted);
+    function setMutedState(shouldMute) {
+        isMuted = shouldMute;
+        allVideos.forEach(v => v.muted = isMuted);
         volumeToggle.innerHTML = isMuted ? ICONS.volume_off : ICONS.volume_on;
         const currentVideo = document.querySelector('.is-visible video');
         if (currentVideo) {
@@ -1464,11 +1648,13 @@ templates = {
 
     volumeToggle.addEventListener('click', (e) => {
         e.stopPropagation();
-        setMutedState(isSoundOn);
+        hasInteracted = true;
+        unmutePrompt.style.display = 'none';
+        setMutedState(!isMuted);
     });
     
     container.addEventListener('click', () => {
-        if (!hasInteracted && videos.length > 0) {
+        if (!hasInteracted && allVideos.length > 0) {
             hasInteracted = true;
             unmutePrompt.style.display = 'none';
             setMutedState(false);
@@ -1477,19 +1663,21 @@ templates = {
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const video = entry.target.querySelector('video');
+            const slide = entry.target;
+            const video = slide.querySelector('video');
             if (!video) return;
             
-            if (entry.isIntersecting) {
-                entry.target.classList.add('is-visible');
-                video.muted = !isSoundOn;
-                video.play().catch(e => {
-                    if (!hasInteracted && videos.length > 0) {
-                        unmutePrompt.style.display = 'block';
-                    }
-                });
+            if (entry.isIntersecting && entry.intersectionRatio >= 0.7) {
+                slide.classList.add('is-visible');
+                video.muted = isMuted;
+                const playPromise = video.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(error => {
+                        if (!hasInteracted) unmutePrompt.style.display = 'block';
+                    });
+                }
             } else { 
-                entry.target.classList.remove('is-visible');
+                slide.classList.remove('is-visible');
                 video.pause(); 
                 video.currentTime = 0;
             }
@@ -1657,18 +1845,14 @@ class User(UserMixin, db.Model):
     seen_sixs = db.relationship(
         'Post',
         secondary=seen_sixs_posts,
-        primaryjoin=f"and_(User.id==seen_sixs_posts.c.user_id, Post.id==seen_sixs_posts.c.post_id)",
         backref=db.backref('seen_by_six_users', lazy='dynamic'),
-        lazy='dynamic',
-        viewonly=True  # Add this line
+        lazy='dynamic'
     )
     seen_texts = db.relationship(
         'Post',
         secondary=seen_text_posts,
-        primaryjoin=f"and_(User.id==seen_text_posts.c.user_id, Post.id==seen_text_posts.c.post_id)",
         backref=db.backref('seen_by_text_users', lazy='dynamic'),
-        lazy='dynamic',
-        viewonly=True  # Add this line
+        lazy='dynamic'
     )
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
@@ -1700,7 +1884,7 @@ class Comment(db.Model):
     timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
-    user = db.relationship('User', back_populates='liked_comments')
+    user = db.relationship('User', backref='liked_comments')
     parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy='dynamic', cascade="all, delete-orphan")
     reposts = db.relationship('CommentRepost', backref='original_comment', lazy='dynamic', cascade="all, delete-orphan", foreign_keys='CommentRepost.comment_id')
@@ -1754,9 +1938,15 @@ def format_comment(comment):
     
 @app.after_request
 def add_header(response):
-    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '-1'
+    # This disables caching for dynamic pages (HTML)
+    if response.mimetype == 'text/html':
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '-1'
+    # For static assets served through Flask, we can set a cache policy
+    # Note: A production setup would use a webserver like Nginx to serve static files directly.
+    elif request.path.startswith('/static/'):
+         response.headers['Cache-Control'] = 'public, max-age=31536000' # Cache for 1 year
     return response
 
 # --- ROTAS ---
@@ -1767,55 +1957,56 @@ def load_user(user_id): return User.query.get(int(user_id))
 @login_required
 def home():
     feed_type = request.args.get('feed_type', 'text')
-    followed_ids = [u.id for u in current_user.followed]
+    
+    # Eagerly load the list of followed users to avoid multiple queries
+    followed_users = current_user.followed.all()
+    followed_ids = [u.id for u in followed_users]
     followed_ids.append(current_user.id)
     
-    base_query = Post.query.filter(Post.user_id.in_(followed_ids))
-    
-    if feed_type == 'text':
-        query = base_query.filter_by(post_type='text')
-        seen_ids_subquery = db.session.query(seen_text_posts.c.post_id).filter_by(user_id=current_user.id)
-        
-        unseen_posts = query.filter(not_(Post.id.in_(seen_ids_subquery))).order_by(Post.timestamp.desc()).all()
-        seen_posts = query.filter(Post.id.in_(seen_ids_subquery)).order_by(Post.timestamp.desc()).all()
-        
-        add_user_flags_to_posts(unseen_posts)
-        add_user_flags_to_posts(seen_posts)
-        return render_template('home.html', unseen_posts=unseen_posts, seen_posts=seen_posts, feed_type=feed_type)
-    
-    else: # feed_type == 'sixs'
-        query = base_query.filter_by(post_type='six')
-        seen_ids_subquery = db.session.query(seen_sixs_posts.c.post_id).filter_by(user_id=current_user.id)
-        
-        unseen_posts = query.filter(not_(Post.id.in_(seen_ids_subquery))).order_by(Post.timestamp.desc()).all()
-        seen_posts = query.filter(Post.id.in_(seen_ids_subquery)).order_by(Post.timestamp.desc()).all()
+    post_type_filter = 'text' if feed_type == 'text' else 'six'
+    seen_table = seen_text_posts if feed_type == 'text' else seen_sixs_posts
 
-        add_user_flags_to_posts(unseen_posts)
-        add_user_flags_to_posts(seen_posts)
-        return render_template('home.html', unseen_posts=unseen_posts, seen_posts=seen_posts, feed_type=feed_type)
+    # Eager load authors to prevent N+1 queries in the template
+    base_query = Post.query.options(selectinload(Post.author)).filter(
+        Post.user_id.in_(followed_ids),
+        Post.post_type == post_type_filter
+    )
+    
+    seen_ids_subquery = db.session.query(seen_table.c.post_id).filter_by(user_id=current_user.id)
+    
+    # Perform two queries to get seen and unseen posts
+    unseen_posts = base_query.filter(not_(Post.id.in_(seen_ids_subquery))).order_by(Post.timestamp.desc()).all()
+    seen_posts = base_query.filter(Post.id.in_(seen_ids_subquery)).order_by(Post.timestamp.desc()).all()
+    
+    # Combine lists and fetch interaction data in one go
+    all_posts = unseen_posts + seen_posts
+    add_user_flags_to_posts(all_posts)
+
+    return render_template('home.html', unseen_posts=unseen_posts, seen_posts=seen_posts, feed_type=feed_type)
 
 @app.route('/profile/<username>')
 @login_required
 def profile(username):
+    # Get the user. We can't use selectinload on the self-referential followers/followed,
+    # but the .count() method on the dynamic relationship is already efficient.
     user = User.query.filter_by(username=username).first_or_404()
+
     active_tab = request.args.get('tab', 'publicações')
     posts = []
     reposts_data = []
 
     if active_tab == 'republicações':
-        post_reposts = user.reposts.order_by(Repost.timestamp.desc()).all()
-        comment_reposts = user.comment_reposts.order_by(CommentRepost.timestamp.desc()).all()
+        # Eager load related data to avoid N+1 queries
+        post_reposts = user.reposts.options(selectinload(Repost.original_post).selectinload(Post.author)).order_by(Repost.timestamp.desc()).all()
+        comment_reposts = user.comment_reposts.options(selectinload(CommentRepost.original_comment).selectinload(Comment.user)).order_by(CommentRepost.timestamp.desc()).all()
         reposts_data = sorted(post_reposts + comment_reposts, key=lambda r: r.timestamp, reverse=True)
-        if reposts_data:
-            original_posts = [r.original_post for r in post_reposts if r.original_post]
-            add_user_flags_to_posts(original_posts)
-    elif active_tab == 'sixs':
-        posts = user.posts.filter_by(post_type='six').order_by(Post.timestamp.desc()).all()
-    else: # Default para 'publicações'
-        active_tab = 'publicações'
-        posts = user.posts.filter_by(post_type='text').order_by(Post.timestamp.desc()).all()
-    
-    if posts:
+        original_posts = [r.original_post for r in post_reposts if r.original_post]
+        add_user_flags_to_posts(original_posts)
+
+    else:
+        post_type_filter = 'six' if active_tab == 'sixs' else 'text'
+        # Eager load author for each post
+        posts = user.posts.options(selectinload(Post.author)).filter(Post.post_type == post_type_filter).order_by(Post.timestamp.desc()).all()
         add_user_flags_to_posts(posts)
         
     return render_template('profile.html', user=user, posts=posts, reposts=reposts_data, active_tab=active_tab)
@@ -1839,38 +2030,72 @@ def follow_list(username, list_type):
 @login_required
 def create_post():
     if request.method == 'POST':
-        post_type = request.form.get('post_type')
-        if post_type == 'six':
-            video_file = request.files.get('video_file')
-            if not video_file: 
-                flash('Dados de vídeo não recebidos.', 'error')
-                return redirect(url_for('create_post'))
-            filename = secure_filename(f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.webm")
-            video_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            post = Post(post_type='six', text_content=request.form.get('caption', ''), video_filename=filename, author=current_user)
-            db.session.add(post)
-            db.session.commit()
-            flash('Six publicado com sucesso!', 'success')
-            return redirect(url_for('home', feed_type='sixs'))
+        video_file = request.files.get('video_file')
+        if not video_file or not allowed_file(video_file.filename, 'video'):
+            flash('Arquivo de vídeo inválido ou não enviado.', 'error')
+            return redirect(url_for('create_post'))
+
+        # Process and save video
+        temp_filename = secure_filename(f"temp_six_{current_user.id}_{int(datetime.datetime.now().timestamp())}")
+        final_filename = f"six_{current_user.id}_{int(datetime.datetime.now().timestamp())}.mp4" # Standardize to mp4
+        
+        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+        final_path = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+        
+        video_file.save(temp_path)
+        
+        process_video(temp_path, final_path)
+        
+        # Clean up temporary file
+        os.remove(temp_path)
+
+        post = Post(
+            post_type='six',
+            text_content=request.form.get('caption', ''),
+            video_filename=final_filename,
+            author=current_user
+        )
+        db.session.add(post)
+        db.session.commit()
+        
+        flash('Six publicado com sucesso!', 'success')
+        # Redirect back to the home sixs feed with a cache-busting param
+        return redirect(url_for('home', feed_type='sixs', _t=int(datetime.datetime.now().timestamp())))
+        
     return render_template('create_post.html')
 
 @app.route('/create_text_post', methods=['POST'])
 @login_required
 def create_text_post():
     text = request.form.get('text_content')
-    image_file = request.files.get('image')
-    filename = None
     if not text or not text.strip():
         flash('O conteúdo da publicação não pode estar vazio.', 'error')
         return redirect(url_for('home'))
+
+    image_file = request.files.get('image')
+    final_filename = None
+
     if image_file and image_file.filename != '':
-        if not allowed_file(image_file.filename):
+        if not allowed_file(image_file.filename, 'image'):
             flash('Tipo de arquivo de imagem inválido.', 'error')
             return redirect(url_for('home'))
-        filename = secure_filename(f"img_{current_user.id}_{int(datetime.datetime.now().timestamp())}{os.path.splitext(image_file.filename)[1]}")
-        image_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-    post = Post(post_type='text', text_content=text, image_filename=filename, author=current_user)
-    db.session.add(post); db.session.commit()
+            
+        temp_filename = secure_filename(f"temp_img_{current_user.id}_{int(datetime.datetime.now().timestamp())}")
+        final_filename = f"img_{current_user.id}_{int(datetime.datetime.now().timestamp())}.jpg" # Standardize to jpg for consistency
+        
+        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+        final_path = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+        
+        image_file.save(temp_path)
+        
+        process_image(temp_path, final_path)
+        
+        # Clean up temporary file
+        os.remove(temp_path)
+
+    post = Post(post_type='text', text_content=text, image_filename=final_filename, author=current_user)
+    db.session.add(post)
+    db.session.commit()
     flash('Publicação criada!', 'success')
     return redirect(url_for('home', feed_type='text'))
 
@@ -1881,12 +2106,17 @@ def delete_post(post_id):
     if post.author != current_user:
         return jsonify({'success': False, 'message': 'Permissão negada.'}), 403
 
+    # Safely try to delete associated files
     if post.image_filename:
-        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.image_filename))
-        except OSError: pass
+        try:
+            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.image_filename))
+        except OSError as e:
+            print(f"Error deleting image file {post.image_filename}: {e}")
     if post.video_filename:
-        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.video_filename))
-        except OSError: pass
+        try:
+            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.video_filename))
+        except OSError as e:
+            print(f"Error deleting video file {post.video_filename}: {e}")
 
     db.session.delete(post)
     db.session.commit()
@@ -2168,12 +2398,23 @@ def logout():
     flash('Você foi desconectado.', 'success')
     return redirect(url_for('login'))
 
+@app.route('/clear-cache', methods=['POST'])
+@login_required
+def clear_cache():
+    try:
+        shutil.rmtree(app.config['CACHE_DIR'])
+        os.makedirs(app.config['CACHE_DIR'], exist_ok=True)
+        flash('O cache do servidor foi limpo com sucesso!', 'success')
+    except Exception as e:
+        flash(f'Erro ao limpar o cache: {e}', 'error')
+    return redirect(url_for('edit_profile'))
+
+
 def check_and_upgrade_db():
     """Verifica o esquema do DB e adiciona colunas ausentes sem perda de dados."""
     engine = db.get_engine()
     with engine.connect() as connection:
-        # Usamos 'text' para evitar problemas de importação circular com o modelo
-        from sqlalchemy import inspect, text
+        from sqlalchemy import inspect, text, exc
         
         inspector = inspect(engine)
         table_name = 'user'
@@ -2186,20 +2427,21 @@ def check_and_upgrade_db():
                 print(f"INFO: Coluna 'six_feed_style' não encontrada na tabela '{table_name}'. Adicionando...")
                 try:
                     # O 'str' no default é importante para o SQL
-                    connection.execute(text("ALTER TABLE user ADD COLUMN six_feed_style VARCHAR(20) NOT NULL DEFAULT 'circle'"))
-                    connection.commit()
+                    # Using a transactional block for safety
+                    with connection.begin():
+                        connection.execute(text("ALTER TABLE user ADD COLUMN six_feed_style VARCHAR(20) NOT NULL DEFAULT 'circle'"))
                     print("INFO: Coluna 'six_feed_style' adicionada com sucesso.")
-                except Exception as e:
+                except (exc.OperationalError, exc.SQLAlchemyError) as e:
                     print(f"ERRO: Falha ao adicionar a coluna 'six_feed_style': {e}")
-                    # Em alguns dialetos de SQLite, precisamos de um workaround
-                    # Esta é uma abordagem mais simples que funciona na maioria dos casos.
                     # Para cenários complexos, Flask-Migrate é recomendado.
 
 
 # --- EXECUÇÃO PRINCIPAL ---
 if __name__ == '__main__':
     with app.app_context():
-        if not os.path.exists(app.config['UPLOAD_FOLDER']): os.makedirs(app.config['UPLOAD_FOLDER'])
+        # Ensure upload and cache directories exist
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        os.makedirs(app.config['CACHE_DIR'], exist_ok=True)
         db.create_all()
         check_and_upgrade_db() # Executa a verificação/atualização aqui
 
