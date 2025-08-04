@@ -1190,6 +1190,21 @@ templates = {
     </div>
 </section>
 """,
+"post_card_six.html": """
+<a href="{{ url_for('profile', username=post.author.username, tab='sixs', scrollTo=post.id) }}" style="text-decoration: none; color: inherit; display: flex; align-items: flex-start; gap: 12px; margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 16px;">
+    <div style="position: relative; width: 100px; height: 100px; border-radius: 50%; overflow: hidden; background-color: #111; flex-shrink: 0;">
+        <video src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop muted autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
+    </div>
+    <div style="padding-top: 8px;">
+        <div style="font-weight: bold; display: flex; align-items: center; gap: 8px;">
+            {% if post.author.pfp_filename %}<img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="PFP" style="width:20px; height:20px; border-radius:50%; object-fit: cover;">
+            {% else %}<div style="width:20px; height:20px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size: 0.8em;">{{ post.author.username[0]|upper }}</div>{% endif %}
+            @{{ post.author.username }}
+        </div>
+        <div style="color: var(--text-muted); font-size: 0.9em; margin-top: 4px;">{{ post.text_content|truncate(80) }}</div>
+    </div>
+</a>
+""",
 "post_card_text.html": """
 <div class="post-card" id="post-{{ post.id }}" data-post-id="{{ post.id }}" style="border-bottom: 1px solid var(--border-color); padding: 12px 16px; display:flex; gap:12px;">
     <div style="width:40px; height:40px; flex-shrink:0;">
@@ -1821,24 +1836,8 @@ templates = {
                 
                 {% if repost.original_post %}
                     {% with post=repost.original_post %}
-
-                    {# --- IF REPOSTED POST IS A SIX --- #}
                     {% if post.post_type == 'six' %}
-                        <a href="{{ url_for('profile', username=post.author.username, tab='sixs', scrollTo=post.id) }}" style="text-decoration: none; color: inherit; display: flex; align-items: flex-start; gap: 12px; margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 16px;">
-                            <div style="position: relative; width: 100px; height: 100px; border-radius: 50%; overflow: hidden; background-color: #111; flex-shrink: 0;">
-                                <video src="{{ url_for('static', filename='uploads/' + post.video_filename) }}" loop muted autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
-                            </div>
-                            <div style="padding-top: 8px;">
-                                <div style="font-weight: bold; display: flex; align-items: center; gap: 8px;">
-                                    {% if post.author.pfp_filename %}<img src="{{ url_for('static', filename='uploads/' + post.author.pfp_filename) }}" alt="PFP" style="width:20px; height:20px; border-radius:50%; object-fit: cover;">
-                                    {% else %}<div style="width:20px; height:20px; border-radius:50%; background:{{ post.author.pfp_gradient }}; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size: 0.8em;">{{ post.author.username[0]|upper }}</div>{% endif %}
-                                    @{{ post.author.username }}
-                                </div>
-                                <div style="color: var(--text-muted); font-size: 0.9em; margin-top: 4px;">{{ post.text_content|truncate(80) }}</div>
-                            </div>
-                        </a>
-
-                    {# --- IF REPOSTED POST IS TEXT --- #}
+                        {% include 'post_card_six.html' %}
                     {% else %}
                          <a href="{{ url_for('view_post', post_id=post.id) }}" style="text-decoration:none; color:inherit; display:block; border: 1px solid var(--border-color); border-radius: 16px; padding: 12px; margin-top: 8px;">
                             <div style="display:flex; gap:12px;">
@@ -1856,13 +1855,28 @@ templates = {
                     {% endif %}
                     {% endwith %}
 
-                {# Check if the repost is for a Comment #}
                 {% elif repost.original_comment %}
-                    <a href="javascript:openCommentModal({{ repost.original_comment.post_id }}, {{ repost.original_comment.id }})" style="text-decoration:none; color:inherit; display:block;">
-                        {% with comment=repost.original_comment %}
+                    {# This block now handles the original post's context #}
+                    {% with comment=repost.original_comment %}
+                    <div style="margin-top: 8px;">
+                        <a href="javascript:openCommentModal({{ comment.post_id }}, {{ comment.id }})" style="text-decoration:none; color:inherit; display:block;">
                             {% include 'comment_card.html' %}
+                        </a>
+                        {# Now show the original post context below the comment #}
+                        {% with post=comment.post %}
+                            <div style="padding-left: 30px; margin-top: 8px;">
+                            {% if post.post_type == 'six' %}
+                                {% include 'post_card_six.html' %}
+                            {% else %}
+                                <a href="{{ url_for('view_post', post_id=post.id) }}" style="text-decoration:none; color:inherit; display:block; border: 1px solid var(--border-color); border-radius: 16px; padding: 8px; font-size: 0.9em;">
+                                    <div><strong style="color:var(--text-color);">@{{ post.author.username }}</strong></div>
+                                    <div style="color:var(--text-muted);">{{ post.text_content|truncate(100) }}</div>
+                                </a>
+                            {% endif %}
+                            </div>
                         {% endwith %}
-                    </a>
+                    </div>
+                    {% endwith %}
                 {% endif %}
             </div>
         {% else %}
@@ -2243,8 +2257,15 @@ def view_post(post_id):
 def get_post_context(post_id):
     post = Post.query.options(selectinload(Post.author)).get_or_404(post_id)
     add_user_flags_to_posts([post])
-    # Render a simplified version of the post card for the modal
-    html = render_template('post_card_text.html', post=post)
+    
+    if post.post_type == 'six':
+        # Render the Six card for context
+        template_name = 'post_card_six.html'
+    else:
+        # Render the text post card for context
+        template_name = 'post_card_text.html'
+        
+    html = render_template(template_name, post=post)
     return jsonify({'html': html})
 
 @login_manager.user_loader
