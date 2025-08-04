@@ -127,19 +127,7 @@ templates = {
             display: flex; justify-content: space-around; height: 53px;
             z-index: 1000; 
         }
-        .bottom-nav a { 
-            color: var(--text-color); 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; /* Center the icon within the larger tappable area */
-            transition: transform 0.1s ease;
-            flex-grow: 1; /* Make the links share the space */
-            height: 100%; /* Make the tappable area fill the full height of the nav bar */
-        }
-        .bottom-nav a svg {
-            width: 26px; /* Slightly bigger icon */
-            height: 26px; /* Slightly bigger icon */
-        }
+        .bottom-nav a { color: var(--text-color); display:flex; align-items:center; transition: transform 0.1s ease; }
         .bottom-nav a.active svg { stroke-width: 2.5; }
         .bottom-nav a:not(.create-btn):active { transform: scale(0.9); }
         .bottom-nav .create-btn {
@@ -1656,16 +1644,14 @@ class User(UserMixin, db.Model):
         secondary=seen_sixs_posts,
         primaryjoin=f"and_(User.id==seen_sixs_posts.c.user_id, Post.id==seen_sixs_posts.c.post_id)",
         backref=db.backref('seen_by_six_users', lazy='dynamic'),
-        lazy='dynamic',
-        viewonly=True  # Add this line
+        lazy='dynamic'
     )
     seen_texts = db.relationship(
         'Post',
         secondary=seen_text_posts,
         primaryjoin=f"and_(User.id==seen_text_posts.c.user_id, Post.id==seen_text_posts.c.post_id)",
         backref=db.backref('seen_by_text_users', lazy='dynamic'),
-        lazy='dynamic',
-        viewonly=True  # Add this line
+        lazy='dynamic'
     )
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
