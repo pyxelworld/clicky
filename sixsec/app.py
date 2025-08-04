@@ -393,8 +393,10 @@ templates = {
     function setButtonLoading(button, isLoading) {
         if (!button) return;
         if (isLoading) {
+            if (!button.dataset.originalHtml) {
+                button.dataset.originalHtml = button.innerHTML;
+            }
             button.disabled = true;
-            button.dataset.originalHtml = button.innerHTML;
             let spinnerSize = '20px';
             let borderWidth = '2px';
             if(button.classList.contains('action-button')) {
@@ -405,6 +407,7 @@ templates = {
             button.disabled = false;
             if (button.dataset.originalHtml) {
                 button.innerHTML = button.dataset.originalHtml;
+                delete button.dataset.originalHtml;
             }
         }
     }
@@ -459,11 +462,6 @@ templates = {
         comments.forEach(c => {
             const node = buildCommentNode(c);
             container.appendChild(node);
-            if (c.replies && c.replies.length > 0) {
-                const repliesWrapper = node.querySelector('.replies-wrapper');
-                repliesWrapper.classList.add('comment-thread');
-                appendComments(repliesWrapper, c.replies);
-            }
         });
     }
 
@@ -473,7 +471,7 @@ templates = {
 
         if (repliesWrapper.style.display === 'none') {
             if (!repliesWrapper.hasChildNodes()) { // Fetch only if empty
-                repliesWrapper.innerHTML = '<p style="color:var(--text-muted); padding-left:20px;">Carregando respostas...</p>';
+                repliesWrapper.innerHTML = '<div class="spinner" style="margin: 20px auto; width:20px; height:20px; border-width:2px;"></div>';
                 const response = await fetch(`/comment/${commentId}/replies`);
                 const replies = await response.json();
                 repliesWrapper.innerHTML = '';
@@ -542,13 +540,15 @@ templates = {
     document.getElementById('comment-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const button = e.target.querySelector('button[type=submit]');
+        const originalHtml = button.innerHTML;
         setButtonLoading(button, true);
 
         const postId = document.getElementById('comment-post-id').value;
         const parentId = document.getElementById('comment-parent-id').value;
         const text = document.getElementById('comment-text-input').value;
         if (!text.trim()) {
-            setButtonLoading(button, false);
+            button.innerHTML = originalHtml;
+            button.disabled = false;
             return;
         }
         
@@ -566,33 +566,46 @@ templates = {
                 if(countEl) countEl.innerText = parseInt(countEl.innerText) + 1;
             }
         } finally {
-            setButtonLoading(button, false);
+            button.innerHTML = originalHtml;
+            button.disabled = false;
         }
     });
 
     commentModal.addEventListener('click', (event) => { if (event.target === commentModal) closeCommentModal(); });
     
     async function handleLike(button, postId) {
+        const originalHtml = button.innerHTML;
         setButtonLoading(button, true);
         try {
             const response = await fetch(`/like/post/${postId}`, { method: 'POST' });
             const data = await response.json();
+            
+            button.innerHTML = originalHtml; // Restore structure
             button.querySelector('span').innerText = data.likes;
             button.classList.toggle('liked', data.liked);
+        } catch(e) {
+            button.innerHTML = originalHtml; // Restore on error
+            flash('Ação falhou. Tente novamente.', 'error');
         } finally {
-            setButtonLoading(button, false);
+            button.disabled = false;
         }
     }
 
     async function handleLikeComment(button, commentId) {
+        const originalHtml = button.innerHTML;
         setButtonLoading(button, true);
         try {
             const response = await fetch(`/like/comment/${commentId}`, { method: 'POST' });
             const data = await response.json();
+            
+            button.innerHTML = originalHtml; // Restore structure
             button.querySelector('span').innerText = data.likes;
             button.classList.toggle('liked', data.liked);
+        } catch(e) {
+            button.innerHTML = originalHtml; // Restore on error
+            flash('Ação falhou. Tente novamente.', 'error');
         } finally {
-            setButtonLoading(button, false);
+            button.disabled = false;
         }
     }
 
@@ -600,6 +613,7 @@ templates = {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
         if (caption === null) return; 
 
+        const originalHtml = button.innerHTML;
         setButtonLoading(button, true);
         try {
             const response = await fetch(`/repost/post/${postId}`, { 
@@ -607,14 +621,19 @@ templates = {
                 body: JSON.stringify({ caption: caption })
             });
             const data = await response.json();
+            
+            button.innerHTML = originalHtml; // Restore structure
             if(data.success) {
                 button.classList.toggle('reposted', data.reposted);
                 flash(data.message, 'success');
             } else {
                 flash(data.message, 'error');
             }
+        } catch(e) {
+            button.innerHTML = originalHtml; // Restore on error
+            flash('Ação falhou. Tente novamente.', 'error');
         } finally {
-            setButtonLoading(button, false);
+            button.disabled = false;
         }
     }
     
@@ -622,6 +641,7 @@ templates = {
         const caption = prompt("Adicionar uma legenda (opcional):", "");
         if (caption === null) return;
 
+        const originalHtml = button.innerHTML;
         setButtonLoading(button, true);
         try {
             const response = await fetch(`/repost/comment/${commentId}`, {
@@ -629,13 +649,18 @@ templates = {
                 body: JSON.stringify({ caption: caption })
             });
             const data = await response.json();
+            
+            button.innerHTML = originalHtml; // Restore structure
             if(data.success) {
                 flash(data.message, 'success');
             } else {
                 flash(data.message, 'error');
             }
+        } catch(e) {
+            button.innerHTML = originalHtml; // Restore on error
+            flash('Ação falhou. Tente novamente.', 'error');
         } finally {
-            setButtonLoading(button, false);
+            button.disabled = false;
         }
     }
 
@@ -655,9 +680,11 @@ templates = {
                 flash(data.message, 'success');
             } else {
                 flash(data.message, 'error');
+                setButtonLoading(button, false); // Restore only on failure
             }
-        } finally {
-            // No need to restore button since the whole post is removed
+        } catch(e) {
+            setButtonLoading(button, false); // Restore on error
+            flash('Ação falhou. Tente novamente.', 'error');
         }
     }
 
@@ -682,9 +709,11 @@ templates = {
                 flash(data.message, 'success');
             } else {
                 flash(data.message, 'error');
+                setButtonLoading(button, false); // Restore only on failure
             }
-        } finally {
-            // No need to restore button since the whole comment is removed
+        } catch(e) {
+             setButtonLoading(button, false); // Restore on error
+            flash('Ação falhou. Tente novamente.', 'error');
         }
     }
 
