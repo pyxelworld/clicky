@@ -328,6 +328,7 @@ templates = {
             width: 100%; padding: 12px; border: 1px solid var(--border-color);
             border-radius: 6px; background: transparent; color: var(--text-color);
             box-sizing: border-box; font-size: 1rem;
+            font-family: inherit; /* This is the key change to ensure consistent font */
         }
         /* New style for comment inputs */
         .comment-input-style {
