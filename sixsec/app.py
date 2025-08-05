@@ -340,6 +340,10 @@ templates = {
         .comment-input-style:focus {
             border-color: var(--accent-color) !important;
         }
+        .comment-input-style.auto-growing {
+            resize: none;
+            overflow-y: hidden;
+        }
         .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--accent-color); }
         .modal {
             display: none; position: fixed; z-index: 2000; left: 0; top: 0;
@@ -958,14 +962,14 @@ templates = {
     {% if feed_type == 'text' %}
         <div style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">
             <form method="POST" action="{{ url_for('create_text_post') }}" enctype="multipart/form-data" onsubmit="setButtonLoading(this.querySelector('button[type=submit]'), true)">
-                <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <textarea name="text_content" class="comment-input-style auto-growing" placeholder="O que está acontecendo?" required maxlength="150" rows="1"></textarea>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
                     <label for="image-upload" class="attachment-btn" title="Anexar imagem">
                         {{ ICONS.attach_file|safe }}
                     </label>
                     <input type="file" id="image-upload" name="image" accept="image/png, image/jpeg, image/gif" style="display: none;">
-                    
-                    <input type="text" name="text_content" class="comment-input-style" placeholder="O que está acontecendo?" required maxlength="150" style="flex-grow: 1;" />
-                    
                     <button type="submit" class="btn">Publicar</button>
                 </div>
             </form>
@@ -1045,9 +1049,14 @@ templates = {
 {% block scripts %}
 {% if feed_type == 'text' %}
 <script>
-    document.querySelector('form[action="{{ url_for('create_text_post') }}"]').addEventListener('submit', (e) => {
-        setButtonLoading(e.target.querySelector('button[type=submit]'), true);
-    });
+    // --- Auto-growing textarea logic ---
+    const textarea = document.querySelector('textarea.auto-growing');
+    if (textarea) {
+        textarea.addEventListener('input', () => {
+            textarea.style.height = 'auto'; // Reset height
+            textarea.style.height = (textarea.scrollHeight) + 'px'; // Set to content height
+        });
+    }
 
     document.querySelectorAll('img[data-src]').forEach(img => {
         img.onload = () => {
