@@ -965,7 +965,14 @@ templates = {
             <form method="POST" action="{{ url_for('create_text_post') }}" enctype="multipart/form-data" onsubmit="setButtonLoading(this.querySelector('button[type=submit]'), true)">
                 <div class="form-group" style="margin-bottom: 1rem;">
                     <textarea name="text_content" class="comment-input-style auto-growing" placeholder="O que está acontecendo?" required maxlength="150" rows="1"></textarea>
+                    
+                    <!-- Image Preview Container -->
+                    <div id="image-preview-container" style="display: none; position: relative; margin-top: 10px; max-width: 150px;">
+                        <img id="image-preview" src="#" alt="Image preview" style="width: 100%; border-radius: 16px; border: 1px solid var(--border-color);" />
+                        <button type="button" id="remove-image-btn" style="position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.7); color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-weight: bold; font-size: 16px; display: flex; align-items: center; justify-content: center;">×</button>
+                    </div>
                 </div>
+
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <label for="image-upload" class="attachment-btn" title="Anexar imagem">
                         {{ ICONS.attach_file|safe }}
@@ -1058,6 +1065,30 @@ templates = {
             textarea.style.height = (textarea.scrollHeight) + 'px'; // Set to content height
         });
     }
+
+    // --- Image Preview Logic ---
+    const imageInput = document.getElementById('image-upload');
+    const previewContainer = document.getElementById('image-preview-container');
+    const imagePreview = document.getElementById('image-preview');
+    const removeImageBtn = document.getElementById('remove-image-btn');
+
+    imageInput.addEventListener('change', function() {
+        if (this.files && this.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                imagePreview.setAttribute('src', e.target.result);
+                previewContainer.style.display = 'block';
+            }
+            reader.readAsDataURL(this.files[0]);
+        }
+    });
+
+    removeImageBtn.addEventListener('click', function() {
+        previewContainer.style.display = 'none';
+        imagePreview.setAttribute('src', '#');
+        imageInput.value = ''; // This is crucial to clear the file selection
+    });
+
 
     document.querySelectorAll('img[data-src]').forEach(img => {
         img.onload = () => {
