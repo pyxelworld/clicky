@@ -442,7 +442,7 @@ templates = {
         <h1 class="logo">{% block header_title %}<img src="/static/img/six_icon.png" alt="Six" style="width: 24px; height: 24px; vertical-align: middle; margin-right: 8px;">Início{% endblock %}</h1>
         <div>
         {% if request.endpoint == 'profile' and current_user == user %}
-            <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }} <img src="/static/img/six_icon.png" alt="Six" style="width: 18px; height: 18px; vertical-align: middle; margin-left: 8px;"></a>
+            <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }}</a>
         {% elif request.endpoint == 'home' %}
             <a href="{{ url_for('discover') }}">{{ ICONS.discover|safe }}</a>
         {% endif %}
@@ -467,7 +467,7 @@ templates = {
     <nav class="bottom-nav">
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
         <a href="{{ url_for('create_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
-        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' and user and current_user.username == user.username else '' }}">{{ ICONS.profile|safe }} <img src="/static/img/six_icon.png" alt="Six" style="width: 16px; height: 16px; vertical-align: middle; margin-left: 4px;"></a>
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' and user and current_user.username == user.username else '' }}">{{ ICONS.profile|safe }}</a>
     </nav>
     {% endif %}
 
