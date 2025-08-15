@@ -240,7 +240,13 @@ templates = {
 <head>
     <meta charset="utf-t-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, user-scalable=no">
-    <title>{% block title %}Sixsec{% endblock %}</title>
+    <link rel="icon" href="/static/img/icon.png" type="image/png">
+    <link rel="apple-touch-icon" href="/static/img/icon.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <title>{% block title %}Six{% endblock %}</title>
     <style>
         :root {
             --bg-color: #000000;
@@ -411,6 +417,19 @@ templates = {
 
         {% block style_override %}{% endblock %}
     </style>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/static/service-worker.js')
+                    .then(function(registration) {
+                        console.log('Service Worker registered with scope:', registration.scope);
+                    })
+                    .catch(function(error) {
+                        console.log('Service Worker registration failed:', error);
+                    });
+            });
+        }
+    </script>
 </head>
 <body {% if (request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') %}class="sixs-view" style="overflow: hidden;"
       {% elif request.endpoint == 'create_post' %}class="creator-view" style="overflow: hidden;"
@@ -420,10 +439,10 @@ templates = {
     
     {% if not ((request.endpoint == 'home' and feed_type == 'sixs') or (request.endpoint == 'profile' and active_tab == 'sixs') or request.endpoint == 'create_post') %}
     <header class="top-bar">
-        <h1 class="logo">{% block header_title %}Início{% endblock %}</h1>
+        <h1 class="logo">{% block header_title %}<img src="/static/img/six_icon.png" alt="Six" style="width: 24px; height: 24px; vertical-align: middle; margin-right: 8px;">Início{% endblock %}</h1>
         <div>
         {% if request.endpoint == 'profile' and current_user == user %}
-            <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }}</a>
+            <a href="{{ url_for('edit_profile') }}" style="margin-left: 16px;">{{ ICONS.settings|safe }} <img src="/static/img/six_icon.png" alt="Six" style="width: 18px; height: 18px; vertical-align: middle; margin-left: 8px;"></a>
         {% elif request.endpoint == 'home' %}
             <a href="{{ url_for('discover') }}">{{ ICONS.discover|safe }}</a>
         {% endif %}
@@ -448,7 +467,7 @@ templates = {
     <nav class="bottom-nav">
         <a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">{{ ICONS.home|safe }}</a>
         <a href="{{ url_for('create_post') }}" class="create-btn">{{ ICONS.create|safe }}</a>
-        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' and user and current_user.username == user.username else '' }}">{{ ICONS.profile|safe }}</a>
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="{{ 'active' if request.endpoint == 'profile' and user and current_user.username == user.username else '' }}">{{ ICONS.profile|safe }} <img src="/static/img/six_icon.png" alt="Six" style="width: 16px; height: 16px; vertical-align: middle; margin-left: 4px;"></a>
     </nav>
     {% endif %}
 
@@ -2282,6 +2301,10 @@ def add_header(response):
     elif request.path.startswith('/static/'):
          response.headers['Cache-Control'] = 'public, max-age=31536000' # Cache for 1 year
     return response
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory(os.path.join(basedir, 'static'), filename)
 
 # --- ROTAS ---
 @app.route('/post/<int:post_id>')
