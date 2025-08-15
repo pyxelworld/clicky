@@ -241,7 +241,7 @@ templates = {
     <meta charset="utf-t-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, user-scalable=no">
     <link rel="icon" href="/static/img/icon.png" type="image/png">
-    <link rel="apple-touch-icon" href="/static/img/icon.png">
+    <link rel="apple-touch-icon" href="/static/img/logo.png">
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#000000">
     <meta name="apple-mobile-web-app-capable" content="yes">

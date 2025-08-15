@@ -2,7 +2,7 @@
 const CACHE_NAME = 'sixsec-cache-v1';
 const urlsToCache = [
   '/',
-  '/static/img/icon.png',
+  '/static/img/main.png',
   '/static/manifest.json'
 ];
 
